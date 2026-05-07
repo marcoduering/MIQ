@@ -1,0 +1,10 @@
+// Copy this file to LocalSigning.xcconfig and fill in your values.
+// LocalSigning.xcconfig is gitignored — it will never be committed.
+
+// Required for Release builds (Developer ID, paid membership).
+// Leave empty for Debug-only builds — Xcode infers the team automatically.
+DEVELOPMENT_TEAM =
+
+// Choose bundle identifiers you own.
+APP_BUNDLE_ID = com.yourname.miq
+EXTENSION_BUNDLE_ID = com.yourname.miq.extension
