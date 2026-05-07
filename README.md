@@ -1,9 +1,9 @@
 # MIQ — Medical Image Quick Look
 
-MIQ is a **macOS Quick Look preview extension** for medical volume images stored in common research formats. Press **Space** on a supported file in Finder to instantly see a 2×2 orthogonal slice view alongside a metadata panel.
+MIQ is a **macOS Quick Look preview extension** for medical volume images stored in common research formats. Press **Space** on a supported file in Finder to instantly see orthogonal slice view alongside a metadata panel.
 
 <div align="center">
-  <img src="./MIQ_screenshot.png" width="50%">
+  <img src="./MIQ_screenshot.png" width="65%">
 </div>
 
 Inspired by the old and deprecated [DTI-TK Quick Look **plugin**](http://dti-tk.sourceforge.net/pmwiki/pmwiki.php) by Gary Hui Zhang, which brought similar functionality to older versions of macOS but is incompatible with the  Quick Look **extension** architecture of current macOS versions (support for the plugin was dropped in macOS 15 Sequoia).
@@ -17,6 +17,8 @@ Inspired by the old and deprecated [DTI-TK Quick Look **plugin**](http://dti-tk.
 All formats are supported uncompressed and gzip-compressed. The extension relies on the file extension to determine the format, so it is **important that files have the correct extensions**.
 
 ## Installation
+
+The application and extension are universal binaries compatible with both current Apple Silicon (arm64) and older Intel (x86_64) Macs. Testing was performed on Apple Silicon and macOS 15 (Sequoia) as well as 26 (Tahoe). 
  
 1. Download the latest ZIP file from [**Releases**](https://github.com/marcoduering/MIQ/releases).
 2. Extract the ZIP file and drag/move **MIQ.app** to your `/Applications` folder.
@@ -30,6 +32,8 @@ All formats are supported uncompressed and gzip-compressed. The extension relies
 
 MIQ displays data **as stored on disk**, without reorienting. Depending on the acquisition setup (and processing pipeline), images may appear upside down, mirrored, or rotated. This is intentional, as the primary purpose of MIQ is to let you quickly inspect the raw data, including its orientation. If your data is not in RAS or LAS orientation, the slices will reflect that faithfully.
 
+For multi-volume (4D) data, only the first volume will be shown.
+
 ## Performance
 
 Previews are designed to appear almost instantly. Uncompressed files (`.nii`, `.mgh`, `.mif`) are memory-mapped and impose essentially no load time regardless of size. Compressed files (`.nii.gz`, `.mgz`, `.mif.gz`) require decompression before rendering and very large compressed volumes may take a few seconds to load.
@@ -42,9 +46,7 @@ macOS assigns Quick Look extensions to file types based on their extensions. Sin
 
 The most recently installed extension should have priority, but this does not work consistently. You might need to deactivate another extension to reliably open gzip-compressed files with MIQ. This is a known limitation of how macOS Quick Look handles compound extensions like `.nii.gz`.
 
-## Compatibility and Active Development
-
-The application and extension are universal binaries compatible with both current Apple Silicon (arm64) and older Intel (x86_64) Macs. Testing was performed on Apple Silicon and macOS 15 (Sequoia) as well as 26 (Tahoe). 
+## Active Development
 
 The extension is still in development. It was created with the support of AI coding agents. Please report any issues using GitHub [**Issues**](https://github.com/marcoduering/MIQ/issues). If you would like to contribute, see [CONTRIBUTING.md](./CONTRIBUTING.md) or feel free to reach out.
 
