@@ -6,7 +6,7 @@ Thank you for your interest in contributing!
 
 - `Sources/MIQCore` — pure Swift package, no AppKit/UIKit; consumed by SPM and the extension target
 - `MIQQuickLookExtension` — the Quick Look extension target: preview controller, views, slice cache
-- `MIQApp` — minimal SwiftUI host app whose only job is to install the extension
+- `MIQApp` — SwiftUI host app that installs the extension and provides the Settings UI (image orientation, intensity windowing, axis labels, metadata panel configuration)
 - `Tests/MIQCoreTests` — Swift Testing coverage for `MIQCore`
 
 ## Building from Source
