@@ -8,3 +8,7 @@ DEVELOPMENT_TEAM =
 // Choose bundle identifiers you own.
 APP_BUNDLE_ID = com.yourname.miq
 EXTENSION_BUNDLE_ID = com.yourname.miq.extension
+
+// App Group shared between the app and extension for Settings.
+// The default derives from APP_BUNDLE_ID — change only if your group is named differently.
+APP_GROUP_ID = group.$(APP_BUNDLE_ID)

@@ -29,6 +29,14 @@ final class MIQSliceCanvas: NSView {
         didSet { needsDisplay = true }
     }
 
+    var showAxisLabels: Bool = true {
+        didSet { needsDisplay = true }
+    }
+
+    var labelColor: NSColor = .white {
+        didSet { needsDisplay = true }
+    }
+
     private let imageAlignment: ImageAlignment
     #if DEBUG
     var debugBorderColor: NSColor = .cyan
@@ -82,7 +90,9 @@ final class MIQSliceCanvas: NSView {
 
             NSGraphicsContext.restoreGraphicsState()
 
-            drawCrosshairAndLabels(for: imageRect, within: viewport)
+            if showAxisLabels {
+                drawAxisLabels(for: imageRect, within: viewport)
+            }
         }
     }
 
@@ -114,15 +124,13 @@ final class MIQSliceCanvas: NSView {
         return NSRect(x: x, y: y, width: w, height: h)
     }
 
-    private func drawCrosshairAndLabels(for imageRect: NSRect, within boundsRect: NSRect) {
-        let lineColor = NSColor(calibratedRed: 1.0, green: 0.15, blue: 0.10, alpha: 1.0)
-
+    private func drawAxisLabels(for imageRect: NSRect, within boundsRect: NSRect) {
         let cx = imageRect.midX
         let cy = imageRect.midY
 
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: labelFontSize, weight: .semibold),
-            .foregroundColor: lineColor
+            .foregroundColor: labelColor
         ]
 
         let margin: CGFloat = 1

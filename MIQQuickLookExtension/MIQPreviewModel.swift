@@ -7,11 +7,10 @@ import MIQCore
 final class MIQPreviewModel {
     private let logger = MIQLogger.make(category: "model")
 
-    private struct PreviewData {
+    private struct RawPreviewData: Sendable {
         let slices: [SlicePlane: SliceImage]
         let orientations: [SlicePlane: SliceOrientationLabels]
-        let metadataLines: [String]
-        let cacheKey: String
+        let metadataEntries: [MetadataEntry]
     }
 
     enum State {
@@ -28,7 +27,7 @@ final class MIQPreviewModel {
     var coronalOrientation = SliceOrientationLabels.placeholderCoronal
     var sagittalOrientation = SliceOrientationLabels.placeholderSagittal
     var axialOrientation = SliceOrientationLabels.placeholderAxial
-    var metadataLines: [String] = []
+    var metadataEntries: [MetadataEntry] = []
 
     private let url: URL
 
@@ -39,62 +38,60 @@ final class MIQPreviewModel {
     func load() async {
         state = .loading
         let fileURL = self.url
-        let typeLine = Self.metadataTypeLine(for: fileURL)
+        let formatEntry = Self.metadataFormatEntry(for: fileURL)
+        let options = RenderingOptions(
+            lowerPercentile: MIQConfig.windowLowerPercentile,
+            upperPercentile: MIQConfig.windowUpperPercentile,
+            orientation: MIQConfig.imageOrientation
+        )
+        let maxDimension = 512
+        let cacheKey = MIQPreviewCache.makeKey(fileURL: fileURL, maxDimension: maxDimension, options: options)
         logger.notice("load() started for: \(fileURL.lastPathComponent, privacy: .public)")
+        logger.notice("MIQConfig percentiles: lower=\(options.lowerPercentile, privacy: .public), upper=\(options.upperPercentile, privacy: .public), orientation=\(options.orientation.rawValue, privacy: .public), showAxisLabels=\(MIQConfig.showAxisLabels, privacy: .public)")
+
+        if let cached = MIQPreviewCache.bundle(for: cacheKey) {
+            logger.notice("load() cache hit — skipping parse")
+            apply(bundle: cached)
+            state = .ready
+            return
+        }
+
         let didAccess = fileURL.startAccessingSecurityScopedResource()
         defer { if didAccess { fileURL.stopAccessingSecurityScopedResource() } }
 
         do {
-            let result = try await Task.detached(priority: .userInitiated) { () -> PreviewData in
+            let raw = try await Task.detached(priority: .userInitiated) { () -> RawPreviewData in
                 let image = try MIQParser().parse(url: fileURL)
                 let volume = MIQVolume(image: image)
-                let dimensions = "\(image.header.width)x\(image.header.height)x\(image.header.depth)x\(image.header.volumes)"
-                let cacheKey = MIQSliceCache.makeKey(
-                    fileURL: fileURL,
-                    dimensions: dimensions,
-                    datatype: image.header.datatype.label,
-                    maxDimension: 512
-                )
 
-                var slices: [SlicePlane: SliceImage] = [:]
+                let slices = volume.centerSlices(volumeIndex: 0, maxDimension: maxDimension, options: options)
                 var orientations: [SlicePlane: SliceOrientationLabels] = [:]
                 for plane in SlicePlane.allCases {
-                    slices[plane] = volume.centerSlice(plane: plane, volumeIndex: 0, maxDimension: 512)
-                    orientations[plane] = volume.displayOrientation(for: plane)
+                    orientations[plane] = volume.displayOrientation(for: plane, options: options)
                 }
 
                 var metadata = MIQMetadata(header: image.header, orientation: volume.storageOrientationLabel()).asDisplayLines()
-                metadata.insert(typeLine, at: 0)
+                metadata.insert(formatEntry, at: 0)
                 #if DEBUG
-                if let built = Self.buildDateLine() { metadata.append(built) }
+                if let built = Self.buildDateEntry() { metadata.append(built) }
                 #endif
 
-                return PreviewData(
-                    slices: slices,
-                    orientations: orientations,
-                    metadataLines: metadata,
-                    cacheKey: cacheKey
-                )
+                return RawPreviewData(slices: slices, orientations: orientations, metadataEntries: metadata)
             }.value
 
-            var images: [SlicePlane: NSImage] = [:]
+            var nsSlices: [SlicePlane: NSImage] = [:]
             for plane in SlicePlane.allCases {
-                let key = MIQSliceCache.sliceKey(baseKey: result.cacheKey, plane: plane)
-                if let cached = MIQSliceCache.image(for: key) {
-                    images[plane] = cached
-                } else if let slice = result.slices[plane], let made = MIQImageBridge.makeNSImage(from: slice) {
-                    images[plane] = made
-                    MIQSliceCache.insert(made, for: key)
+                if let sliceImage = raw.slices[plane], let ns = MIQImageBridge.makeNSImage(from: sliceImage) {
+                    nsSlices[plane] = ns
                 }
             }
-
-            coronal = images[.coronal]
-            sagittal = images[.sagittal]
-            axial = images[.axial]
-            coronalOrientation = result.orientations[.coronal] ?? .placeholderCoronal
-            sagittalOrientation = result.orientations[.sagittal] ?? .placeholderSagittal
-            axialOrientation = result.orientations[.axial] ?? .placeholderAxial
-            metadataLines = result.metadataLines
+            let bundle = MIQPreviewBundle(
+                slices: nsSlices,
+                orientations: raw.orientations,
+                metadataEntries: raw.metadataEntries
+            )
+            MIQPreviewCache.insert(bundle, for: cacheKey)
+            apply(bundle: bundle)
             state = .ready
             logger.notice("load() finished successfully")
         } catch {
@@ -103,20 +100,25 @@ final class MIQPreviewModel {
         }
     }
 
-    private nonisolated static func metadataTypeLine(for url: URL) -> String {
+    private func apply(bundle: MIQPreviewBundle) {
+        coronal = bundle.slices[.coronal]
+        sagittal = bundle.slices[.sagittal]
+        axial = bundle.slices[.axial]
+        coronalOrientation = bundle.orientations[.coronal] ?? .placeholderCoronal
+        sagittalOrientation = bundle.orientations[.sagittal] ?? .placeholderSagittal
+        axialOrientation = bundle.orientations[.axial] ?? .placeholderAxial
+        metadataEntries = bundle.metadataEntries
+    }
+
+    private nonisolated static func metadataFormatEntry(for url: URL) -> MetadataEntry {
         let displayName = MIQFileKind(url: url)?.displayName ?? "Unknown"
-        return "Type: \(displayName)"
+        return MetadataEntry(field: .format, text: "Format: \(displayName)")
     }
 
     #if DEBUG
-    private nonisolated static func buildDateLine() -> String? {
-        guard let url = Bundle.main.executableURL,
-              let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let date = attrs[.modificationDate] as? Date else { return nil }
-        let fmt = DateFormatter()
-        fmt.dateStyle = .medium
-        fmt.timeStyle = .short
-        return "Built: \(fmt.string(from: date))"
+    private nonisolated static func buildDateEntry() -> MetadataEntry? {
+        guard let formatted = BuildDate.formatted(for: Bundle.main.executableURL) else { return nil }
+        return MetadataEntry(field: nil, text: "Built: \(formatted)")
     }
     #endif
 }

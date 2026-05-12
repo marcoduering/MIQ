@@ -22,6 +22,7 @@ xcodebuild \
   -scheme MIQ \
   -configuration "$CONFIG" \
   -destination 'generic/platform=macOS' \
+  -allowProvisioningUpdates \
   build
 
 APPEX="$BUILT_PRODUCTS_DIR/MIQ.app/Contents/PlugIns/MIQQuickLookExtension.appex"

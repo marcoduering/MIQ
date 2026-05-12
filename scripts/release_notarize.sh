@@ -53,35 +53,32 @@ APP_PATH="$EXPORT_DIR/MIQ.app"
 
 mkdir -p "$OUT_DIR"
 
+TEAM_ID_ENTRY=""
 if [[ -n "$TEAM_ID" ]]; then
-  cat > "$EXPORT_PLIST" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>method</key>
-  <string>developer-id</string>
-  <key>signingStyle</key>
-  <string>automatic</string>
-  <key>teamID</key>
-  <string>${TEAM_ID}</string>
-</dict>
-</plist>
-EOF
-else
-  cat > "$EXPORT_PLIST" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>method</key>
-  <string>developer-id</string>
-  <key>signingStyle</key>
-  <string>automatic</string>
-</dict>
-</plist>
-EOF
+  TEAM_ID_ENTRY="  <key>teamID</key>
+  <string>${TEAM_ID}</string>"
 fi
+
+cat > "$EXPORT_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>method</key>
+  <string>developer-id</string>
+  <key>signingStyle</key>
+  <string>manual</string>
+${TEAM_ID_ENTRY}
+  <key>provisioningProfiles</key>
+  <dict>
+    <key>net.marco-duering.miq</key>
+    <string>MIQ_Provisioning</string>
+    <key>net.marco-duering.miq.extension</key>
+    <string>MIQ_Extension_Provisioning</string>
+  </dict>
+</dict>
+</plist>
+EOF
 
 echo "==> Archiving"
 xcodebuild \

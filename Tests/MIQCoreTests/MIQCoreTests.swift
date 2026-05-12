@@ -2,7 +2,14 @@ import Foundation
 import Testing
 @testable import MIQCore
 
+private let testRenderingOptions = RenderingOptions(lowerPercentile: 2.0, upperPercentile: 98.0)
+
 struct MIQCoreTests {
+    private static func tempURL(suffix: String) -> URL {
+        URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("miq-test-\(UUID().uuidString)\(suffix)")
+    }
+
     @Test
     func parsesLittleEndianHeader() throws {
         let data = TestMIQFactory.makeNii(width: 4, height: 3, depth: 2, datatype: .uint8)
@@ -21,9 +28,9 @@ struct MIQCoreTests {
         let image = try MIQParser().parseNifti(data)
         let volume = MIQVolume(image: image)
 
-        let coronal = volume.centerSlice(plane: .coronal)
-        let sagittal = volume.centerSlice(plane: .sagittal)
-        let axial = volume.centerSlice(plane: .axial)
+        let coronal = volume.centerSlice(plane: .coronal, options: testRenderingOptions)
+        let sagittal = volume.centerSlice(plane: .sagittal, options: testRenderingOptions)
+        let axial = volume.centerSlice(plane: .axial, options: testRenderingOptions)
 
         #expect(coronal.width > 0)
         #expect(coronal.height > 0)
@@ -46,8 +53,8 @@ struct MIQCoreTests {
         let image = try MIQParser().parseNifti(data)
         let lines = MIQMetadata(header: image.header).asDisplayLines()
 
-        #expect(lines.contains(where: { $0.contains("Dimensions: 16 x 8 x 4") }))
-        #expect(lines.contains(where: { $0.contains("Datatype: int16") }))
+        #expect(lines.contains(where: { $0.text.contains("Dimensions: 16 x 8 x 4") }))
+        #expect(lines.contains(where: { $0.text.contains("Datatype: int16") }))
     }
 
     @Test
@@ -64,7 +71,7 @@ struct MIQCoreTests {
         #expect(image.payloadCount == 5 * 4 * 3)
 
         let volume = MIQVolume(image: image)
-        let center = volume.centerSlice(plane: .axial)
+        let center = volume.centerSlice(plane: .axial, options: testRenderingOptions)
         #expect(center.width > 0)
         #expect(center.height > 0)
         let ratio = Double(center.width) / Double(center.height)
@@ -88,7 +95,7 @@ struct MIQCoreTests {
         #expect(image.header.datatype == .uint8)
 
         let volume = MIQVolume(image: image)
-        let axial = volume.centerSlice(plane: .axial)
+        let axial = volume.centerSlice(plane: .axial, options: testRenderingOptions)
         #expect(axial.width > 0)
         #expect(axial.height > 0)
         let ratio = Double(axial.width) / Double(axial.height)
@@ -172,9 +179,9 @@ struct MIQCoreTests {
         let image = try MIQParser().parseNifti(data)
         let volume = MIQVolume(image: image)
 
-        let axial = volume.centerSlice(plane: .axial)
-        let coronal = volume.centerSlice(plane: .coronal)
-        let sagittal = volume.centerSlice(plane: .sagittal)
+        let axial = volume.centerSlice(plane: .axial, options: testRenderingOptions)
+        let coronal = volume.centerSlice(plane: .coronal, options: testRenderingOptions)
+        let sagittal = volume.centerSlice(plane: .sagittal, options: testRenderingOptions)
 
         #expect(axial.width > 0 && axial.height > 0)
         #expect(coronal.width > 0 && coronal.height > 0)
@@ -248,9 +255,9 @@ struct MIQCoreTests {
         #expect(image.payloadCount == 8 * 6 * 4 * 3)
 
         let volume = MIQVolume(image: image)
-        let axial = volume.centerSlice(plane: .axial)
-        let coronal = volume.centerSlice(plane: .coronal)
-        let sagittal = volume.centerSlice(plane: .sagittal)
+        let axial = volume.centerSlice(plane: .axial, options: testRenderingOptions)
+        let coronal = volume.centerSlice(plane: .coronal, options: testRenderingOptions)
+        let sagittal = volume.centerSlice(plane: .sagittal, options: testRenderingOptions)
 
         if case .rgb(let img) = axial {
             #expect(img.width > 0 && img.height > 0)
@@ -262,7 +269,7 @@ struct MIQCoreTests {
         #expect(sagittal.width > 0 && sagittal.height > 0)
 
         let lines = MIQMetadata(header: image.header).asDisplayLines()
-        #expect(lines.contains(where: { $0.contains("Datatype: rgb24") }))
+        #expect(lines.contains(where: { $0.text.contains("Datatype: rgb24") }))
     }
 
     @Test
@@ -274,7 +281,7 @@ struct MIQCoreTests {
         #expect(image.payloadCount == 6 * 4 * 3 * 4)
 
         let volume = MIQVolume(image: image)
-        let axial = volume.centerSlice(plane: .axial)
+        let axial = volume.centerSlice(plane: .axial, options: testRenderingOptions)
 
         if case .rgb(let img) = axial {
             #expect(img.width > 0 && img.height > 0)
@@ -284,7 +291,262 @@ struct MIQCoreTests {
         }
 
         let lines = MIQMetadata(header: image.header).asDisplayLines()
-        #expect(lines.contains(where: { $0.contains("Datatype: rgba32") }))
+        #expect(lines.contains(where: { $0.text.contains("Datatype: rgba32") }))
+    }
+
+    @Test
+    func storageAxisOrientationsForCanonicalRasMif() throws {
+        let mif = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layout: [0, 1, 2])
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let image = try MIQParser().parse(url: url)
+
+        let resolver = OrientationResolver(image: image)
+        let axes = resolver.storageAxisOrientations()
+        #expect(axes == [
+            StorageAxisOrientation(axis: .rightLeft, positive: true),
+            StorageAxisOrientation(axis: .anteriorPosterior, positive: true),
+            StorageAxisOrientation(axis: .superiorInferior, positive: true)
+        ])
+    }
+
+    @Test
+    func storageAxisOrientationsForLasMif() throws {
+        let mif = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layoutTokens: ["-0", "+1", "+2"])
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let image = try MIQParser().parse(url: url)
+
+        let resolver = OrientationResolver(image: image)
+        let axes = resolver.storageAxisOrientations()
+        #expect(axes == [
+            StorageAxisOrientation(axis: .rightLeft, positive: false),
+            StorageAxisOrientation(axis: .anteriorPosterior, positive: true),
+            StorageAxisOrientation(axis: .superiorInferior, positive: true)
+        ])
+    }
+
+    @Test
+    func storageAxisOrientationsForPermutedMif() throws {
+        // layout [1, 0, 2] makes storage axis 0 anatomically A-P, axis 1 R-L.
+        let mif = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layout: [1, 0, 2])
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let image = try MIQParser().parse(url: url)
+
+        let resolver = OrientationResolver(image: image)
+        let axes = resolver.storageAxisOrientations()
+        #expect(axes == [
+            StorageAxisOrientation(axis: .anteriorPosterior, positive: true),
+            StorageAxisOrientation(axis: .rightLeft, positive: true),
+            StorageAxisOrientation(axis: .superiorInferior, positive: true)
+        ])
+    }
+
+    @Test
+    func storageAxisOrientationsFallsBackForNiftiWithoutValidSform() throws {
+        // The test factory writes sformCode=1 but leaves srowX/Y/Z all zero — sform is invalid.
+        let data = TestMIQFactory.makeNii(width: 6, height: 4, depth: 3, datatype: .uint8)
+        let image = try MIQParser().parseNifti(data)
+
+        let resolver = OrientationResolver(image: image)
+        #expect(resolver.storageAxisOrientations() == nil)
+    }
+
+    @Test
+    func planForStoredModeMatchesLegacyMapping() throws {
+        let mif = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layout: [0, 1, 2])
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let image = try MIQParser().parse(url: url)
+
+        let resolver = OrientationResolver(image: image)
+        let coronal = resolver.plan(for: .coronal, mode: .stored)
+        let sagittal = resolver.plan(for: .sagittal, mode: .stored)
+        let axial = resolver.plan(for: .axial, mode: .stored)
+
+        // Stored plan must reproduce the original SliceConfig hardcoding exactly.
+        #expect((coronal.sliceAxis, coronal.hAxis, coronal.vAxis) == (1, 0, 2))
+        #expect(coronal.hReversed == false && coronal.vReversed == true)
+        #expect((sagittal.sliceAxis, sagittal.hAxis, sagittal.vAxis) == (0, 1, 2))
+        #expect(sagittal.hReversed == false && sagittal.vReversed == true)
+        #expect((axial.sliceAxis, axial.hAxis, axial.vAxis) == (2, 0, 1))
+        #expect(axial.hReversed == false && axial.vReversed == true)
+    }
+
+    @Test
+    func planForRasModeOnCanonicalRasIsIdentity() throws {
+        let mif = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layout: [0, 1, 2])
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let image = try MIQParser().parse(url: url)
+
+        let resolver = OrientationResolver(image: image)
+        let plan = resolver.plan(for: .coronal, mode: .ras)
+        #expect((plan.sliceAxis, plan.hAxis, plan.vAxis) == (1, 0, 2))
+        #expect(plan.hReversed == false && plan.vReversed == true)
+        #expect(plan.labels.leading == "L" && plan.labels.trailing == "R")
+        #expect(plan.labels.top == "S" && plan.labels.bottom == "I")
+    }
+
+    @Test
+    func planForRasModeOnLasStorageFlipsHorizontal() throws {
+        let mif = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layoutTokens: ["-0", "+1", "+2"])
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let image = try MIQParser().parse(url: url)
+
+        let resolver = OrientationResolver(image: image)
+        let plan = resolver.plan(for: .coronal, mode: .ras)
+        #expect(plan.hReversed == true)
+        #expect(plan.vReversed == true)
+        // Labels stay fixed in RAS view regardless of storage orientation.
+        #expect(plan.labels.leading == "L" && plan.labels.trailing == "R")
+    }
+
+    @Test
+    func planForLasModeOnCanonicalRasFlipsHorizontal() throws {
+        let mif = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layout: [0, 1, 2])
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let image = try MIQParser().parse(url: url)
+
+        let resolver = OrientationResolver(image: image)
+        let plan = resolver.plan(for: .coronal, mode: .las)
+        #expect(plan.hReversed == true)
+        #expect(plan.labels.leading == "R" && plan.labels.trailing == "L")
+        #expect(plan.labels.top == "S" && plan.labels.bottom == "I")
+
+        // Sagittal labels are the same in RAS and LAS modes.
+        let sag = resolver.plan(for: .sagittal, mode: .las)
+        #expect(sag.labels.leading == "P" && sag.labels.trailing == "A")
+        #expect(sag.labels.top == "S" && sag.labels.bottom == "I")
+    }
+
+    @Test
+    func planForRasModeRoutesPermutedStorageToCorrectAnatomicalAxis() throws {
+        // layout [1, 0, 2] → storage axis 0 anatomically = A-P, axis 1 = R-L.
+        let mif = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layout: [1, 0, 2])
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let image = try MIQParser().parse(url: url)
+
+        let resolver = OrientationResolver(image: image)
+        let plan = resolver.plan(for: .coronal, mode: .ras)
+        // The RAS coronal slice must slice along the A-P axis (storage 0 here) and
+        // walk the R-L axis (storage 1) horizontally — different from the stored
+        // mapping which would slice along storage axis 1.
+        #expect(plan.sliceAxis == 0)
+        #expect(plan.hAxis == 1)
+        #expect(plan.vAxis == 2)
+        #expect(plan.hReversed == false)
+        #expect(plan.vReversed == true)
+    }
+
+    @Test
+    func reorientFallsBackToStoredWhenAffineUnknown() throws {
+        let data = TestMIQFactory.makeNii(width: 6, height: 4, depth: 3, datatype: .uint8)
+        let image = try MIQParser().parseNifti(data)
+
+        let resolver = OrientationResolver(image: image)
+        let stored = resolver.plan(for: .coronal, mode: .stored)
+        let ras = resolver.plan(for: .coronal, mode: .ras)
+        let las = resolver.plan(for: .coronal, mode: .las)
+
+        #expect(stored.sliceAxis == ras.sliceAxis && stored.hAxis == ras.hAxis && stored.vAxis == ras.vAxis)
+        #expect(stored.hReversed == ras.hReversed && stored.vReversed == ras.vReversed)
+        #expect(stored.sliceAxis == las.sliceAxis && stored.hAxis == las.hAxis && stored.vAxis == las.vAxis)
+        #expect(stored.hReversed == las.hReversed && stored.vReversed == las.vReversed)
+    }
+
+    @Test
+    func volumeDisplayOrientationLabelsRespectMode() throws {
+        let mif = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layout: [0, 1, 2])
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let volume = MIQVolume(image: try MIQParser().parse(url: url))
+
+        let rasOpt = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, orientation: .ras)
+        let lasOpt = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, orientation: .las)
+
+        #expect(volume.displayOrientation(for: .coronal, options: rasOpt).trailing == "R")
+        #expect(volume.displayOrientation(for: .coronal, options: lasOpt).trailing == "L")
+        #expect(volume.displayOrientation(for: .axial, options: rasOpt).top == "A")
+        #expect(volume.displayOrientation(for: .axial, options: lasOpt).top == "A")
+        #expect(volume.displayOrientation(for: .sagittal, options: rasOpt).trailing == "A")
+        #expect(volume.displayOrientation(for: .sagittal, options: lasOpt).trailing == "A")
+    }
+
+    @Test
+    func rasModeOnLasStorageHorizontallyMirrorsStoredPixels() throws {
+        // Use a volume with enough x-resolution that mirrored columns map to distinct
+        // gray levels after percentile normalization.
+        let width = 8, height = 4, depth = 4
+        let mif = TestMIQFactory.makeMif(width: width, height: height, depth: depth, datatype: .uint8, layoutTokens: ["-0", "+1", "+2"])
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let volume = MIQVolume(image: try MIQParser().parse(url: url))
+
+        let stored = RenderingOptions(lowerPercentile: 0, upperPercentile: 100, orientation: .stored)
+        let ras = RenderingOptions(lowerPercentile: 0, upperPercentile: 100, orientation: .ras)
+        let storedSlice = volume.centerSlice(plane: .coronal, options: stored)
+        let rasSlice = volume.centerSlice(plane: .coronal, options: ras)
+
+        guard case .grayscale(let s) = storedSlice, case .grayscale(let r) = rasSlice else {
+            Issue.record("expected grayscale slices")
+            return
+        }
+        #expect(s.width == r.width && s.height == r.height)
+
+        // Every row of the RAS slice is the row-wise horizontal mirror of the stored slice.
+        for row in 0..<s.height {
+            for col in 0..<s.width {
+                let mirror = s.width - 1 - col
+                #expect(s.pixels[row * s.width + col] == r.pixels[row * r.width + mirror])
+            }
+        }
+    }
+
+    @Test
+    func lasModeOnLasStoragePreservesPixels() throws {
+        // LAS-stored data viewed in .las mode = no transformation (same plan as .stored).
+        let width = 8, height = 4, depth = 4
+        let mif = TestMIQFactory.makeMif(width: width, height: height, depth: depth, datatype: .uint8, layoutTokens: ["-0", "+1", "+2"])
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let volume = MIQVolume(image: try MIQParser().parse(url: url))
+
+        let stored = RenderingOptions(lowerPercentile: 0, upperPercentile: 100, orientation: .stored)
+        let las = RenderingOptions(lowerPercentile: 0, upperPercentile: 100, orientation: .las)
+        let storedSlice = volume.centerSlice(plane: .coronal, options: stored)
+        let lasSlice = volume.centerSlice(plane: .coronal, options: las)
+
+        guard case .grayscale(let s) = storedSlice, case .grayscale(let l) = lasSlice else {
+            Issue.record("expected grayscale slices")
+            return
+        }
+        #expect(s.pixels == l.pixels)
+    }
+
+    @Test
+    func renderingOptionsHashableIncludesOrientation() {
+        let a = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, orientation: .stored)
+        let b = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, orientation: .ras)
+        let c = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, orientation: .stored)
+        #expect(a != b)
+        #expect(a == c)
+        #expect(a.hashValue == c.hashValue)
     }
 
     @Test

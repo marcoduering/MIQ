@@ -1,5 +1,24 @@
 import Foundation
 
+public enum MetadataField: String, Sendable, CaseIterable {
+    case format
+    case dimensions
+    case spacing
+    case orientation
+    case datatype
+    case volumes
+}
+
+public struct MetadataEntry: Sendable {
+    public let field: MetadataField?
+    public let text: String
+
+    public init(field: MetadataField?, text: String) {
+        self.field = field
+        self.text = text
+    }
+}
+
 public struct MIQMetadata: Sendable {
     public let dimensions: String
     public let spacing: String
@@ -24,18 +43,16 @@ public struct MIQMetadata: Sendable {
         self.orientation = orientation
     }
 
-    public func asDisplayLines() -> [String] {
-        var lines = [
-            "Dimensions: \(dimensions)",
-            "Spacing: \(spacing)",
+    public func asDisplayLines() -> [MetadataEntry] {
+        var entries: [MetadataEntry] = [
+            MetadataEntry(field: .dimensions, text: "Dimensions: \(dimensions)"),
+            MetadataEntry(field: .spacing, text: "Spacing: \(spacing)"),
         ]
         if let orientation {
-            lines.append("Orientation: \(orientation)")
+            entries.append(MetadataEntry(field: .orientation, text: "Orientation: \(orientation)"))
         }
-        lines += [
-            "Datatype: \(datatype)",
-            "Volumes: \(volumes)"
-        ]
-        return lines
+        entries.append(MetadataEntry(field: .datatype, text: "Datatype: \(datatype)"))
+        entries.append(MetadataEntry(field: .volumes, text: "Volumes: \(volumes)"))
+        return entries
     }
 }

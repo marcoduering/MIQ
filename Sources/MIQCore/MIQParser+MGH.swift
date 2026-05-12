@@ -54,7 +54,7 @@ extension MIQParser {
         }
 
         guard let mghType = MghType(rawValue: typeRaw) else {
-            throw MIQError.unsupportedDatatype(Int16(clamping: typeRaw))
+            throw MIQError.unsupportedDatatype(typeRaw)
         }
 
         let goodRAS = MIQBinaryReader.int16(data, 28, littleEndian: false)

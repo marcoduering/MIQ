@@ -3,11 +3,12 @@ import Foundation
 public enum MIQError: Error, LocalizedError {
     case invalidHeaderSize(Int32)
     case unsupportedFormatVersion(Int32)
-    case unsupportedDatatype(Int16)
+    case unsupportedDatatype(Int32)
     case invalidDimensions
     case truncatedData
     case decompressionFailed
     case unsupportedFileFormat
+    case malformedFile(String)
 
     public var errorDescription: String? {
         switch self {
@@ -25,6 +26,8 @@ public enum MIQError: Error, LocalizedError {
             return "Failed to decompress gzipped data."
         case .unsupportedFileFormat:
             return "Unsupported file format. Expected .nii, .nii.gz, .mgh, .mgz, .mgh.gz, .mif, or .mif.gz."
+        case .malformedFile(let reason):
+            return "Malformed file: \(reason)."
         }
     }
 }

@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "MIQ",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v14)
     ],
     products: [
         .library(

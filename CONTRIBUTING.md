@@ -25,12 +25,19 @@ Signing credentials are kept out of the repository via a gitignored xcconfig fil
    ```bash
    cp LocalSigning.xcconfig.template LocalSigning.xcconfig
    ```
-2. Open `LocalSigning.xcconfig` and fill in your bundle identifiers:
+2. Open `LocalSigning.xcconfig` and fill in your values:
    - `APP_BUNDLE_ID` → a reverse-DNS identifier you own, e.g. `com.yourname.miq`
    - `EXTENSION_BUNDLE_ID` → same prefix with `.extension`, e.g. `com.yourname.miq.extension`
    - `DEVELOPMENT_TEAM` → leave empty for Debug builds; Xcode infers the team from your signed-in Apple ID automatically
+   - `APP_GROUP_ID` → already set to `group.$(APP_BUNDLE_ID)` in the template; change only if your App Group is named differently
 
 `LocalSigning.xcconfig` is gitignored and will never appear in commits or pull requests.
+
+### App Group and Settings
+
+The app and the Quick Look extension share settings through an App Group (`group.<your-bundle-id>`). With Automatic signing (the default for Debug builds), Xcode registers the App Group in the Apple Developer Portal automatically the first time you build.
+
+If the App Group is not provisioned — for example, before the first successful Automatic-signing build — the extension still renders correctly but will probably ignore any settings changed in the app and use built-in defaults for everything instead. Or you will get an OS-level error message about external access.
 
 ### Build and Run
 

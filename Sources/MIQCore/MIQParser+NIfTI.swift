@@ -102,9 +102,9 @@ extension MIQParser {
 
     private func readAndValidateDatatype(data: Data, at datatypeOffset: Int, bitpixAt bitpixOffset: Int, littleEndian: Bool) throws -> MIQDatatype {
         let raw = MIQBinaryReader.int16(data, datatypeOffset, littleEndian: littleEndian)
-        guard let datatype = MIQDatatype(rawValue: raw) else { throw MIQError.unsupportedDatatype(raw) }
+        guard let datatype = MIQDatatype(rawValue: raw) else { throw MIQError.unsupportedDatatype(Int32(raw)) }
         let bitpix = Int(MIQBinaryReader.int16(data, bitpixOffset, littleEndian: littleEndian))
-        if bitpix != datatype.bytesPerVoxel * 8 { throw MIQError.unsupportedDatatype(raw) }
+        if bitpix != datatype.bytesPerVoxel * 8 { throw MIQError.unsupportedDatatype(Int32(raw)) }
         return datatype
     }
 

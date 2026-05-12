@@ -2,6 +2,8 @@ import AppKit
 import MIQCore
 
 final class MIQPreviewAppKitView: NSView {
+    private static let loadingStatusText = "Loading image preview..."
+
     private let coronal = MIQSliceCanvas(
         imageAlignment: .init(horizontal: .trailing, vertical: .bottom),
         orientation: .placeholderCoronal
@@ -18,7 +20,7 @@ final class MIQPreviewAppKitView: NSView {
     private let status = NSTextField(labelWithString: "")
     private var columnRatioConstraint: NSLayoutConstraint?
     private var rowRatioConstraint: NSLayoutConstraint?
-    private var metadataLines: [String] = []
+    private var metadataEntries: [MetadataEntry] = []
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -31,11 +33,20 @@ final class MIQPreviewAppKitView: NSView {
     }
 
     func showLoading() {
-        status.stringValue = "Loading image preview..."
+        status.stringValue = Self.loadingStatusText
         status.isHidden = false
     }
 
     func update(from model: MIQPreviewModel) {
+        let showLabels = MIQConfig.showAxisLabels
+        let c = MIQConfig.axisLabelColor
+        let labelNSColor = NSColor(calibratedRed: c.red, green: c.green, blue: c.blue, alpha: c.alpha)
+        coronal.showAxisLabels = showLabels
+        sagittal.showAxisLabels = showLabels
+        axial.showAxisLabels = showLabels
+        coronal.labelColor = labelNSColor
+        sagittal.labelColor = labelNSColor
+        axial.labelColor = labelNSColor
         coronal.orientation = model.coronalOrientation
         sagittal.orientation = model.sagittalOrientation
         axial.orientation = model.axialOrientation
@@ -43,7 +54,7 @@ final class MIQPreviewAppKitView: NSView {
         sagittal.image = model.sagittal
         axial.image = model.axial
         updateFOVLayoutRatios()
-        metadataLines = model.metadataLines
+        metadataEntries = model.metadataEntries
         needsLayout = true
 
         switch model.state {
@@ -53,7 +64,7 @@ final class MIQPreviewAppKitView: NSView {
         case .ready:
             status.isHidden = true
         case .idle, .loading:
-            status.stringValue = "Loading image preview..."
+            status.stringValue = Self.loadingStatusText
             status.isHidden = false
         }
     }
@@ -71,11 +82,24 @@ final class MIQPreviewAppKitView: NSView {
         sagittal.labelFontSize = labelFontSize
         axial.labelFontSize = labelFontSize
 
-        guard !metadataLines.isEmpty else { return }
+        guard !metadataEntries.isEmpty else { return }
+        let order = MIQConfig.metadataOrder
+        let orderIndex: [MetadataField: Int] = Dictionary(
+            uniqueKeysWithValues: order.enumerated().map { ($1, $0) }
+        )
+        let sorted = metadataEntries.sorted { a, b in
+            let ai = a.field.flatMap { orderIndex[$0] } ?? Int.max
+            let bi = b.field.flatMap { orderIndex[$0] } ?? Int.max
+            return ai < bi
+        }
+        let visibleLines = sorted.compactMap { entry -> String? in
+            if let field = entry.field, !MIQConfig.showMetadataField(field) { return nil }
+            return entry.text
+        }
         let fontSize = max(7, min(18, min(panelWidth, panelHeight) * 0.05))
         let inset = max(6, min(24, min(panelWidth, panelHeight) * 0.05))
         metadata.inset = inset
-        metadata.attributedText = makeMetadataAttributedString(from: metadataLines, fontSize: fontSize)
+        metadata.attributedText = makeMetadataAttributedString(from: visibleLines, fontSize: fontSize)
     }
 
     private func buildUI() {
@@ -253,21 +277,23 @@ final class MIQPreviewAppKitView: NSView {
             }
         }
 
-        let disclaimerFont = NSFont.systemFont(ofSize: max(6, fontSize * 0.8), weight: .regular)
-        let disclaimerColor = NSColor(calibratedWhite: 0.35, alpha: 1.0)
-        let firstLineStyle = NSMutableParagraphStyle()
-        firstLineStyle.paragraphSpacingBefore = fontSize * 6
-        let firstLineAttrs: [NSAttributedString.Key: Any] = [
-            .font: disclaimerFont,
-            .foregroundColor: disclaimerColor,
-            .paragraphStyle: firstLineStyle
-        ]
-        let secondLineAttrs: [NSAttributedString.Key: Any] = [
-            .font: disclaimerFont,
-            .foregroundColor: disclaimerColor
-        ]
-        result.append(NSAttributedString(string: "\nNot for clinical or diagnostic use.", attributes: firstLineAttrs))
-        result.append(NSAttributedString(string: "\nNo warranty expressed or implied.", attributes: secondLineAttrs))
+        if !MIQConfig.hideDisclaimerInPreview {
+            let disclaimerFont = NSFont.systemFont(ofSize: max(6, fontSize * 0.8), weight: .regular)
+            let disclaimerColor = NSColor(calibratedWhite: 0.35, alpha: 1.0)
+            let firstLineStyle = NSMutableParagraphStyle()
+            firstLineStyle.paragraphSpacingBefore = fontSize * 6
+            let firstLineAttrs: [NSAttributedString.Key: Any] = [
+                .font: disclaimerFont,
+                .foregroundColor: disclaimerColor,
+                .paragraphStyle: firstLineStyle
+            ]
+            let secondLineAttrs: [NSAttributedString.Key: Any] = [
+                .font: disclaimerFont,
+                .foregroundColor: disclaimerColor
+            ]
+            result.append(NSAttributedString(string: "\nNot for clinical or diagnostic use.", attributes: firstLineAttrs))
+            result.append(NSAttributedString(string: "\nNo warranty expressed or implied.", attributes: secondLineAttrs))
+        }
 
         return result
     }

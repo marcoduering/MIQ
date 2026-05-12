@@ -16,7 +16,7 @@ extension MIQParser {
     func parseMif(_ data: Data) throws -> MIQImage {
         let (mifHeader, embeddedDataOffset) = try parseMifHeader(from: data)
         guard mifHeader.dataFile == "." else {
-            throw MIQError.unsupportedFileFormat
+            throw MIQError.malformedFile("MIF references an external data file; only embedded payloads are supported")
         }
         let dataOffset = mifHeader.dataOffset > 0 ? mifHeader.dataOffset : embeddedDataOffset
         return try buildMifImage(data: data, dataOffset: dataOffset, header: mifHeader)
@@ -26,7 +26,7 @@ extension MIQParser {
     func parseMifHeaderOnly(from data: Data) throws -> MIQHeader {
         let (mifHeader, embeddedDataOffset) = try parseMifHeader(from: data)
         guard mifHeader.dataFile == "." else {
-            throw MIQError.unsupportedFileFormat
+            throw MIQError.malformedFile("MIF references an external data file; only embedded payloads are supported")
         }
         let dataOffset = mifHeader.dataOffset > 0 ? mifHeader.dataOffset : embeddedDataOffset
         return try buildMifMIQHeader(dataOffset: dataOffset, header: mifHeader).header
@@ -43,7 +43,7 @@ extension MIQParser {
     private func parseMifHeaderLines(from data: Data) throws -> ([String], Int) {
         // Match END only when preceded by a newline so values like "LEGEND" don't trigger a false hit.
         guard let markerRange = data.range(of: Data("\nEND".utf8)) else {
-            throw MIQError.unsupportedFileFormat
+            throw MIQError.malformedFile("MIF header is missing the END marker")
         }
 
         var payloadStart = markerRange.upperBound
@@ -65,7 +65,7 @@ extension MIQParser {
 
     private func parseMifHeaderFields(lines: [String]) throws -> MifHeader {
         guard let first = lines.first, first.lowercased() == "mrtrix image" else {
-            throw MIQError.unsupportedFileFormat
+            throw MIQError.malformedFile("MIF header does not start with 'mrtrix image'")
         }
 
         var keyValues: [String: [String]] = [:]
@@ -84,7 +84,7 @@ extension MIQParser {
               let layoutString = keyValues["layout"]?.last,
               let datatypeString = keyValues["datatype"]?.last,
               let fileString = keyValues["file"]?.last else {
-            throw MIQError.unsupportedFileFormat
+            throw MIQError.malformedFile("MIF header is missing one or more required fields (dim, vox, layout, datatype, file)")
         }
 
         let dim = try parseMifIntList(dimString)
@@ -233,13 +233,13 @@ extension MIQParser {
         if lowered.hasPrefix("float32") { return (.float32, isLittleEndian) }
         if lowered.hasPrefix("float64") { return (.float64, isLittleEndian) }
 
-        throw MIQError.unsupportedFileFormat
+        throw MIQError.malformedFile("unrecognised MIF datatype '\(value)'")
     }
 
     private func parseMifFileSpec(_ value: String) throws -> (String, Int) {
         let parts = value.split(whereSeparator: { $0.isWhitespace })
         guard let filePart = parts.first else {
-            throw MIQError.unsupportedFileFormat
+            throw MIQError.malformedFile("MIF 'file' field is empty")
         }
 
         let file = String(filePart)
@@ -251,7 +251,7 @@ extension MIQParser {
         let items = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         let parsed = items.compactMap(Int.init)
         guard parsed.count == items.count, !parsed.isEmpty else {
-            throw MIQError.unsupportedFileFormat
+            throw MIQError.malformedFile("MIF integer list is empty or contains a non-integer value: '\(value)'")
         }
         return parsed
     }
@@ -259,7 +259,7 @@ extension MIQParser {
     private func parseMifLayoutList(_ value: String) throws -> [MIFLayoutComponent] {
         let items = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         guard !items.isEmpty else {
-            throw MIQError.unsupportedFileFormat
+            throw MIQError.malformedFile("MIF layout list is empty")
         }
 
         var parsed: [MIFLayoutComponent] = []
@@ -267,7 +267,7 @@ extension MIQParser {
 
         for item in items {
             guard !item.isEmpty else {
-                throw MIQError.unsupportedFileFormat
+                throw MIQError.malformedFile("MIF layout list contains an empty entry")
             }
 
             var reversed = false
@@ -282,7 +282,7 @@ extension MIQParser {
             }
 
             guard let order = Int(digits), order >= 0 else {
-                throw MIQError.unsupportedFileFormat
+                throw MIQError.malformedFile("MIF layout entry '\(item)' is not a signed non-negative integer")
             }
             parsed.append(MIFLayoutComponent(order: order, reversed: reversed))
         }
@@ -294,7 +294,7 @@ extension MIQParser {
         let items = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         let parsed = items.compactMap(Float.init)
         guard parsed.count == items.count, !parsed.isEmpty else {
-            throw MIQError.unsupportedFileFormat
+            throw MIQError.malformedFile("MIF float list is empty or contains a non-numeric value: '\(value)'")
         }
         return parsed
     }

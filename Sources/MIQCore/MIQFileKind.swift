@@ -52,8 +52,4 @@ public enum MIQFileKind: Sendable, CaseIterable {
         case .mifGz: return [".mif.gz"]
         }
     }
-
-    public static var allDisplaySuffixes: [String] {
-        [".nii", ".nii.gz", ".mgh", ".mgz", ".mgh.gz", ".mif", ".mif.gz"]
-    }
 }

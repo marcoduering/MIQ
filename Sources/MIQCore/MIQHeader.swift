@@ -14,8 +14,8 @@ public struct MIQHeader: Sendable {
     public let srowY: [Float]
     public let srowZ: [Float]
 
-    public var width: Int { dimensions[safe: 0] ?? 0 }
-    public var height: Int { dimensions[safe: 1] ?? 0 }
+    public var width: Int { dimensions[safe: 0] ?? 1 }
+    public var height: Int { dimensions[safe: 1] ?? 1 }
     public var depth: Int { dimensions[safe: 2] ?? 1 }
     public var volumes: Int { max(1, dimensions[safe: 3] ?? 1) }
 

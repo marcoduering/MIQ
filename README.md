@@ -1,6 +1,6 @@
 # MIQ — Medical Image Quick Look
 
-MIQ is a **macOS Quick Look preview extension** for medical volume images stored in common research formats. Press **Space** on a supported file in Finder to instantly see orthogonal slice view alongside a metadata panel.
+MIQ is a **macOS QuickLook preview extension** for medical volume images stored in common research formats. Press **Space** on a supported file in Finder to instantly see an orthogonal slice view alongside a metadata panel.
 
 <div align="center">
   <img src="./MIQ_screenshot.png" width="65%">
@@ -18,21 +18,21 @@ All formats are supported uncompressed and gzip-compressed. The extension relies
 
 ## Installation
 
-The application and extension are universal binaries compatible with both current Apple Silicon (arm64) and older Intel (x86_64) Macs. Testing was performed on Apple Silicon and macOS 15 (Sequoia) as well as 26 (Tahoe). 
+The app is universal for Apple Silicon (arm64) and Intel (x86_64) Macs and has been tested on Apple Silicon with macOS 14 (Sonoma), 15 (Sequoia), and 26 (Tahoe).
  
-1. Download the latest ZIP file from [**Releases**](https://github.com/marcoduering/MIQ/releases).
-2. Extract the ZIP file and drag/move **MIQ.app** to your `/Applications` folder.
-3. Open **MIQ.app** once to register the Quick Look preview extension, then close it.
+1. Download the latest ZIP file from the [**Releases page**](https://github.com/marcoduering/MIQ/releases).
+2. Extract the ZIP file and copy/move **MIQ.app** to your `/Applications` folder.
+3. **Open MIQ.app** at least once to register the Quick Look preview extension.
 4. Press **Space** on any supported file in Finder.
 
 > [!TIP]
 > **Staying up to date:** To receive an email notification when a new release is published, click **Watch → Custom → Releases** at the top of this GitHub page.
 
-## How Slices Are Rendered
+## Usage
 
-MIQ displays data **as stored on disk**, without reorienting. Depending on the acquisition setup (and processing pipeline), images may appear upside down, mirrored, or rotated. This is intentional, as the primary purpose of MIQ is to let you quickly inspect the raw data, including its orientation. If your data is not in RAS or LAS orientation, the slices will reflect that faithfully.
+MIQ is a lightweight convenience tool for quickly inspecting medical image files directly from the Finder. It prioritizes speed and ease of use over advanced visualization, and is not meant to replace dedicated medical image viewers.
 
-For multi-volume (4D) data, only the first volume will be shown.
+By default, MIQ displays data **as stored on disk**, without reorienting. Depending on acquisition and processing, images may appear upside down, mirrored, or rotated. This is intentional, so you can inspect the raw data and its orientation. If desired, there is a setting to reorient to RAS or LAS. For multi-volume (4D) data, only the first volume is shown.
 
 ## Performance
 
@@ -52,10 +52,12 @@ The extension is still in development. It was created with the support of AI cod
 
 ### Roadmap
 
-- [ ] `PLANNED`: Configurable preview render options (window/level, reorientation, metadata to include)
-- [ ] `PLANNED`: Improved performance for gzipped formats
+- [ ] `PLANNED`: Improved performance for compressed formats
+- [ ] Under consideration: Support for additional compressed formats (e.g. `.zst`, `.bz2`).
+- [ ] Under consideration: Software distribution via Homebrew.
 - [ ] Under consideration: Display of sform and qform orientation information
 - [ ] Under consideration: Support for additional image formats. Please provide feedback if you have any requests.
+- [ ] Under consideration (long term): Interactive preview.
 
 ## Disclaimer & License
 

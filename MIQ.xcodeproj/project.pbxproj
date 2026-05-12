@@ -10,9 +10,10 @@
 		00B97D85B148478FBA844F26 /* MIQImageBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45FE4A9B7D1340FBAA8AEB29 /* MIQImageBridge.swift */; };
 		0701E1F39439EE434DE78D66 /* MIQQuickLookExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DEACD5BFB1B39E6BB6A9F28F /* MIQQuickLookExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		1525C5A90753349409A6DC7B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FF4BD21CCF016F9EE93B3D /* ContentView.swift */; };
-		1F7BAF3D389C4B31A8A8EA6E /* MIQSliceCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 827A41D521B17E9ABFF27BF5 /* MIQSliceCache.swift */; };
+		1F7BAF3D389C4B31A8A8EA6E /* MIQPreviewCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 827A41D521B17E9ABFF27BF5 /* MIQPreviewCache.swift */; };
 		4CFCB7FE2FAD03EF00715102 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 4CFCB7FD2FAD03EF00715102 /* AppIcon.icon */; };
 		9C6AE0FE9F91ECE1B1923E18 /* MIQCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0D703866A54AAA65D0773EF7 /* MIQCore */; };
+		AA00BB00CC00DD00EE00FF01 /* MIQCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB00CC00DD00EE00FF02 /* MIQCore */; };
 		BA1109BAE7000001000003E5 /* MIQLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA1109BAE7000002000003E6 /* MIQLogger.swift */; };
 		C56348DEE1CC6B4E25B8E49F /* MIQPreviewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901139238A3C73F5F746D7A0 /* MIQPreviewModel.swift */; };
 		E8089EA1F58D4F049738209C /* MIQSliceCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24EC29AEA4504CC7AE152ACC /* MIQSliceCanvas.swift */; };
@@ -54,7 +55,7 @@
 		4CFCB7F62FAC9F5F00715102 /* LocalSigning.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = LocalSigning.xcconfig; sourceTree = "<group>"; };
 		4CFCB7FD2FAD03EF00715102 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		5FA8F818819F192C0EB31251 /* MIQ */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MIQ; path = .; sourceTree = SOURCE_ROOT; };
-		827A41D521B17E9ABFF27BF5 /* MIQSliceCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQSliceCache.swift; sourceTree = "<group>"; };
+		827A41D521B17E9ABFF27BF5 /* MIQPreviewCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQPreviewCache.swift; sourceTree = "<group>"; };
 		901139238A3C73F5F746D7A0 /* MIQPreviewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQPreviewModel.swift; sourceTree = "<group>"; };
 		B9BA3B91B2654D418D9CD49E /* MIQPreviewAppKitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQPreviewAppKitView.swift; sourceTree = "<group>"; };
 		BA1109BAE7000002000003E6 /* MIQLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQLogger.swift; sourceTree = "<group>"; };
@@ -70,6 +71,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				9C6AE0FE9F91ECE1B1923E18 /* MIQCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA00BB00CC00DD00EE00FF03 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA00BB00CC00DD00EE00FF01 /* MIQCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -114,7 +123,7 @@
 				B9BA3B91B2654D418D9CD49E /* MIQPreviewAppKitView.swift */,
 				901139238A3C73F5F746D7A0 /* MIQPreviewModel.swift */,
 				24EC29AEA4504CC7AE152ACC /* MIQSliceCanvas.swift */,
-				827A41D521B17E9ABFF27BF5 /* MIQSliceCache.swift */,
+				827A41D521B17E9ABFF27BF5 /* MIQPreviewCache.swift */,
 			);
 			path = MIQQuickLookExtension;
 			sourceTree = "<group>";
@@ -138,6 +147,7 @@
 			buildConfigurationList = F8B0B1117F2F97E9F4FA888B /* Build configuration list for PBXNativeTarget "MIQ" */;
 			buildPhases = (
 				6C3F970026F77ADA3F1C8811 /* Sources */,
+				AA00BB00CC00DD00EE00FF03 /* Frameworks */,
 				AA000003BB000003CC000003 /* Resources */,
 				D6C47D8BB6941EF06180E097 /* Embed Foundation Extensions */,
 			);
@@ -148,6 +158,7 @@
 			);
 			name = MIQ;
 			packageProductDependencies = (
+				AA00BB00CC00DD00EE00FF02 /* MIQCore */,
 			);
 			productName = MIQ;
 			productReference = DD43E5703AD6ABBED64F738F /* MIQ.app */;
@@ -235,7 +246,7 @@
 				EC5608D3469B46449C5FE429 /* MIQPreviewAppKitView.swift in Sources */,
 				C56348DEE1CC6B4E25B8E49F /* MIQPreviewModel.swift in Sources */,
 				E8089EA1F58D4F049738209C /* MIQSliceCanvas.swift in Sources */,
-				1F7BAF3D389C4B31A8A8EA6E /* MIQSliceCache.swift in Sources */,
+				1F7BAF3D389C4B31A8A8EA6E /* MIQPreviewCache.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -255,11 +266,13 @@
 			baseConfigurationReference = 4CFCB7F62FAC9F5F00715102 /* LocalSigning.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = MIQQuickLookExtension/MIQQuickLookExtension.entitlements;
-				CODE_SIGN_IDENTITY = "Developer ID Application";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = MIQQuickLookExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -267,10 +280,11 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(EXTENSION_BUNDLE_ID)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = MIQ_Extension_Provisioning;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 6.0;
 			};
@@ -296,8 +310,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_ID)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
@@ -341,7 +355,7 @@
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -359,7 +373,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = NO;
@@ -379,11 +393,13 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = MIQApp/MIQ.entitlements;
-				CODE_SIGN_IDENTITY = "Developer ID Application";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = MIQApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Medical Image Quick Look";
@@ -392,10 +408,11 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_ID)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = MIQ_Provisioning;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 6.0;
 			};
@@ -418,8 +435,8 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(EXTENSION_BUNDLE_ID)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
@@ -463,7 +480,7 @@
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -475,7 +492,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = NO;
@@ -529,6 +546,10 @@
 
 /* Begin XCSwiftPackageProductDependency section */
 		0D703866A54AAA65D0773EF7 /* MIQCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MIQCore;
+		};
+		AA00BB00CC00DD00EE00FF02 /* MIQCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MIQCore;
 		};

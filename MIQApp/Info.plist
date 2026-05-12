@@ -21,9 +21,13 @@
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>13.0</string>
+	<string>14.0</string>
+	<key>MIQAppGroupID</key>
+	<string>$(APP_GROUP_ID)</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Licensed under the MIT License</string>
+	<key>NSQuitAlwaysKeepsWindows</key>
+	<false/>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>

@@ -26,7 +26,7 @@ public struct MIQParser {
 
     private func decompress(_ raw: Data) throws -> Data {
         guard MIQBinaryReader.isLikelyGzip(raw) else {
-            throw MIQError.unsupportedFileFormat
+            throw MIQError.malformedFile("file extension claims gzip but the gzip magic bytes are missing")
         }
         return try MIQBinaryReader.gunzip(raw)
     }

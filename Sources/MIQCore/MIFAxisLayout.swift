@@ -33,7 +33,7 @@ struct MIFAxisLayout {
             throw MIQError.invalidDimensions
         }
         guard Set(layout.map { $0.order }).count == axisCount else {
-            throw MIQError.unsupportedFileFormat
+            throw MIQError.malformedFile("MIF layout contains duplicate axis orders")
         }
 
         let sortedAxes = (0..<axisCount).sorted { layout[$0].order < layout[$1].order }
@@ -67,9 +67,5 @@ struct MIFAxisLayout {
         return spatialAxes.map { axis in
             layout[axis].reversed ? negative[axis] : positive[axis]
         }.joined()
-    }
-
-    static func orientationLabel(spatialAxes: [Int], layout: [Int]) -> String {
-        orientationLabel(spatialAxes: spatialAxes, layout: layout.map { MIFLayoutComponent(signedOrder: $0) })
     }
 }
