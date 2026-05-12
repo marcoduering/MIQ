@@ -1,12 +1,12 @@
 # MIQ — Medical Image Quick Look
 
-MIQ is a **macOS QuickLook preview extension** for medical volume images stored in common research formats. Press **Space** on a supported file in Finder to instantly see an orthogonal slice view alongside a metadata panel.
+MIQ is a lightweight **macOS QuickLook preview extension** for medical volume images stored in common research formats. Press **Space** on a supported file in Finder to instantly see an orthogonal slice view alongside a metadata panel.
 
 <div align="center">
   <img src="./MIQ_screenshot.png" width="65%">
 </div>
 
-Inspired by the old and deprecated [DTI-TK Quick Look **plugin**](http://dti-tk.sourceforge.net/pmwiki/pmwiki.php) by Gary Hui Zhang, which brought similar functionality to older versions of macOS but is incompatible with the  Quick Look **extension** architecture of current macOS versions (support for the plugin was dropped in macOS 15 Sequoia).
+Inspired by the old and deprecated [DTI-TK Quick Look **plugin**](http://dti-tk.sourceforge.net/pmwiki/pmwiki.php) by Gary Hui Zhang, which brought similar functionality to older versions of macOS but is incompatible with the Quick Look **extension** architecture of current macOS versions (support for the plugin was dropped in macOS 15 Sequoia).
 
 ## Supported Formats
 
@@ -19,11 +19,13 @@ All formats are supported uncompressed and gzip-compressed. The extension relies
 ## Installation
 
 The app is universal for Apple Silicon (arm64) and Intel (x86_64) Macs and has been tested on Apple Silicon with macOS 14 (Sonoma), 15 (Sequoia), and 26 (Tahoe).
- 
-1. Download the latest ZIP file from the [**Releases page**](https://github.com/marcoduering/MIQ/releases).
+
+1. 👉 **[Download the latest version (MIQ.app.zip)](https://github.com/marcoduering/MIQ/releases/latest/download/MIQ.app.zip)**
+[![Latest Release](https://img.shields.io/github/v/release/marcoduering/MIQ)](https://github.com/marcoduering/MIQ/releases/latest/download/MIQ.app.zip)
 2. Extract the ZIP file and copy/move **MIQ.app** to your `/Applications` folder.
 3. **Open MIQ.app** at least once to register the Quick Look preview extension.
 4. Press **Space** on any supported file in Finder.
+5. Optional: Configure preview settings in the MIQ app.
 
 > [!TIP]
 > **Staying up to date:** To receive an email notification when a new release is published, click **Watch → Custom → Releases** at the top of this GitHub page.
