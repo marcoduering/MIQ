@@ -37,6 +37,7 @@
 				<string>org.freesurfer.mgz</string>
 				<string>org.mrtrix.mif</string>
 				<string>org.mrtrix.mif-gz</string>
+				<string>org.teem.nrrd</string>
 				<string>public.gzip</string>
 				<string>org.gnu.gnu-zip-archive</string>
 			</array>

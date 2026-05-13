@@ -13,6 +13,15 @@ public struct MIQHeader: Sendable {
     public let srowX: [Float]
     public let srowY: [Float]
     public let srowZ: [Float]
+    /// Optional override for the displayed format name. When `nil`, callers should fall back to
+    /// `MIQFileKind.displayName`. Set by parsers that detect compression at parse time (e.g. NRRD,
+    /// where `.nrrd` covers both raw and gzipped payloads).
+    public let formatLabel: String?
+    /// Authoritative anatomical orientation, when derivable from the file's header.
+    /// Populated at parse time by each format-specific parser. `nil` means orientation
+    /// is genuinely unknown (no usable sform, qform, MIF layout, or MGH direction cosines).
+    /// Consumed by `OrientationResolver` as the single source of truth for display labels and slice planning.
+    public let orientationFrame: OrientationFrame?
 
     public var width: Int { dimensions[safe: 0] ?? 1 }
     public var height: Int { dimensions[safe: 1] ?? 1 }
@@ -31,7 +40,9 @@ public struct MIQHeader: Sendable {
         sformCode: Int,
         srowX: [Float],
         srowY: [Float],
-        srowZ: [Float]
+        srowZ: [Float],
+        formatLabel: String? = nil,
+        orientationFrame: OrientationFrame? = nil
     ) {
         self.littleEndian = littleEndian
         self.dimensions = dimensions
@@ -45,5 +56,7 @@ public struct MIQHeader: Sendable {
         self.srowX = srowX
         self.srowY = srowY
         self.srowZ = srowZ
+        self.formatLabel = formatLabel
+        self.orientationFrame = orientationFrame
     }
 }

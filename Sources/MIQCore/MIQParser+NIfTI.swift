@@ -40,9 +40,24 @@ extension MIQParser {
         let sclInter = MIQBinaryReader.float32(data, 116, littleEndian: littleEndian)
         let qformCode = Int(MIQBinaryReader.int16(data, 252, littleEndian: littleEndian))
         let sformCode = Int(MIQBinaryReader.int16(data, 254, littleEndian: littleEndian))
+        let quaternB = MIQBinaryReader.float32(data, 256, littleEndian: littleEndian)
+        let quaternC = MIQBinaryReader.float32(data, 260, littleEndian: littleEndian)
+        let quaternD = MIQBinaryReader.float32(data, 264, littleEndian: littleEndian)
         let srowX = MIQBinaryReader.float32Array(data, 280, count: 4, littleEndian: littleEndian)
         let srowY = MIQBinaryReader.float32Array(data, 296, count: 4, littleEndian: littleEndian)
         let srowZ = MIQBinaryReader.float32Array(data, 312, count: 4, littleEndian: littleEndian)
+
+        let orientationFrame = niftiOrientationFrame(
+            sformCode: sformCode,
+            srowX: srowX,
+            srowY: srowY,
+            srowZ: srowZ,
+            qformCode: qformCode,
+            quaternB: quaternB,
+            quaternC: quaternC,
+            quaternD: quaternD,
+            qfac: pixdim[safe: 0] ?? 1
+        )
 
         return MIQHeader(
             littleEndian: littleEndian,
@@ -56,7 +71,8 @@ extension MIQParser {
             sformCode: sformCode,
             srowX: srowX,
             srowY: srowY,
-            srowZ: srowZ
+            srowZ: srowZ,
+            orientationFrame: orientationFrame
         )
     }
 
@@ -78,9 +94,24 @@ extension MIQParser {
         let sclInter = Float(MIQBinaryReader.float64(data, 184, littleEndian: littleEndian))
         let qformCode = Int(MIQBinaryReader.int32(data, 344, littleEndian: littleEndian))
         let sformCode = Int(MIQBinaryReader.int32(data, 348, littleEndian: littleEndian))
+        let quaternB = Float(MIQBinaryReader.float64(data, 352, littleEndian: littleEndian))
+        let quaternC = Float(MIQBinaryReader.float64(data, 360, littleEndian: littleEndian))
+        let quaternD = Float(MIQBinaryReader.float64(data, 368, littleEndian: littleEndian))
         let srowX = MIQBinaryReader.float64Array(data, 400, count: 4, littleEndian: littleEndian).map { Float($0) }
         let srowY = MIQBinaryReader.float64Array(data, 432, count: 4, littleEndian: littleEndian).map { Float($0) }
         let srowZ = MIQBinaryReader.float64Array(data, 464, count: 4, littleEndian: littleEndian).map { Float($0) }
+
+        let orientationFrame = niftiOrientationFrame(
+            sformCode: sformCode,
+            srowX: srowX,
+            srowY: srowY,
+            srowZ: srowZ,
+            qformCode: qformCode,
+            quaternB: quaternB,
+            quaternC: quaternC,
+            quaternD: quaternD,
+            qfac: pixdim[safe: 0] ?? 1
+        )
 
         return MIQHeader(
             littleEndian: littleEndian,
@@ -94,11 +125,38 @@ extension MIQParser {
             sformCode: sformCode,
             srowX: srowX,
             srowY: srowY,
-            srowZ: srowZ
+            srowZ: srowZ,
+            orientationFrame: orientationFrame
         )
     }
 
     // MARK: - Shared helpers
+
+    /// Resolves the anatomical orientation frame per NIfTI-1 spec rules: prefer
+    /// sform when present and non-degenerate; otherwise fall back to qform; otherwise
+    /// `nil`. Sform wins when both are valid because the spec treats sform as the
+    /// "newer" / preferred transform.
+    private func niftiOrientationFrame(
+        sformCode: Int,
+        srowX: [Float],
+        srowY: [Float],
+        srowZ: [Float],
+        qformCode: Int,
+        quaternB: Float,
+        quaternC: Float,
+        quaternD: Float,
+        qfac: Float
+    ) -> OrientationFrame? {
+        if sformCode > 0,
+           let frame = OrientationFrame.from(srowX: srowX, srowY: srowY, srowZ: srowZ, source: .sform) {
+            return frame
+        }
+        if qformCode > 0,
+           let frame = OrientationFrame.fromQuaternion(b: quaternB, c: quaternC, d: quaternD, qfac: qfac) {
+            return frame
+        }
+        return nil
+    }
 
     private func readAndValidateDatatype(data: Data, at datatypeOffset: Int, bitpixAt bitpixOffset: Int, littleEndian: Bool) throws -> MIQDatatype {
         let raw = MIQBinaryReader.int16(data, datatypeOffset, littleEndian: littleEndian)

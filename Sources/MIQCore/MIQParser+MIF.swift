@@ -123,7 +123,6 @@ extension MIQParser {
         let header: MIQHeader
         let strides4: [Int]
         let baseElementIndex: Int
-        let orientationLabel: String
     }
 
     private func buildMifMIQHeader(dataOffset: Int, header: MifHeader) throws -> MifImageDescriptor {
@@ -158,19 +157,6 @@ extension MIQParser {
 
         let orientationLabel = MIFAxisLayout.orientationLabel(spatialAxes: spatialAxes, layout: header.layout)
 
-        // Build sform matrix so axis labels reflect storage-direction traversal.
-        // Column i is the world direction of logical axis i in storage order.
-        var srowX: [Float] = [0, 0, 0, 0]
-        var srowY: [Float] = [0, 0, 0, 0]
-        var srowZ: [Float] = [0, 0, 0, 0]
-        for i in 0..<3 {
-            let origAxis = spatialAxes[i]
-            let sign: Float = header.layout[origAxis].reversed ? -1.0 : 1.0
-            if origAxis == 0 { srowX[i] = sign }
-            if origAxis == 1 { srowY[i] = sign }
-            if origAxis == 2 { srowZ[i] = sign }
-        }
-
         let miqHeader = MIQHeader(
             littleEndian: header.littleEndian,
             dimensions: [dim0, dim1, dim2, volumes],
@@ -180,17 +166,17 @@ extension MIQParser {
             sclSlope: header.scale,
             sclInter: header.offset,
             qformCode: 0,
-            sformCode: 1,
-            srowX: srowX,
-            srowY: srowY,
-            srowZ: srowZ
+            sformCode: 0,
+            srowX: [],
+            srowY: [],
+            srowZ: [],
+            orientationFrame: OrientationFrame.fromMifLabel(orientationLabel)
         )
 
         return MifImageDescriptor(
             header: miqHeader,
             strides4: strides4,
-            baseElementIndex: 0,
-            orientationLabel: orientationLabel
+            baseElementIndex: 0
         )
     }
 
@@ -213,8 +199,7 @@ extension MIQParser {
             storage: data,
             payloadOffset: dataOffset,
             payloadBaseElementIndex: descriptor.baseElementIndex,
-            payloadElementStrides: descriptor.strides4,
-            orientationLabel: descriptor.orientationLabel
+            payloadElementStrides: descriptor.strides4
         )
     }
 

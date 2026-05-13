@@ -6,7 +6,6 @@ public struct MIQImage: Sendable {
     public let payloadOffset: Int
     public let payloadBaseElementIndex: Int
     public let payloadElementStrides: [Int]?
-    public let orientationLabel: String?
 
     public init(header: MIQHeader, storage: Data, payloadOffset: Int) {
         self.init(
@@ -14,8 +13,7 @@ public struct MIQImage: Sendable {
             storage: storage,
             payloadOffset: payloadOffset,
             payloadBaseElementIndex: 0,
-            payloadElementStrides: nil,
-            orientationLabel: nil
+            payloadElementStrides: nil
         )
     }
 
@@ -24,15 +22,13 @@ public struct MIQImage: Sendable {
         storage: Data,
         payloadOffset: Int,
         payloadBaseElementIndex: Int,
-        payloadElementStrides: [Int]?,
-        orientationLabel: String? = nil
+        payloadElementStrides: [Int]?
     ) {
         self.header = header
         self.storage = storage
         self.payloadOffset = max(0, payloadOffset)
         self.payloadBaseElementIndex = max(0, payloadBaseElementIndex)
         self.payloadElementStrides = payloadElementStrides
-        self.orientationLabel = orientationLabel
     }
 
     public var payloadCount: Int {

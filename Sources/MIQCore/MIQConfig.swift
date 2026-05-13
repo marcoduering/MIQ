@@ -17,6 +17,7 @@ public enum MIQConfig {
         public static let showMetadataOrientation = "showMetadataOrientation"
         public static let showMetadataDatatype    = "showMetadataDatatype"
         public static let showMetadataVolumes     = "showMetadataVolumes"
+        public static let showMetadataScaling     = "showMetadataScaling"
         public static let metadataOrder           = "metadataOrder"
         public static let hideDisclaimerInPreview = "hideDisclaimerInPreview"
     }
@@ -33,7 +34,8 @@ public enum MIQConfig {
         public static let showMetadataOrientation = true
         public static let showMetadataDatatype    = true
         public static let showMetadataVolumes     = true
-        public static let metadataOrder           = "format,dimensions,spacing,orientation,datatype,volumes"
+        public static let showMetadataScaling     = true
+        public static let metadataOrder           = "format,dimensions,spacing,orientation,datatype,volumes,scaling"
         public static let hideDisclaimerInPreview = false
     }
 
@@ -107,6 +109,7 @@ public enum MIQConfig {
             case .orientation: return (Keys.showMetadataOrientation, Defaults.showMetadataOrientation)
             case .datatype:    return (Keys.showMetadataDatatype,    Defaults.showMetadataDatatype)
             case .volumes:     return (Keys.showMetadataVolumes,     Defaults.showMetadataVolumes)
+            case .scaling:     return (Keys.showMetadataScaling,     Defaults.showMetadataScaling)
             }
         }()
         return d.object(forKey: key) as? Bool ?? fallback

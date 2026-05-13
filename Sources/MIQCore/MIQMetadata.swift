@@ -7,6 +7,7 @@ public enum MetadataField: String, Sendable, CaseIterable {
     case orientation
     case datatype
     case volumes
+    case scaling
 }
 
 public struct MetadataEntry: Sendable {
@@ -24,6 +25,8 @@ public struct MIQMetadata: Sendable {
     public let spacing: String
     public let datatype: String
     public let volumes: Int
+    public let sclSlope: Float
+    public let sclInter: Float
     public let qformCode: Int
     public let sformCode: Int
     public let orientation: String?
@@ -38,6 +41,8 @@ public struct MIQMetadata: Sendable {
 
         datatype = header.datatype.label
         volumes = header.volumes
+        sclSlope = header.sclSlope
+        sclInter = header.sclInter
         qformCode = header.qformCode
         sformCode = header.sformCode
         self.orientation = orientation
@@ -53,6 +58,23 @@ public struct MIQMetadata: Sendable {
         }
         entries.append(MetadataEntry(field: .datatype, text: "Datatype: \(datatype)"))
         entries.append(MetadataEntry(field: .volumes, text: "Volumes: \(volumes)"))
+        if let scaling {
+            entries.append(MetadataEntry(field: .scaling, text: "Scaling: \(scaling)"))
+        }
         return entries
+    }
+
+    private var scaling: String? {
+        let slope = Double(sclSlope)
+        let intercept = Double(sclInter)
+        let epsilon = 1e-6
+
+        // `scl_slope == 0` means "do not apply scaling" in the current voxel path,
+        // so hide the row rather than showing a misleading x 0.000 + ... expression.
+        guard abs(slope) > epsilon else { return nil }
+        guard !(abs(slope - 1) <= epsilon && abs(intercept) <= epsilon) else { return nil }
+
+        let sign = intercept < 0 ? "-" : "+"
+        return String(format: "x %.3f %@ %.3f", slope, sign, abs(intercept))
     }
 }

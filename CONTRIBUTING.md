@@ -66,6 +66,8 @@ These design decisions affect the render path — keep them in mind when working
 - Slice extraction computes only the requested planes — no full volume resampling.
 - Each slice is downsampled to a maximum of 512 px on the long side before display.
 
+> Please note that Debug builds are not optimized for performance and are much slower. Test performance only with Release builds.
+
 ## Submitting Changes
 
 - Open an issue first for anything beyond small bug fixes.

@@ -8,6 +8,7 @@ public enum MIQError: Error, LocalizedError {
     case truncatedData
     case decompressionFailed
     case unsupportedFileFormat
+    case unsupportedFeature(String)
     case malformedFile(String)
 
     public var errorDescription: String? {
@@ -25,7 +26,9 @@ public enum MIQError: Error, LocalizedError {
         case .decompressionFailed:
             return "Failed to decompress gzipped data."
         case .unsupportedFileFormat:
-            return "Unsupported file format. Expected .nii, .nii.gz, .mgh, .mgz, .mgh.gz, .mif, or .mif.gz."
+            return "Unsupported file format. Expected .nii, .nii.gz, .mgh, .mgz, .mgh.gz, .mif, .mif.gz, or .nrrd."
+        case .unsupportedFeature(let reason):
+            return "Unsupported feature: \(reason)."
         case .malformedFile(let reason):
             return "Malformed file: \(reason)."
         }

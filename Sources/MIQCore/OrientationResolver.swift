@@ -5,22 +5,30 @@ public struct SliceOrientationLabels: Sendable {
     public let trailing: String
     public let top: String
     public let bottom: String
+    /// True when the file's orientation could not be determined and labels are
+    /// placeholder "?" glyphs. The canvas renders these dimmed to signal the
+    /// uncertainty rather than presenting a false anatomical claim.
+    public let isUnknown: Bool
 
-    public init(leading: String, trailing: String, top: String, bottom: String) {
+    public init(leading: String, trailing: String, top: String, bottom: String, isUnknown: Bool = false) {
         self.leading = leading
         self.trailing = trailing
         self.top = top
         self.bottom = bottom
+        self.isUnknown = isUnknown
     }
 
     /// Placeholder labels shown only during initial loading, before the affine has been parsed.
     public static let placeholderCoronal = SliceOrientationLabels(leading: "L", trailing: "R", top: "S", bottom: "I")
     public static let placeholderSagittal = SliceOrientationLabels(leading: "P", trailing: "A", top: "S", bottom: "I")
     public static let placeholderAxial = SliceOrientationLabels(leading: "L", trailing: "R", top: "A", bottom: "P")
+
+    /// Labels used when the file's anatomical orientation is genuinely undeterminable.
+    public static let unknown = SliceOrientationLabels(leading: "?", trailing: "?", top: "?", bottom: "?", isUnknown: true)
 }
 
 /// Anatomical world axis (RAS basis).
-enum AnatomicalAxis: Hashable {
+public enum AnatomicalAxis: Hashable, Sendable {
     case rightLeft
     case anteriorPosterior
     case superiorInferior
@@ -28,9 +36,31 @@ enum AnatomicalAxis: Hashable {
 
 /// Per-storage-axis anatomical role. `positive == true` means +storage matches +R / +A / +S
 /// along `axis`; `positive == false` means +storage matches the negative direction (L / P / I).
-struct StorageAxisOrientation: Hashable {
-    let axis: AnatomicalAxis
-    let positive: Bool
+public struct StorageAxisOrientation: Hashable, Sendable {
+    public let axis: AnatomicalAxis
+    public let positive: Bool
+
+    public init(axis: AnatomicalAxis, positive: Bool) {
+        self.axis = axis
+        self.positive = positive
+    }
+
+    /// One-letter anatomical code: R/L/A/P/S/I.
+    public var letter: String {
+        switch (axis, positive) {
+        case (.rightLeft, true): return "R"
+        case (.rightLeft, false): return "L"
+        case (.anteriorPosterior, true): return "A"
+        case (.anteriorPosterior, false): return "P"
+        case (.superiorInferior, true): return "S"
+        case (.superiorInferior, false): return "I"
+        }
+    }
+
+    /// The opposite anatomical direction along the same world axis.
+    public var opposite: StorageAxisOrientation {
+        StorageAxisOrientation(axis: axis, positive: !positive)
+    }
 }
 
 /// Resolved slice-extraction plan. The fields drive `SliceConfig` directly:
@@ -46,66 +76,36 @@ struct SliceAxisPlan {
 }
 
 /// Maps voxel axes to anatomical (RAS) world directions and produces display labels.
+///
+/// Reads `MIQHeader.orientationFrame` as the single authoritative source. When the
+/// frame is `nil`, labels become `.unknown` and `.ras`/`.las` modes fall back to
+/// `.stored` slicing — the volume still renders, but without making anatomical claims.
 struct OrientationResolver {
     private let header: MIQHeader
-    private let storedOverride: String?
 
     init(image: MIQImage) {
         self.header = image.header
-        self.storedOverride = image.orientationLabel
     }
 
     /// 3-letter storage orientation (e.g. "RAS", "LAS"), or nil if undeterminable.
     func storageLabel() -> String? {
-        if let storedOverride { return storedOverride }
-        guard header.sformCode > 0 else { return nil }
-        let world = worldAxisDirections()
-        return world.prefix(3).map { Self.anatomicalLabel(for: $0) }.joined()
+        header.orientationFrame.map { $0.axes.map(\.letter).joined() }
     }
 
     func displayOrientation(for plane: SlicePlane) -> SliceOrientationLabels {
-        let world = worldAxisDirections()
+        guard let frame = header.orientationFrame else { return .unknown }
         let mapping = displayMapping(for: plane)
+        let h = frame.axes[mapping.horizontalAxis]
+        let v = frame.axes[mapping.verticalAxis]
 
-        let horizontalDirection = world[mapping.horizontalAxis]
-        let verticalDirection = world[mapping.verticalAxis]
-
-        let trailing = Self.anatomicalLabel(for: horizontalDirection)
-        let leading = Self.opposite(of: trailing)
-        let top = Self.anatomicalLabel(for: verticalDirection)
-        let bottom = Self.opposite(of: top)
-
-        return SliceOrientationLabels(leading: leading, trailing: trailing, top: top, bottom: bottom)
-    }
-
-    private func worldAxisDirections() -> [(x: Float, y: Float, z: Float)] {
-        if header.sformCode > 0 {
-            let iAxis = (
-                x: header.srowX[safe: 0] ?? 0,
-                y: header.srowY[safe: 0] ?? 0,
-                z: header.srowZ[safe: 0] ?? 0
-            )
-            let jAxis = (
-                x: header.srowX[safe: 1] ?? 0,
-                y: header.srowY[safe: 1] ?? 0,
-                z: header.srowZ[safe: 1] ?? 0
-            )
-            let kAxis = (
-                x: header.srowX[safe: 2] ?? 0,
-                y: header.srowY[safe: 2] ?? 0,
-                z: header.srowZ[safe: 2] ?? 0
-            )
-
-            if Self.squaredNorm(iAxis) > 0, Self.squaredNorm(jAxis) > 0, Self.squaredNorm(kAxis) > 0 {
-                return [iAxis, jAxis, kAxis]
-            }
-        }
-
-        return [
-            (x: 1, y: 0, z: 0),
-            (x: 0, y: 1, z: 0),
-            (x: 0, y: 0, z: 1)
-        ]
+        // Stored plan: hReversed=false, vReversed=true. Column dim-1 (trailing) is
+        // the +storage end of the h axis; row 0 (top) is the +storage end of v.
+        return SliceOrientationLabels(
+            leading: h.opposite.letter,
+            trailing: h.letter,
+            top: v.letter,
+            bottom: v.opposite.letter
+        )
     }
 
     private struct DisplayMapping {
@@ -126,23 +126,10 @@ struct OrientationResolver {
 
     // MARK: - Reorientation
 
-    /// Per-storage-axis anatomical role, or `nil` when the affine is undeterminable
-    /// (no MIF orientation override, no sform, or the resolved roles are degenerate).
+    /// Per-storage-axis anatomical role, or `nil` when the orientation frame is absent.
     /// `.ras`/`.las` view modes fall back to `.stored` when this is `nil`.
     func storageAxisOrientations() -> [StorageAxisOrientation]? {
-        if let label = storedOverride, label.count == 3 {
-            var result: [StorageAxisOrientation] = []
-            result.reserveCapacity(3)
-            for char in label {
-                guard let entry = Self.orientation(for: char) else { return nil }
-                result.append(entry)
-            }
-            return Self.hasDistinctAxes(result) ? result : nil
-        }
-
-        guard let world = realWorldAxisDirections() else { return nil }
-        let result = world.map { Self.anatomy(of: $0) }
-        return Self.hasDistinctAxes(result) ? result : nil
+        header.orientationFrame?.axes
     }
 
     /// Produces a slice-extraction plan for a given anatomical plane in the requested
@@ -261,82 +248,4 @@ struct OrientationResolver {
         )
     }
 
-    /// Real sform-derived world axis vectors, or nil when sform is absent or all-zero.
-    /// Unlike `worldAxisDirections()` this never silently falls back to identity.
-    private func realWorldAxisDirections() -> [(x: Float, y: Float, z: Float)]? {
-        guard header.sformCode > 0 else { return nil }
-        let iAxis = (
-            x: header.srowX[safe: 0] ?? 0,
-            y: header.srowY[safe: 0] ?? 0,
-            z: header.srowZ[safe: 0] ?? 0
-        )
-        let jAxis = (
-            x: header.srowX[safe: 1] ?? 0,
-            y: header.srowY[safe: 1] ?? 0,
-            z: header.srowZ[safe: 1] ?? 0
-        )
-        let kAxis = (
-            x: header.srowX[safe: 2] ?? 0,
-            y: header.srowY[safe: 2] ?? 0,
-            z: header.srowZ[safe: 2] ?? 0
-        )
-        guard Self.squaredNorm(iAxis) > 0,
-              Self.squaredNorm(jAxis) > 0,
-              Self.squaredNorm(kAxis) > 0 else {
-            return nil
-        }
-        return [iAxis, jAxis, kAxis]
-    }
-
-    private static func anatomy(of v: (x: Float, y: Float, z: Float)) -> StorageAxisOrientation {
-        let label = anatomicalLabel(for: v)
-        // anatomicalLabel always returns one of R/L/A/P/S/I, so the lookup never fails.
-        return orientation(for: Character(label))!
-    }
-
-    private static func orientation(for char: Character) -> StorageAxisOrientation? {
-        switch char {
-        case "R": return StorageAxisOrientation(axis: .rightLeft, positive: true)
-        case "L": return StorageAxisOrientation(axis: .rightLeft, positive: false)
-        case "A": return StorageAxisOrientation(axis: .anteriorPosterior, positive: true)
-        case "P": return StorageAxisOrientation(axis: .anteriorPosterior, positive: false)
-        case "S": return StorageAxisOrientation(axis: .superiorInferior, positive: true)
-        case "I": return StorageAxisOrientation(axis: .superiorInferior, positive: false)
-        default: return nil
-        }
-    }
-
-    private static func hasDistinctAxes(_ list: [StorageAxisOrientation]) -> Bool {
-        Set(list.map { $0.axis }).count == list.count
-    }
-
-    private static func squaredNorm(_ v: (x: Float, y: Float, z: Float)) -> Float {
-        v.x * v.x + v.y * v.y + v.z * v.z
-    }
-
-    static func anatomicalLabel(for v: (x: Float, y: Float, z: Float)) -> String {
-        let ax = abs(v.x)
-        let ay = abs(v.y)
-        let az = abs(v.z)
-
-        if ax >= ay && ax >= az {
-            return v.x >= 0 ? "R" : "L"
-        }
-        if ay >= ax && ay >= az {
-            return v.y >= 0 ? "A" : "P"
-        }
-        return v.z >= 0 ? "S" : "I"
-    }
-
-    static func opposite(of label: String) -> String {
-        switch label {
-        case "R": return "L"
-        case "L": return "R"
-        case "A": return "P"
-        case "P": return "A"
-        case "S": return "I"
-        case "I": return "S"
-        default: return label
-        }
-    }
 }

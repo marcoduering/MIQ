@@ -39,6 +39,8 @@ public struct MIQParser {
             return try parseMgh(data)
         case .mif, .mifGz:
             return try parseMif(data)
+        case .nrrd:
+            return try parseNrrd(data)
         }
     }
 
@@ -50,6 +52,8 @@ public struct MIQParser {
             return try parseMghHeader(from: data)
         case .mif, .mifGz:
             return try parseMifHeaderOnly(from: data)
+        case .nrrd:
+            return try parseNrrdHeaderOnly(from: data)
         }
     }
 }

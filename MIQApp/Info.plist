@@ -161,6 +161,27 @@
 				</array>
 			</dict>
 		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Nearly Raw Raster Data</string>
+			<key>UTTypeIdentifier</key>
+			<string>org.teem.nrrd</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>nrrd</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/x-nrrd</string>
+				</array>
+			</dict>
+		</dict>
 	</array>
 </dict>
 </plist>

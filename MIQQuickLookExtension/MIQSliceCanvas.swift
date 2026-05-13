@@ -128,9 +128,14 @@ final class MIQSliceCanvas: NSView {
         let cx = imageRect.midX
         let cy = imageRect.midY
 
+        // Unknown-orientation labels render dimmed to signal that the "?" glyphs are
+        // a placeholder rather than a confident anatomical claim.
+        let effectiveColor = orientation.isUnknown
+            ? labelColor.withAlphaComponent(0.35)
+            : labelColor
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: labelFontSize, weight: .semibold),
-            .foregroundColor: labelColor
+            .foregroundColor: effectiveColor
         ]
 
         let margin: CGFloat = 1

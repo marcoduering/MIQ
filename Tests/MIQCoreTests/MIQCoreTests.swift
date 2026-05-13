@@ -58,6 +58,67 @@ struct MIQCoreTests {
     }
 
     @Test
+    func metadataIncludesScalingOnlyWhenNonIdentity() {
+        let scaledHeader = MIQHeader(
+            littleEndian: true,
+            dimensions: [16, 8, 4, 1],
+            pixdim: [1, 0.8, 0.8, 1.4],
+            datatype: .int16,
+            voxOffset: 352,
+            sclSlope: 0.004,
+            sclInter: 1024,
+            qformCode: 0,
+            sformCode: 0,
+            srowX: [],
+            srowY: [],
+            srowZ: []
+        )
+        let scaledLines = MIQMetadata(header: scaledHeader).asDisplayLines()
+
+        #expect(scaledLines.contains(where: { $0.field == .scaling && $0.text == "Scaling: x 0.004 + 1024.000" }))
+
+        let identityHeader = MIQHeader(
+            littleEndian: true,
+            dimensions: [16, 8, 4, 1],
+            pixdim: [1, 0.8, 0.8, 1.4],
+            datatype: .int16,
+            voxOffset: 352,
+            sclSlope: 1,
+            sclInter: 0,
+            qformCode: 0,
+            sformCode: 0,
+            srowX: [],
+            srowY: [],
+            srowZ: []
+        )
+        let unavailableHeader = MIQHeader(
+            littleEndian: true,
+            dimensions: [16, 8, 4, 1],
+            pixdim: [1, 0.8, 0.8, 1.4],
+            datatype: .int16,
+            voxOffset: 352,
+            sclSlope: 0,
+            sclInter: 0,
+            qformCode: 0,
+            sformCode: 0,
+            srowX: [],
+            srowY: [],
+            srowZ: []
+        )
+
+        #expect(!MIQMetadata(header: identityHeader).asDisplayLines().contains(where: { $0.field == .scaling }))
+        #expect(!MIQMetadata(header: unavailableHeader).asDisplayLines().contains(where: { $0.field == .scaling }))
+    }
+
+    @Test
+    func parseMetadataOrderAppendsScalingForOlderSettings() {
+        let parsed = MIQConfig.parseMetadataOrder("format,dimensions,spacing,orientation,datatype,volumes")
+
+        #expect(parsed.contains(.scaling))
+        #expect(parsed.last == .scaling)
+    }
+
+    @Test
     func parsesFromFileURLWithOffsetBackedPayload() throws {
         let data = TestMIQFactory.makeNii(width: 5, height: 4, depth: 3, datatype: .uint8)
         let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -295,6 +356,47 @@ struct MIQCoreTests {
     }
 
     @Test
+    func parsesRawNrrdWithLpsSpaceConvertedToRas() throws {
+        // LPS direction vectors (1,0,0)(0,1,0)(0,0,1) must be sign-flipped
+        // to RAS in the sform: storage x → -R (L), storage y → -A (P), storage z → S.
+        let data = TestMIQFactory.makeNrrd(
+            width: 5,
+            height: 4,
+            depth: 3,
+            datatype: .uint8,
+            space: "left-posterior-superior"
+        )
+        let image = try MIQParser().parseNrrd(data)
+
+        #expect(image.header.width == 5)
+        #expect(image.header.height == 4)
+        #expect(image.header.depth == 3)
+        #expect(image.header.datatype == .uint8)
+        #expect(image.header.sformCode == 1)
+
+        // sform column 0 (storage x direction in RAS): (-1, 0, 0) → L
+        // sform column 1 (storage y direction in RAS): (0, -1, 0) → P
+        // sform column 2 (storage z direction in RAS): (0, 0, 1) → S
+        #expect(image.header.srowX[0] == -1)
+        #expect(image.header.srowY[0] == 0)
+        #expect(image.header.srowZ[0] == 0)
+        #expect(image.header.srowX[1] == 0)
+        #expect(image.header.srowY[1] == -1)
+        #expect(image.header.srowZ[1] == 0)
+        #expect(image.header.srowX[2] == 0)
+        #expect(image.header.srowY[2] == 0)
+        #expect(image.header.srowZ[2] == 1)
+
+        let volume = MIQVolume(image: image)
+        let axial = volume.centerSlice(plane: .axial, options: testRenderingOptions)
+        let coronal = volume.centerSlice(plane: .coronal, options: testRenderingOptions)
+        let sagittal = volume.centerSlice(plane: .sagittal, options: testRenderingOptions)
+        #expect(axial.width > 0 && axial.height > 0)
+        #expect(coronal.width > 0 && coronal.height > 0)
+        #expect(sagittal.width > 0 && sagittal.height > 0)
+    }
+
+    @Test
     func storageAxisOrientationsForCanonicalRasMif() throws {
         let mif = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layout: [0, 1, 2])
         let url = Self.tempURL(suffix: ".mif")
@@ -347,9 +449,15 @@ struct MIQCoreTests {
     }
 
     @Test
-    func storageAxisOrientationsFallsBackForNiftiWithoutValidSform() throws {
-        // The test factory writes sformCode=1 but leaves srowX/Y/Z all zero — sform is invalid.
-        let data = TestMIQFactory.makeNii(width: 6, height: 4, depth: 3, datatype: .uint8)
+    func storageAxisOrientationsNilWhenNoUsableAffine() throws {
+        // Both sform_code and qform_code are zero → orientation frame is nil.
+        let data = TestMIQFactory.makeNiiWithAffines(
+            width: 6, height: 4, depth: 3, datatype: .uint8,
+            sformCode: 0,
+            srowX: [0, 0, 0, 0], srowY: [0, 0, 0, 0], srowZ: [0, 0, 0, 0],
+            qformCode: 0,
+            quaternB: 0, quaternC: 0, quaternD: 0, qfac: 0
+        )
         let image = try MIQParser().parseNifti(data)
 
         let resolver = OrientationResolver(image: image)
@@ -453,7 +561,14 @@ struct MIQCoreTests {
 
     @Test
     func reorientFallsBackToStoredWhenAffineUnknown() throws {
-        let data = TestMIQFactory.makeNii(width: 6, height: 4, depth: 3, datatype: .uint8)
+        // Both codes zero → no orientation frame → .ras/.las must collapse to .stored.
+        let data = TestMIQFactory.makeNiiWithAffines(
+            width: 6, height: 4, depth: 3, datatype: .uint8,
+            sformCode: 0,
+            srowX: [0, 0, 0, 0], srowY: [0, 0, 0, 0], srowZ: [0, 0, 0, 0],
+            qformCode: 0,
+            quaternB: 0, quaternC: 0, quaternD: 0, qfac: 0
+        )
         let image = try MIQParser().parseNifti(data)
 
         let resolver = OrientationResolver(image: image)
@@ -465,6 +580,9 @@ struct MIQCoreTests {
         #expect(stored.hReversed == ras.hReversed && stored.vReversed == ras.vReversed)
         #expect(stored.sliceAxis == las.sliceAxis && stored.hAxis == las.hAxis && stored.vAxis == las.vAxis)
         #expect(stored.hReversed == las.hReversed && stored.vReversed == las.vReversed)
+        // Labels should be unknown ("?") since the frame is nil.
+        #expect(stored.labels.isUnknown)
+        #expect(stored.labels.leading == "?" && stored.labels.trailing == "?")
     }
 
     @Test
@@ -598,6 +716,253 @@ struct MIQCoreTests {
         #expect(Int(rasVolume.voxel(x: 3, y: 0, z: 0)) == 3)
         #expect(Int(lasVolume.voxel(x: 3, y: 0, z: 0)) == 0)
     }
+
+    // MARK: - OrientationFrame (parser-populated header field)
+
+    @Test
+    func niftiOrientationFrameFromSform() throws {
+        let data = TestMIQFactory.makeNiiWithAffines(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            sformCode: 1,
+            srowX: [1, 0, 0, 0],
+            srowY: [0, 1, 0, 0],
+            srowZ: [0, 0, 1, 0],
+            qformCode: 0,
+            quaternB: 0, quaternC: 0, quaternD: 0, qfac: 1
+        )
+        let header = try MIQParser().parseNiftiHeader(from: data)
+
+        #expect(header.orientationFrame?.source == .sform)
+        #expect(header.orientationFrame?.axes == [
+            StorageAxisOrientation(axis: .rightLeft, positive: true),
+            StorageAxisOrientation(axis: .anteriorPosterior, positive: true),
+            StorageAxisOrientation(axis: .superiorInferior, positive: true)
+        ])
+    }
+
+    @Test
+    func niftiOrientationFrameFromQformWhenSformAbsent() throws {
+        // sform_code=0, qform_code=1, identity quaternion (b=c=d=0, qfac=+1) → RAS.
+        let data = TestMIQFactory.makeNiiWithAffines(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            sformCode: 0,
+            srowX: [0, 0, 0, 0],
+            srowY: [0, 0, 0, 0],
+            srowZ: [0, 0, 0, 0],
+            qformCode: 1,
+            quaternB: 0, quaternC: 0, quaternD: 0, qfac: 1
+        )
+        let header = try MIQParser().parseNiftiHeader(from: data)
+
+        #expect(header.orientationFrame?.source == .qform)
+        #expect(header.orientationFrame?.axes == [
+            StorageAxisOrientation(axis: .rightLeft, positive: true),
+            StorageAxisOrientation(axis: .anteriorPosterior, positive: true),
+            StorageAxisOrientation(axis: .superiorInferior, positive: true)
+        ])
+    }
+
+    @Test
+    func niftiSformWinsOverQformWhenBothPresent() throws {
+        // sform encodes a permuted/flipped orientation; qform claims plain RAS.
+        // Spec: sform is preferred when both are non-zero.
+        let data = TestMIQFactory.makeNiiWithAffines(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            sformCode: 1,
+            srowX: [0, -1, 0, 0],
+            srowY: [0, 0, 1, 0],
+            srowZ: [-1, 0, 0, 0],
+            qformCode: 1,
+            quaternB: 0, quaternC: 0, quaternD: 0, qfac: 1
+        )
+        let header = try MIQParser().parseNiftiHeader(from: data)
+
+        let frame = try #require(header.orientationFrame)
+        #expect(frame.source == .sform)
+        // Columns: (R=0,A=0,S=-1) → I, (R=-1,A=0,S=0) → L, (R=0,A=1,S=0) → A
+        #expect(frame.axes == [
+            StorageAxisOrientation(axis: .superiorInferior, positive: false),
+            StorageAxisOrientation(axis: .rightLeft, positive: false),
+            StorageAxisOrientation(axis: .anteriorPosterior, positive: true)
+        ])
+    }
+
+    @Test
+    func niftiFallsBackToQformWhenSformIsDegenerate() throws {
+        // sform_code>0 but rows all zero → degenerate; qform_code>0 must be used.
+        let data = TestMIQFactory.makeNiiWithAffines(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            sformCode: 1,
+            srowX: [0, 0, 0, 0],
+            srowY: [0, 0, 0, 0],
+            srowZ: [0, 0, 0, 0],
+            qformCode: 1,
+            quaternB: 0, quaternC: 0, quaternD: 0, qfac: 1
+        )
+        let header = try MIQParser().parseNiftiHeader(from: data)
+        #expect(header.orientationFrame?.source == .qform)
+    }
+
+    @Test
+    func niftiOrientationFrameNilWhenBothAbsent() throws {
+        // Zero codes → no frame derivable. With b=c=d=0 and qfac=0, even fromQuaternion
+        // returns nil; both gates fail.
+        let data = TestMIQFactory.makeNiiWithAffines(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            sformCode: 0,
+            srowX: [0, 0, 0, 0],
+            srowY: [0, 0, 0, 0],
+            srowZ: [0, 0, 0, 0],
+            qformCode: 0,
+            quaternB: 0, quaternC: 0, quaternD: 0, qfac: 0
+        )
+        let header = try MIQParser().parseNiftiHeader(from: data)
+        #expect(header.orientationFrame == nil)
+    }
+
+    @Test
+    func niftiQformQfacReflectsKAxis() throws {
+        // Identity quaternion with qfac=-1 flips the k-axis (S→I) per NIfTI-1 spec.
+        let data = TestMIQFactory.makeNiiWithAffines(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            sformCode: 0,
+            srowX: [0, 0, 0, 0],
+            srowY: [0, 0, 0, 0],
+            srowZ: [0, 0, 0, 0],
+            qformCode: 1,
+            quaternB: 0, quaternC: 0, quaternD: 0, qfac: -1
+        )
+        let header = try MIQParser().parseNiftiHeader(from: data)
+        #expect(header.orientationFrame?.axes[2] == StorageAxisOrientation(axis: .superiorInferior, positive: false))
+    }
+
+    @Test
+    func mghOrientationFrameFromGoodRas() throws {
+        // RAS-aligned direction cosines: axis 0 → R, axis 1 → A, axis 2 → S.
+        let data = TestMIQFactory.makeMghWithDirectionCosines(
+            width: 4, height: 3, depth: 2, frames: 1, datatype: .uint8,
+            xr: 1, xa: 0, xs: 0,
+            yr: 0, ya: 1, ys: 0,
+            zr: 0, za: 0, zs: 1
+        )
+        let header = try MIQParser().parseMghHeader(from: data)
+
+        #expect(header.orientationFrame?.source == .mghDirectionCosines)
+        #expect(header.orientationFrame?.axes == [
+            StorageAxisOrientation(axis: .rightLeft, positive: true),
+            StorageAxisOrientation(axis: .anteriorPosterior, positive: true),
+            StorageAxisOrientation(axis: .superiorInferior, positive: true)
+        ])
+    }
+
+    @Test
+    func mghOrientationFrameNilWhenGoodRasZero() throws {
+        // Existing factory writes goodRAS=0; sform_code=0 path → no frame derivable.
+        let data = TestMIQFactory.makeMgh(width: 4, height: 3, depth: 2, frames: 1, datatype: .uint8)
+        let header = try MIQParser().parseMghHeader(from: data)
+        #expect(header.orientationFrame == nil)
+    }
+
+    @Test
+    func mifOrientationFrameFromCanonicalRasLayout() throws {
+        let mif = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layout: [0, 1, 2])
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let image = try MIQParser().parse(url: url)
+
+        #expect(image.header.orientationFrame?.source == .mifLayout)
+        #expect(image.header.orientationFrame?.axes == [
+            StorageAxisOrientation(axis: .rightLeft, positive: true),
+            StorageAxisOrientation(axis: .anteriorPosterior, positive: true),
+            StorageAxisOrientation(axis: .superiorInferior, positive: true)
+        ])
+    }
+
+    @Test
+    func mifOrientationFrameForLasLayout() throws {
+        let mif = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layoutTokens: ["-0", "+1", "+2"])
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let image = try MIQParser().parse(url: url)
+
+        #expect(image.header.orientationFrame?.source == .mifLayout)
+        #expect(image.header.orientationFrame?.axes[0] == StorageAxisOrientation(axis: .rightLeft, positive: false))
+    }
+
+    @Test
+    func resolverEmitsRealLabelsForNiftiWithSform() throws {
+        // NIfTI with explicit RAS sform — resolver should now produce R/A/S labels
+        // (previously these would have come from an identity fallback only by coincidence).
+        let data = TestMIQFactory.makeNiiWithAffines(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            sformCode: 1,
+            srowX: [1, 0, 0, 0],
+            srowY: [0, 1, 0, 0],
+            srowZ: [0, 0, 1, 0],
+            qformCode: 0,
+            quaternB: 0, quaternC: 0, quaternD: 0, qfac: 1
+        )
+        let image = try MIQParser().parseNifti(data)
+        let resolver = OrientationResolver(image: image)
+        let coronal = resolver.displayOrientation(for: .coronal)
+        #expect(coronal.isUnknown == false)
+        #expect(coronal.trailing == "R" && coronal.leading == "L")
+        #expect(coronal.top == "S" && coronal.bottom == "I")
+    }
+
+    @Test
+    func resolverEmitsUnknownLabelsWhenFrameAbsent() throws {
+        // Zero codes → no frame → all four labels become "?" and isUnknown is set.
+        let data = TestMIQFactory.makeNiiWithAffines(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            sformCode: 0,
+            srowX: [0, 0, 0, 0], srowY: [0, 0, 0, 0], srowZ: [0, 0, 0, 0],
+            qformCode: 0,
+            quaternB: 0, quaternC: 0, quaternD: 0, qfac: 0
+        )
+        let image = try MIQParser().parseNifti(data)
+        let resolver = OrientationResolver(image: image)
+        let labels = resolver.displayOrientation(for: .coronal)
+        #expect(labels.isUnknown)
+        #expect(labels.leading == "?" && labels.trailing == "?")
+        #expect(labels.top == "?" && labels.bottom == "?")
+    }
+
+    @Test
+    func resolverEmitsRealLabelsForNiftiWithQformOnly() throws {
+        // sform_code=0, qform_code=1 — previously this rendered identity-derived labels
+        // (the regression the refactor closes). Resolver must now use the qform frame.
+        let data = TestMIQFactory.makeNiiWithAffines(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            sformCode: 0,
+            srowX: [0, 0, 0, 0], srowY: [0, 0, 0, 0], srowZ: [0, 0, 0, 0],
+            qformCode: 1,
+            quaternB: 0, quaternC: 0, quaternD: 0, qfac: 1
+        )
+        let image = try MIQParser().parseNifti(data)
+        let resolver = OrientationResolver(image: image)
+        let coronal = resolver.displayOrientation(for: .coronal)
+        #expect(coronal.isUnknown == false)
+        #expect(coronal.trailing == "R")
+    }
+
+    @Test
+    func nrrdOrientationFrameFromSpaceDirections() throws {
+        let data = TestMIQFactory.makeNrrd(width: 4, height: 3, depth: 2, datatype: .uint8)
+        let url = Self.tempURL(suffix: ".nrrd")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try data.write(to: url)
+        let image = try MIQParser().parse(url: url)
+
+        #expect(image.header.orientationFrame?.source == .nrrdSpaceDirections)
+        #expect(image.header.orientationFrame?.axes == [
+            StorageAxisOrientation(axis: .rightLeft, positive: true),
+            StorageAxisOrientation(axis: .anteriorPosterior, positive: true),
+            StorageAxisOrientation(axis: .superiorInferior, positive: true)
+        ])
+    }
 }
 
 private enum TestMIQFactory {
@@ -651,6 +1016,105 @@ private enum TestMIQFactory {
             }
         }
 
+        return Data(bytes + payload)
+    }
+
+    /// NIfTI-1 fixture with explicit sform/qform field values, for orientation-frame tests.
+    /// `qfac` is written to pixdim[0]. Pass `nil` rows to leave them zero (degenerate sform).
+    static func makeNiiWithAffines(
+        width: Int,
+        height: Int,
+        depth: Int,
+        datatype: MIQDatatype,
+        sformCode: Int16,
+        srowX: [Float],
+        srowY: [Float],
+        srowZ: [Float],
+        qformCode: Int16,
+        quaternB: Float,
+        quaternC: Float,
+        quaternD: Float,
+        qfac: Float
+    ) -> Data {
+        let headerSize = 348
+        let voxOffset = 352
+        var bytes = [UInt8](repeating: 0, count: voxOffset)
+
+        write(Int32(headerSize), to: &bytes, at: 0)
+
+        write(Int16(3), to: &bytes, at: 40)
+        write(Int16(width), to: &bytes, at: 42)
+        write(Int16(height), to: &bytes, at: 44)
+        write(Int16(depth), to: &bytes, at: 46)
+        write(Int16(1), to: &bytes, at: 48)
+
+        write(datatype.rawValue, to: &bytes, at: 70)
+        write(Int16(datatype.bytesPerVoxel * 8), to: &bytes, at: 72)
+
+        let pixdim: [Float] = [qfac, 1, 1, 1]
+        for idx in 0..<4 {
+            write(pixdim[idx], to: &bytes, at: 76 + idx * 4)
+        }
+
+        write(Float32(voxOffset), to: &bytes, at: 108)
+        write(Float32(1), to: &bytes, at: 112)
+        write(Float32(0), to: &bytes, at: 116)
+        write(qformCode, to: &bytes, at: 252)
+        write(sformCode, to: &bytes, at: 254)
+        write(quaternB, to: &bytes, at: 256)
+        write(quaternC, to: &bytes, at: 260)
+        write(quaternD, to: &bytes, at: 264)
+        for idx in 0..<4 {
+            write(srowX[safe: idx] ?? 0, to: &bytes, at: 280 + idx * 4)
+            write(srowY[safe: idx] ?? 0, to: &bytes, at: 296 + idx * 4)
+            write(srowZ[safe: idx] ?? 0, to: &bytes, at: 312 + idx * 4)
+        }
+
+        let voxelCount = width * height * depth
+        let payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
+        return Data(bytes + payload)
+    }
+
+    /// MGH fixture with goodRAS=1 and explicit direction-cosine matrix columns.
+    static func makeMghWithDirectionCosines(
+        width: Int,
+        height: Int,
+        depth: Int,
+        frames: Int,
+        datatype: MIQDatatype,
+        xr: Float, xa: Float, xs: Float,
+        yr: Float, ya: Float, ys: Float,
+        zr: Float, za: Float, zs: Float
+    ) -> Data {
+        let headerSize = 284
+        var bytes = [UInt8](repeating: 0, count: headerSize)
+
+        writeBE(Int32(1), to: &bytes, at: 0)
+        writeBE(Int32(width), to: &bytes, at: 4)
+        writeBE(Int32(height), to: &bytes, at: 8)
+        writeBE(Int32(depth), to: &bytes, at: 12)
+        writeBE(Int32(frames), to: &bytes, at: 16)
+        writeBE(mghTypeCode(for: datatype), to: &bytes, at: 20)
+        writeBE(Int32(0), to: &bytes, at: 24)
+        writeBE(Int16(1), to: &bytes, at: 28) // goodRAS
+
+        // Voxel sizes at 30/34/38 (defaults to 1.0).
+        writeBE(Float32(1), to: &bytes, at: 30)
+        writeBE(Float32(1), to: &bytes, at: 34)
+        writeBE(Float32(1), to: &bytes, at: 38)
+
+        writeBE(xr, to: &bytes, at: 42)
+        writeBE(xa, to: &bytes, at: 46)
+        writeBE(xs, to: &bytes, at: 50)
+        writeBE(yr, to: &bytes, at: 54)
+        writeBE(ya, to: &bytes, at: 58)
+        writeBE(ys, to: &bytes, at: 62)
+        writeBE(zr, to: &bytes, at: 66)
+        writeBE(za, to: &bytes, at: 70)
+        writeBE(zs, to: &bytes, at: 74)
+
+        let voxelCount = width * height * depth * max(1, frames)
+        let payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
         return Data(bytes + payload)
     }
 
@@ -904,6 +1368,61 @@ END
         return Data(header.utf8 + payload)
     }
 
+    static func makeNrrd(
+        width: Int,
+        height: Int,
+        depth: Int,
+        datatype: MIQDatatype,
+        space: String = "right-anterior-superior"
+    ) -> Data {
+        let typeLabel = nrrdTypeLabel(for: datatype)
+        let headerLines = [
+            "NRRD0004",
+            "type: \(typeLabel)",
+            "dimension: 3",
+            "space: \(space)",
+            "sizes: \(width) \(height) \(depth)",
+            "space directions: (1,0,0) (0,1,0) (0,0,1)",
+            "kinds: domain domain domain",
+            "endian: little",
+            "encoding: raw",
+            "space origin: (0,0,0)"
+        ]
+        let header = headerLines.joined(separator: "\n") + "\n\n"
+
+        let voxelCount = width * height * depth
+        var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
+        for i in 0..<voxelCount {
+            switch datatype {
+            case .uint8:
+                payload[i] = UInt8(i % 255)
+            case .int16:
+                var encoded = Int16(i % 1024).littleEndian
+                withUnsafeBytes(of: &encoded) { src in
+                    payload.replaceSubrange(i * 2..<(i * 2 + 2), with: src)
+                }
+            default:
+                payload[i * datatype.bytesPerVoxel] = UInt8(i % 255)
+            }
+        }
+
+        return Data(header.utf8) + Data(payload)
+    }
+
+    private static func nrrdTypeLabel(for datatype: MIQDatatype) -> String {
+        switch datatype {
+        case .uint8: return "uint8"
+        case .int8: return "int8"
+        case .uint16: return "uint16"
+        case .int16: return "int16"
+        case .uint32: return "uint32"
+        case .int32: return "int32"
+        case .float32: return "float"
+        case .float64: return "double"
+        case .rgb24, .rgba32: return "uint8"
+        }
+    }
+
     private static func parseLayoutTokens(_ tokens: [String]) -> [(order: Int, reversed: Bool)] {
         var result: [(order: Int, reversed: Bool)] = []
         result.reserveCapacity(tokens.count)
@@ -1018,6 +1537,13 @@ END
     private static func writeBE(_ value: Int32, to bytes: inout [UInt8], at offset: Int) {
         var v = value.bigEndian
         withUnsafeBytes(of: &v) { src in
+            bytes.replaceSubrange(offset..<(offset + 4), with: src)
+        }
+    }
+
+    private static func writeBE(_ value: Float32, to bytes: inout [UInt8], at offset: Int) {
+        var raw = value.bitPattern.bigEndian
+        withUnsafeBytes(of: &raw) { src in
             bytes.replaceSubrange(offset..<(offset + 4), with: src)
         }
     }

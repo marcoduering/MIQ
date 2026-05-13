@@ -63,6 +63,16 @@ private func metadataLabel(_ field: MetadataField) -> String {
     case .orientation: return "Orientation"
     case .datatype:    return "Datatype"
     case .volumes:     return "Volumes"
+    case .scaling:     return "Scaling"
+    }
+}
+
+private func metadataHelpText(_ field: MetadataField) -> String? {
+    switch field {
+    case .scaling:
+        return "Shows the intensity scaling from the file header as x slope +/- intercept. Hidden when the scaling is identity (x 1 + 0, meaning voxel values are used as stored) or unavailable."
+    default:
+        return nil
     }
 }
 
@@ -92,6 +102,8 @@ struct ContentView: View {
     private var showMetadataDatatype: Bool = MIQConfig.Defaults.showMetadataDatatype
     @AppStorage(MIQConfig.Keys.showMetadataVolumes, store: Self.store)
     private var showMetadataVolumes: Bool = MIQConfig.Defaults.showMetadataVolumes
+    @AppStorage(MIQConfig.Keys.showMetadataScaling, store: Self.store)
+    private var showMetadataScaling: Bool = MIQConfig.Defaults.showMetadataScaling
     @AppStorage(MIQConfig.Keys.metadataOrder, store: Self.store)
     private var metadataOrder: StoredMetadataOrder = StoredMetadataOrder.defaultValue
     @AppStorage(MIQConfig.Keys.hideDisclaimerInPreview, store: Self.store)
@@ -100,6 +112,7 @@ struct ContentView: View {
     @FocusState private var initialFocus: Bool
     @State private var showHideDisclaimerConfirm = false
     @State private var draggedMetadataField: MetadataField?
+    @State private var presentedMetadataInfoField: MetadataField?
 
     private static let disclaimerText = """
         MIQ is **not a medical device** and is **not intended for diagnostic use**. It is a developer and researcher convenience tool only; do not use it for clinical decisions.
@@ -128,7 +141,7 @@ struct ContentView: View {
             }
 
             Section {
-                Text("Changes apply the next time a preview is rendered and won’t update one already on screen. Reopen the preview to re-render.")
+                Text("Changes apply the next time a preview is rendered. Reopen a preview to re-render.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -202,6 +215,23 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                             .padding(.trailing, 4)
                         Text(metadataLabel(field))
+                        if let helpText = metadataHelpText(field) {
+                            Button {
+                                presentedMetadataInfoField = presentedMetadataInfoField == field ? nil : field
+                            } label: {
+                                Image(systemName: presentedMetadataInfoField == field ? "info.circle.fill" : "info.circle")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .popover(isPresented: metadataInfoPopoverBinding(for: field), arrowEdge: .top) {
+                                Text(helpText)
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(width: 260, alignment: .leading)
+                                    .padding(12)
+                            }
+                        }
                         Spacer()
                         Toggle("", isOn: visibilityBinding(for: field))
                             .labelsHidden()
@@ -293,7 +323,17 @@ struct ContentView: View {
         case .orientation: return $showMetadataOrientation
         case .datatype:    return $showMetadataDatatype
         case .volumes:     return $showMetadataVolumes
+        case .scaling:     return $showMetadataScaling
         }
+    }
+
+    private func metadataInfoPopoverBinding(for field: MetadataField) -> Binding<Bool> {
+        Binding(
+            get: { presentedMetadataInfoField == field },
+            set: { isPresented in
+                presentedMetadataInfoField = isPresented ? field : nil
+            }
+        )
     }
 
     private func restoreDefaults() {
@@ -308,6 +348,7 @@ struct ContentView: View {
         showMetadataOrientation = MIQConfig.Defaults.showMetadataOrientation
         showMetadataDatatype    = MIQConfig.Defaults.showMetadataDatatype
         showMetadataVolumes     = MIQConfig.Defaults.showMetadataVolumes
+        showMetadataScaling     = MIQConfig.Defaults.showMetadataScaling
         metadataOrder           = StoredMetadataOrder.defaultValue
         hideDisclaimerInPreview = MIQConfig.Defaults.hideDisclaimerInPreview
     }

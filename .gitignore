@@ -10,6 +10,8 @@
 *.swiftmodule
 *.xcuserstate
 **/xcuserdata/
+**/xcshareddata/swiftpm/
+**/xcshareddata/WorkspaceSettings.xcsettings
 build/
 CLAUDE.md
 DerivedData/

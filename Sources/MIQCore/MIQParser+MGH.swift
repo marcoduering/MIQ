@@ -92,6 +92,10 @@ extension MIQParser {
             sformCode = 0
         }
 
+        let orientationFrame: OrientationFrame? = sformCode > 0
+            ? OrientationFrame.from(srowX: srowX, srowY: srowY, srowZ: srowZ, source: .mghDirectionCosines)
+            : nil
+
         return MIQHeader(
             littleEndian: false,
             dimensions: [width, height, depth, frames],
@@ -104,7 +108,8 @@ extension MIQParser {
             sformCode: sformCode,
             srowX: srowX,
             srowY: srowY,
-            srowZ: srowZ
+            srowZ: srowZ,
+            orientationFrame: orientationFrame
         )
     }
 }

@@ -38,7 +38,6 @@ final class MIQPreviewModel {
     func load() async {
         state = .loading
         let fileURL = self.url
-        let formatEntry = Self.metadataFormatEntry(for: fileURL)
         let options = RenderingOptions(
             lowerPercentile: MIQConfig.windowLowerPercentile,
             upperPercentile: MIQConfig.windowUpperPercentile,
@@ -71,7 +70,7 @@ final class MIQPreviewModel {
                 }
 
                 var metadata = MIQMetadata(header: image.header, orientation: volume.storageOrientationLabel()).asDisplayLines()
-                metadata.insert(formatEntry, at: 0)
+                metadata.insert(Self.metadataFormatEntry(for: fileURL, header: image.header), at: 0)
                 #if DEBUG
                 if let built = Self.buildDateEntry() { metadata.append(built) }
                 #endif
@@ -110,15 +109,15 @@ final class MIQPreviewModel {
         metadataEntries = bundle.metadataEntries
     }
 
-    private nonisolated static func metadataFormatEntry(for url: URL) -> MetadataEntry {
-        let displayName = MIQFileKind(url: url)?.displayName ?? "Unknown"
+    private nonisolated static func metadataFormatEntry(for url: URL, header: MIQHeader) -> MetadataEntry {
+        let displayName = header.formatLabel ?? MIQFileKind(url: url)?.displayName ?? "Unknown"
         return MetadataEntry(field: .format, text: "Format: \(displayName)")
     }
 
     #if DEBUG
     private nonisolated static func buildDateEntry() -> MetadataEntry? {
         guard let formatted = BuildDate.formatted(for: Bundle.main.executableURL) else { return nil }
-        return MetadataEntry(field: nil, text: "Built: \(formatted)")
+        return MetadataEntry(field: nil, text: "DEBUG BUILD: \(formatted)")
     }
     #endif
 }

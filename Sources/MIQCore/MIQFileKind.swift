@@ -7,6 +7,7 @@ public enum MIQFileKind: Sendable, CaseIterable {
     case mgz
     case mif
     case mifGz
+    case nrrd
 
     public init?(url: URL) {
         let path = url.path.lowercased()
@@ -20,6 +21,7 @@ public enum MIQFileKind: Sendable, CaseIterable {
         case "mgh": self = .mgh
         case "mgz": self = .mgz
         case "mif": self = .mif
+        case "nrrd": self = .nrrd
         default: return nil
         }
     }
@@ -27,7 +29,7 @@ public enum MIQFileKind: Sendable, CaseIterable {
     public var isCompressed: Bool {
         switch self {
         case .niiGz, .mgz, .mifGz: return true
-        case .nii, .mgh, .mif: return false
+        case .nii, .mgh, .mif, .nrrd: return false
         }
     }
 
@@ -39,6 +41,7 @@ public enum MIQFileKind: Sendable, CaseIterable {
         case .mgz: return "Compressed MGH"
         case .mif: return "MRtrix MIF"
         case .mifGz: return "Compressed MRtrix MIF"
+        case .nrrd: return "NRRD"
         }
     }
 
@@ -50,6 +53,7 @@ public enum MIQFileKind: Sendable, CaseIterable {
         case .mgz: return [".mgz", ".mgh.gz"]
         case .mif: return [".mif"]
         case .mifGz: return [".mif.gz"]
+        case .nrrd: return [".nrrd"]
         }
     }
 }

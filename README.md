@@ -1,34 +1,63 @@
 # MIQ — Medical Image Quick Look
 
-MIQ is a lightweight **macOS QuickLook preview extension** for medical volume images stored in common research formats. Press **Space** on a supported file in Finder to instantly see an orthogonal slice view alongside a metadata panel.
+MIQ is a lightweight **macOS QuickLook preview extension** for medical volume images stored in common research formats. Press **Space** on a supported file in Finder to instantly see an orthogonal slice view alongside a metadata panel:
 
 <div align="center">
   <img src="./MIQ_screenshot.png" width="65%">
 </div>
 
-Inspired by the old and deprecated [DTI-TK Quick Look **plugin**](http://dti-tk.sourceforge.net/pmwiki/pmwiki.php) by Gary Hui Zhang, which brought similar functionality to older versions of macOS but is incompatible with the Quick Look **extension** architecture of current macOS versions (support for the plugin was dropped in macOS 15 Sequoia).
+Inspired by the old, deprecated [DTI-TK Quick Look **plugin**](http://dti-tk.sourceforge.net/pmwiki/pmwiki.php) by Gary Hui Zhang, which offered similar functionality on older macOS versions but is incompatible with current macOS Quick Look **extension** architecture.
 
 ## Supported Formats
 
-- :white_check_mark: NIfTI-1 & NIfTI-2 — `.nii`, `.nii.gz`
-- :white_check_mark: FreeSurfer — `.mgh`, `.mgz`, `.mgh.gz`
-- :white_check_mark: MRtrix — `.mif`, `.mif.gz`
+- :white_check_mark: **NIfTI-1 & NIfTI-2** — `.nii`, `.nii.gz`
+- :white_check_mark: **FreeSurfer** — `.mgh`, `.mgz`, `.mgh.gz`
+- :white_check_mark: **MRtrix** — `.mif`, `.mif.gz`
+- :eight_spoked_asterisk: **NRRD** — `.nrrd` *(experimental, and only the single file variant with attached header)*
 
 All formats are supported uncompressed and gzip-compressed. The extension relies on the file extension to determine the format, so it is **important that files have the correct extensions**.
 
 ## Installation
 
-The app is universal for Apple Silicon (arm64) and Intel (x86_64) Macs and has been tested on Apple Silicon with macOS 14 (Sonoma), 15 (Sequoia), and 26 (Tahoe).
+The app and extension can be installed manually or via the package manager [Homebrew](https://brew.sh). 
 
-1. 👉 **[Download the latest version (MIQ.app.zip)](https://github.com/marcoduering/MIQ/releases/latest/download/MIQ.app.zip)**
+> The app is universal for Apple Silicon (arm64) and Intel (x86_64) Macs and has been tested on Apple Silicon with macOS 14 (Sonoma), 15 (Sequoia), and 26 (Tahoe).
+
+### Manual installation
+
+1. 👉 **[Download the latest release (MIQ.app.zip)](https://github.com/marcoduering/MIQ/releases/latest/download/MIQ.app.zip)**
 [![Latest Release](https://img.shields.io/github/v/release/marcoduering/MIQ)](https://github.com/marcoduering/MIQ/releases/latest/download/MIQ.app.zip)
-2. Extract the ZIP file and copy/move **MIQ.app** to your `/Applications` folder.
-3. **Open MIQ.app** at least once to register the Quick Look preview extension.
+2. Unzip and move **`MIQ.app`** to your **`/Applications`** folder.
+3. **Open `MIQ.app`** at least once to register the Quick Look preview extension.
 4. Press **Space** on any supported file in Finder.
 5. Optional: Configure preview settings in the MIQ app.
 
 > [!TIP]
 > **Staying up to date:** To receive an email notification when a new release is published, click **Watch → Custom → Releases** at the top of this GitHub page.
+
+### Installation via Homebrew
+
+1. Install on the command line:
+
+```bash
+brew tap marcoduering/miq
+brew install --cask miq
+```
+2. **Open `MIQ.app`** at least once to register the Quick Look preview extension.
+3. Press **Space** on any supported file in Finder.
+4. Optional: Configure preview settings in the MIQ app.
+
+#### Updating via Homebrew
+
+```bash
+brew upgrade --cask miq
+```
+
+#### Uninstalling via Homebrew
+
+```bash
+brew uninstall --cask miq
+```
 
 ## Usage
 
@@ -52,11 +81,10 @@ The most recently installed extension should have priority, but this does not wo
 
 The extension is still in development. It was created with the support of AI coding agents. Please report any issues using GitHub [**Issues**](https://github.com/marcoduering/MIQ/issues). If you would like to contribute, see [CONTRIBUTING.md](./CONTRIBUTING.md) or feel free to reach out.
 
-### Roadmap
+### Development Roadmap
 
-- [ ] `PLANNED`: Improved performance for compressed formats
-- [ ] Under consideration: Support for additional compressed formats (e.g. `.zst`, `.bz2`).
-- [ ] Under consideration: Software distribution via Homebrew.
+- [ ] `PLANNED`: Improved performance for gzip compressed formats
+- [ ] Under consideration: Support for additional compressed formats (e.g. `.zst`, `.bz2`). Would probably require a third-party library.
 - [ ] Under consideration: Display of sform and qform orientation information
 - [ ] Under consideration: Support for additional image formats. Please provide feedback if you have any requests.
 - [ ] Under consideration (long term): Interactive preview.
