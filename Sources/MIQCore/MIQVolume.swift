@@ -1,5 +1,74 @@
 import Foundation
 
+public struct MIQIntensityWindowBounds: Sendable, Hashable {
+    public let low: Float
+    public let high: Float
+
+    public init(low: Float, high: Float) {
+        self.low = low
+        self.high = high
+    }
+}
+
+public struct MIQVolumeCursor: Sendable, Hashable {
+    public let x: Int
+    public let y: Int
+    public let z: Int
+
+    public init(x: Int, y: Int, z: Int) {
+        self.x = x
+        self.y = y
+        self.z = z
+    }
+
+    public func coordinate(forAxis axis: Int) -> Int {
+        switch axis {
+        case 0: return x
+        case 1: return y
+        case 2: return z
+        default: return 0
+        }
+    }
+}
+
+public struct MIQNormalizedPoint: Sendable, Hashable {
+    public let x: Double
+    public let y: Double
+
+    public init(x: Double, y: Double) {
+        self.x = x
+        self.y = y
+    }
+}
+
+public struct MIQSliceGeometry: Sendable, Hashable {
+    public let sliceAxis: Int
+    public let horizontalAxis: Int
+    public let verticalAxis: Int
+    public let width: Int
+    public let height: Int
+    public let horizontalReversed: Bool
+    public let verticalReversed: Bool
+
+    public init(
+        sliceAxis: Int,
+        horizontalAxis: Int,
+        verticalAxis: Int,
+        width: Int,
+        height: Int,
+        horizontalReversed: Bool,
+        verticalReversed: Bool
+    ) {
+        self.sliceAxis = sliceAxis
+        self.horizontalAxis = horizontalAxis
+        self.verticalAxis = verticalAxis
+        self.width = width
+        self.height = height
+        self.horizontalReversed = horizontalReversed
+        self.verticalReversed = verticalReversed
+    }
+}
+
 public struct MIQVolume: Sendable {
     public let image: MIQImage
     private let orientation: OrientationResolver
@@ -13,6 +82,88 @@ public struct MIQVolume: Sendable {
     public var height: Int { image.header.height }
     public var depth: Int { image.header.depth }
     public var volumes: Int { image.header.volumes }
+
+    public func centerCursor() -> MIQVolumeCursor {
+        MIQVolumeCursor(x: max(0, width / 2), y: max(0, height / 2), z: max(0, depth / 2))
+    }
+
+    public func sliceGeometry(for plane: SlicePlane, options: RenderingOptions) -> MIQSliceGeometry {
+        let plan = orientation.plan(for: plane, mode: options.orientation)
+        let dims = [width, height, depth]
+        return MIQSliceGeometry(
+            sliceAxis: plan.sliceAxis,
+            horizontalAxis: plan.hAxis,
+            verticalAxis: plan.vAxis,
+            width: dims[plan.hAxis],
+            height: dims[plan.vAxis],
+            horizontalReversed: plan.hReversed,
+            verticalReversed: plan.vReversed
+        )
+    }
+
+    public func sliceIndex(for plane: SlicePlane, cursor: MIQVolumeCursor, options: RenderingOptions) -> Int {
+        let geometry = sliceGeometry(for: plane, options: options)
+        return cursor.coordinate(forAxis: geometry.sliceAxis)
+    }
+
+    public func cursor(
+        for plane: SlicePlane,
+        sliceIndex: Int,
+        normalizedPoint: MIQNormalizedPoint,
+        options: RenderingOptions
+    ) -> MIQVolumeCursor {
+        let geometry = sliceGeometry(for: plane, options: options)
+        let dims = [width, height, depth]
+        let safeSlice = Self.clamp(sliceIndex, min: 0, max: max(0, dims[geometry.sliceAxis] - 1))
+        let column = Self.discreteIndex(for: normalizedPoint.x, dimension: geometry.width)
+        let row = Self.discreteIndex(for: normalizedPoint.y, dimension: geometry.height)
+
+        var coordinates = [0, 0, 0]
+        coordinates[geometry.sliceAxis] = safeSlice
+        coordinates[geometry.horizontalAxis] = geometry.horizontalReversed ? (geometry.width - 1 - column) : column
+        coordinates[geometry.verticalAxis] = geometry.verticalReversed ? (geometry.height - 1 - row) : row
+        return MIQVolumeCursor(x: coordinates[0], y: coordinates[1], z: coordinates[2])
+    }
+
+    public func normalizedPoint(for plane: SlicePlane, cursor: MIQVolumeCursor, options: RenderingOptions) -> MIQNormalizedPoint {
+        let geometry = sliceGeometry(for: plane, options: options)
+        let horizontal = Self.clamp(cursor.coordinate(forAxis: geometry.horizontalAxis), min: 0, max: max(0, geometry.width - 1))
+        let vertical = Self.clamp(cursor.coordinate(forAxis: geometry.verticalAxis), min: 0, max: max(0, geometry.height - 1))
+        let column = geometry.horizontalReversed ? (geometry.width - 1 - horizontal) : horizontal
+        let row = geometry.verticalReversed ? (geometry.height - 1 - vertical) : vertical
+
+        let x = geometry.width > 0 ? (Double(column) + 0.5) / Double(geometry.width) : 0.5
+        let y = geometry.height > 0 ? (Double(row) + 0.5) / Double(geometry.height) : 0.5
+        return MIQNormalizedPoint(x: x, y: y)
+    }
+
+    public func fixedCenterWindow(
+        planes: [SlicePlane] = SlicePlane.allCases,
+        volumeIndex: Int = 0,
+        options: RenderingOptions
+    ) -> MIQIntensityWindowBounds? {
+        let dims = [width, height, depth]
+        var pooled = [Float]()
+
+        for plane in planes {
+            let plan = orientation.plan(for: plane, mode: options.orientation)
+            let center = max(0, dims[plan.sliceAxis] / 2)
+            let prepared = prepareSlice(plan: plan, index: center, volumeIndex: volumeIndex)
+            if case .grayscale(let values, _, _) = prepared {
+                pooled.append(contentsOf: values)
+            }
+        }
+
+        guard let bounds = IntensityWindow.bounds(
+            for: pooled,
+            lowerPercentile: options.lowerPercentile,
+            upperPercentile: options.upperPercentile
+        ) else {
+            return nil
+        }
+
+        return MIQIntensityWindowBounds(low: bounds.low, high: bounds.high)
+    }
 
     public func voxel(x: Int, y: Int, z: Int, t: Int = 0) -> Float {
         guard x >= 0, x < width,
@@ -41,10 +192,20 @@ public struct MIQVolume: Sendable {
     }
 
     public func centerSlice(plane: SlicePlane, volumeIndex: Int = 0, maxDimension: Int = 512, options: RenderingOptions) -> SliceImage {
+        centerSlice(plane: plane, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options, windowBounds: nil)
+    }
+
+    public func centerSlice(
+        plane: SlicePlane,
+        volumeIndex: Int = 0,
+        maxDimension: Int = 512,
+        options: RenderingOptions,
+        windowBounds: MIQIntensityWindowBounds?
+    ) -> SliceImage {
         let plan = orientation.plan(for: plane, mode: options.orientation)
         let dims = [width, height, depth]
         let center = max(0, dims[plan.sliceAxis] / 2)
-        return slice(plan: plan, index: center, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options)
+        return slice(plan: plan, index: center, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options, windowBounds: windowBounds)
     }
 
     /// Renders the center slice for each requested plane using a *shared* intensity window.
@@ -98,21 +259,43 @@ public struct MIQVolume: Sendable {
         orientation.storageLabel()
     }
 
-    /// Display orientation labels for the given view mode. For `.ras`/`.las` the
-    /// labels are deterministic per plane; for `.stored` they're affine-derived.
+    /// Display orientation labels for the given view mode. For the reoriented modes
+    /// the labels are deterministic per plane; for `.stored` they're affine-derived.
     public func displayOrientation(for plane: SlicePlane, options: RenderingOptions) -> SliceOrientationLabels {
         orientation.plan(for: plane, mode: options.orientation).labels
     }
 
     public func slice(plane: SlicePlane, index: Int, volumeIndex: Int = 0, maxDimension: Int = 512, options: RenderingOptions) -> SliceImage {
-        let plan = orientation.plan(for: plane, mode: options.orientation)
-        return slice(plan: plan, index: index, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options)
+        slice(plane: plane, index: index, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options, windowBounds: nil)
     }
 
-    private func slice(plan: SliceAxisPlan, index: Int, volumeIndex: Int, maxDimension: Int, options: RenderingOptions) -> SliceImage {
-        let prepared = prepareSlice(plan: plan, index: index, volumeIndex: volumeIndex)
+    public func slice(
+        plane: SlicePlane,
+        index: Int,
+        volumeIndex: Int = 0,
+        maxDimension: Int = 512,
+        options: RenderingOptions,
+        windowBounds: MIQIntensityWindowBounds?
+    ) -> SliceImage {
+        let plan = orientation.plan(for: plane, mode: options.orientation)
+        return slice(plan: plan, index: index, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options, windowBounds: windowBounds)
+    }
+
+    private func slice(
+        plan: SliceAxisPlan,
+        index: Int,
+        volumeIndex: Int,
+        maxDimension: Int,
+        options: RenderingOptions,
+        windowBounds: MIQIntensityWindowBounds?
+    ) -> SliceImage {
+        let dims = [width, height, depth]
+        let safeIndex = Self.clamp(index, min: 0, max: max(0, dims[plan.sliceAxis] - 1))
+        let prepared = prepareSlice(plan: plan, index: safeIndex, volumeIndex: volumeIndex)
         let bounds: IntensityWindow.Bounds?
-        if case .grayscale(let values, _, _) = prepared {
+        if let windowBounds {
+            bounds = IntensityWindow.Bounds(low: windowBounds.low, high: windowBounds.high)
+        } else if case .grayscale(let values, _, _) = prepared {
             bounds = IntensityWindow.bounds(
                 for: values,
                 lowerPercentile: options.lowerPercentile,
@@ -251,6 +434,16 @@ public struct MIQVolume: Sendable {
             let b = Float(image.byte(atPayloadOffset: byteOffset + 2))
             return 0.299 * r + 0.587 * g + 0.114 * b
         }
+    }
+
+    private static func discreteIndex(for normalized: Double, dimension: Int) -> Int {
+        guard dimension > 1 else { return 0 }
+        let clamped = max(0, min(1, normalized))
+        return clamp(Int((clamped * Double(dimension)).rounded(.down)), min: 0, max: dimension - 1)
+    }
+
+    private static func clamp(_ value: Int, min minValue: Int, max maxValue: Int) -> Int {
+        Swift.max(minValue, Swift.min(maxValue, value))
     }
 }
 

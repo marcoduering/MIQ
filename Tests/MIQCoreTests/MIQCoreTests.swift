@@ -48,6 +48,59 @@ struct MIQCoreTests {
     }
 
     @Test
+    func fixedCenterWindowMatchesSharedCenterSliceRendering() throws {
+        let data = TestMIQFactory.makeNii(width: 8, height: 6, depth: 4, datatype: .int16)
+        let image = try MIQParser().parseNifti(data)
+        let volume = MIQVolume(image: image)
+        let shared = volume.centerSlices(options: testRenderingOptions)
+        let window = try #require(volume.fixedCenterWindow(options: testRenderingOptions))
+
+        for plane in SlicePlane.allCases {
+            let rendered = volume.centerSlice(plane: plane, options: testRenderingOptions, windowBounds: window)
+            switch (shared[plane], rendered) {
+            case (.grayscale(let a)?, .grayscale(let b)):
+                #expect(a.width == b.width)
+                #expect(a.height == b.height)
+                #expect(a.pixels == b.pixels)
+            case (.rgb(let a)?, .rgb(let b)):
+                #expect(a.width == b.width)
+                #expect(a.height == b.height)
+                #expect(a.pixels == b.pixels)
+            default:
+                Issue.record("slice rendering with fixed shared window did not match centerSlices output")
+            }
+        }
+    }
+
+    @Test
+    func fixedCenterWindowIsNilForColorVolumes() throws {
+        let data = TestMIQFactory.makeNii(width: 8, height: 6, depth: 4, datatype: .rgb24)
+        let image = try MIQParser().parseNifti(data)
+        let volume = MIQVolume(image: image)
+
+        #expect(volume.fixedCenterWindow(options: testRenderingOptions) == nil)
+    }
+
+    @Test
+    func sliceCursorRoundTripsThroughNormalizedCoordinates() throws {
+        let mif = TestMIQFactory.makeMif(width: 8, height: 6, depth: 4, datatype: .uint8, layoutTokens: ["-0", "+1", "+2"])
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+
+        let volume = MIQVolume(image: try MIQParser().parse(url: url))
+        let options = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, orientation: .neurological)
+        let cursor = MIQVolumeCursor(x: 2, y: 3, z: 1)
+
+        for plane in SlicePlane.allCases {
+            let normalized = volume.normalizedPoint(for: plane, cursor: cursor, options: options)
+            let sliceIndex = volume.sliceIndex(for: plane, cursor: cursor, options: options)
+            let recovered = volume.cursor(for: plane, sliceIndex: sliceIndex, normalizedPoint: normalized, options: options)
+            #expect(recovered == cursor)
+        }
+    }
+
+    @Test
     func extractsMetadataLines() throws {
         let data = TestMIQFactory.makeNii(width: 16, height: 8, depth: 4, datatype: .int16, pixdim: [1, 0.8, 0.8, 1.4])
         let image = try MIQParser().parseNifti(data)
@@ -487,7 +540,7 @@ struct MIQCoreTests {
     }
 
     @Test
-    func planForRasModeOnCanonicalRasIsIdentity() throws {
+    func planForNeurologicalModeOnCanonicalRasIsIdentity() throws {
         let mif = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layout: [0, 1, 2])
         let url = Self.tempURL(suffix: ".mif")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -495,7 +548,7 @@ struct MIQCoreTests {
         let image = try MIQParser().parse(url: url)
 
         let resolver = OrientationResolver(image: image)
-        let plan = resolver.plan(for: .coronal, mode: .ras)
+        let plan = resolver.plan(for: .coronal, mode: .neurological)
         #expect((plan.sliceAxis, plan.hAxis, plan.vAxis) == (1, 0, 2))
         #expect(plan.hReversed == false && plan.vReversed == true)
         #expect(plan.labels.leading == "L" && plan.labels.trailing == "R")
@@ -503,7 +556,7 @@ struct MIQCoreTests {
     }
 
     @Test
-    func planForRasModeOnLasStorageFlipsHorizontal() throws {
+    func planForNeurologicalModeOnLasStorageFlipsHorizontal() throws {
         let mif = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layoutTokens: ["-0", "+1", "+2"])
         let url = Self.tempURL(suffix: ".mif")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -511,15 +564,15 @@ struct MIQCoreTests {
         let image = try MIQParser().parse(url: url)
 
         let resolver = OrientationResolver(image: image)
-        let plan = resolver.plan(for: .coronal, mode: .ras)
+        let plan = resolver.plan(for: .coronal, mode: .neurological)
         #expect(plan.hReversed == true)
         #expect(plan.vReversed == true)
-        // Labels stay fixed in RAS view regardless of storage orientation.
+        // Labels stay fixed in neurological view regardless of storage orientation.
         #expect(plan.labels.leading == "L" && plan.labels.trailing == "R")
     }
 
     @Test
-    func planForLasModeOnCanonicalRasFlipsHorizontal() throws {
+    func planForRadiologicalModeOnCanonicalRasFlipsHorizontal() throws {
         let mif = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layout: [0, 1, 2])
         let url = Self.tempURL(suffix: ".mif")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -527,19 +580,20 @@ struct MIQCoreTests {
         let image = try MIQParser().parse(url: url)
 
         let resolver = OrientationResolver(image: image)
-        let plan = resolver.plan(for: .coronal, mode: .las)
+        let plan = resolver.plan(for: .coronal, mode: .radiological)
         #expect(plan.hReversed == true)
         #expect(plan.labels.leading == "R" && plan.labels.trailing == "L")
         #expect(plan.labels.top == "S" && plan.labels.bottom == "I")
 
-        // Sagittal labels are the same in RAS and LAS modes.
-        let sag = resolver.plan(for: .sagittal, mode: .las)
-        #expect(sag.labels.leading == "P" && sag.labels.trailing == "A")
+        // Sagittal labels are the same in neurological and radiological modes
+        // (anterior on viewer's left in both conventions).
+        let sag = resolver.plan(for: .sagittal, mode: .radiological)
+        #expect(sag.labels.leading == "A" && sag.labels.trailing == "P")
         #expect(sag.labels.top == "S" && sag.labels.bottom == "I")
     }
 
     @Test
-    func planForRasModeRoutesPermutedStorageToCorrectAnatomicalAxis() throws {
+    func planForNeurologicalModeRoutesPermutedStorageToCorrectAnatomicalAxis() throws {
         // layout [1, 0, 2] → storage axis 0 anatomically = A-P, axis 1 = R-L.
         let mif = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layout: [1, 0, 2])
         let url = Self.tempURL(suffix: ".mif")
@@ -548,9 +602,9 @@ struct MIQCoreTests {
         let image = try MIQParser().parse(url: url)
 
         let resolver = OrientationResolver(image: image)
-        let plan = resolver.plan(for: .coronal, mode: .ras)
-        // The RAS coronal slice must slice along the A-P axis (storage 0 here) and
-        // walk the R-L axis (storage 1) horizontally — different from the stored
+        let plan = resolver.plan(for: .coronal, mode: .neurological)
+        // The neurological coronal slice must slice along the A-P axis (storage 0 here)
+        // and walk the R-L axis (storage 1) horizontally — different from the stored
         // mapping which would slice along storage axis 1.
         #expect(plan.sliceAxis == 0)
         #expect(plan.hAxis == 1)
@@ -561,7 +615,7 @@ struct MIQCoreTests {
 
     @Test
     func reorientFallsBackToStoredWhenAffineUnknown() throws {
-        // Both codes zero → no orientation frame → .ras/.las must collapse to .stored.
+        // Both codes zero → no orientation frame → reoriented modes must collapse to .stored.
         let data = TestMIQFactory.makeNiiWithAffines(
             width: 6, height: 4, depth: 3, datatype: .uint8,
             sformCode: 0,
@@ -573,13 +627,13 @@ struct MIQCoreTests {
 
         let resolver = OrientationResolver(image: image)
         let stored = resolver.plan(for: .coronal, mode: .stored)
-        let ras = resolver.plan(for: .coronal, mode: .ras)
-        let las = resolver.plan(for: .coronal, mode: .las)
+        let neuro = resolver.plan(for: .coronal, mode: .neurological)
+        let radio = resolver.plan(for: .coronal, mode: .radiological)
 
-        #expect(stored.sliceAxis == ras.sliceAxis && stored.hAxis == ras.hAxis && stored.vAxis == ras.vAxis)
-        #expect(stored.hReversed == ras.hReversed && stored.vReversed == ras.vReversed)
-        #expect(stored.sliceAxis == las.sliceAxis && stored.hAxis == las.hAxis && stored.vAxis == las.vAxis)
-        #expect(stored.hReversed == las.hReversed && stored.vReversed == las.vReversed)
+        #expect(stored.sliceAxis == neuro.sliceAxis && stored.hAxis == neuro.hAxis && stored.vAxis == neuro.vAxis)
+        #expect(stored.hReversed == neuro.hReversed && stored.vReversed == neuro.vReversed)
+        #expect(stored.sliceAxis == radio.sliceAxis && stored.hAxis == radio.hAxis && stored.vAxis == radio.vAxis)
+        #expect(stored.hReversed == radio.hReversed && stored.vReversed == radio.vReversed)
         // Labels should be unknown ("?") since the frame is nil.
         #expect(stored.labels.isUnknown)
         #expect(stored.labels.leading == "?" && stored.labels.trailing == "?")
@@ -593,19 +647,20 @@ struct MIQCoreTests {
         try mif.write(to: url)
         let volume = MIQVolume(image: try MIQParser().parse(url: url))
 
-        let rasOpt = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, orientation: .ras)
-        let lasOpt = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, orientation: .las)
+        let neuroOpt = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, orientation: .neurological)
+        let radioOpt = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, orientation: .radiological)
 
-        #expect(volume.displayOrientation(for: .coronal, options: rasOpt).trailing == "R")
-        #expect(volume.displayOrientation(for: .coronal, options: lasOpt).trailing == "L")
-        #expect(volume.displayOrientation(for: .axial, options: rasOpt).top == "A")
-        #expect(volume.displayOrientation(for: .axial, options: lasOpt).top == "A")
-        #expect(volume.displayOrientation(for: .sagittal, options: rasOpt).trailing == "A")
-        #expect(volume.displayOrientation(for: .sagittal, options: lasOpt).trailing == "A")
+        #expect(volume.displayOrientation(for: .coronal, options: neuroOpt).trailing == "R")
+        #expect(volume.displayOrientation(for: .coronal, options: radioOpt).trailing == "L")
+        #expect(volume.displayOrientation(for: .axial, options: neuroOpt).top == "A")
+        #expect(volume.displayOrientation(for: .axial, options: radioOpt).top == "A")
+        // Sagittal: anterior on viewer's left in both conventions.
+        #expect(volume.displayOrientation(for: .sagittal, options: neuroOpt).leading == "A")
+        #expect(volume.displayOrientation(for: .sagittal, options: radioOpt).leading == "A")
     }
 
     @Test
-    func rasModeOnLasStorageHorizontallyMirrorsStoredPixels() throws {
+    func neurologicalModeOnLasStorageHorizontallyMirrorsStoredPixels() throws {
         // Use a volume with enough x-resolution that mirrored columns map to distinct
         // gray levels after percentile normalization.
         let width = 8, height = 4, depth = 4
@@ -616,17 +671,17 @@ struct MIQCoreTests {
         let volume = MIQVolume(image: try MIQParser().parse(url: url))
 
         let stored = RenderingOptions(lowerPercentile: 0, upperPercentile: 100, orientation: .stored)
-        let ras = RenderingOptions(lowerPercentile: 0, upperPercentile: 100, orientation: .ras)
+        let neuro = RenderingOptions(lowerPercentile: 0, upperPercentile: 100, orientation: .neurological)
         let storedSlice = volume.centerSlice(plane: .coronal, options: stored)
-        let rasSlice = volume.centerSlice(plane: .coronal, options: ras)
+        let neuroSlice = volume.centerSlice(plane: .coronal, options: neuro)
 
-        guard case .grayscale(let s) = storedSlice, case .grayscale(let r) = rasSlice else {
+        guard case .grayscale(let s) = storedSlice, case .grayscale(let r) = neuroSlice else {
             Issue.record("expected grayscale slices")
             return
         }
         #expect(s.width == r.width && s.height == r.height)
 
-        // Every row of the RAS slice is the row-wise horizontal mirror of the stored slice.
+        // Every row of the neurological slice is the row-wise horizontal mirror of the stored slice.
         for row in 0..<s.height {
             for col in 0..<s.width {
                 let mirror = s.width - 1 - col
@@ -636,8 +691,8 @@ struct MIQCoreTests {
     }
 
     @Test
-    func lasModeOnLasStoragePreservesPixels() throws {
-        // LAS-stored data viewed in .las mode = no transformation (same plan as .stored).
+    func radiologicalModeOnLasStoragePreservesPixels() throws {
+        // LAS-stored data viewed in .radiological mode = no transformation (same plan as .stored).
         let width = 8, height = 4, depth = 4
         let mif = TestMIQFactory.makeMif(width: width, height: height, depth: depth, datatype: .uint8, layoutTokens: ["-0", "+1", "+2"])
         let url = Self.tempURL(suffix: ".mif")
@@ -646,11 +701,11 @@ struct MIQCoreTests {
         let volume = MIQVolume(image: try MIQParser().parse(url: url))
 
         let stored = RenderingOptions(lowerPercentile: 0, upperPercentile: 100, orientation: .stored)
-        let las = RenderingOptions(lowerPercentile: 0, upperPercentile: 100, orientation: .las)
+        let radio = RenderingOptions(lowerPercentile: 0, upperPercentile: 100, orientation: .radiological)
         let storedSlice = volume.centerSlice(plane: .coronal, options: stored)
-        let lasSlice = volume.centerSlice(plane: .coronal, options: las)
+        let radioSlice = volume.centerSlice(plane: .coronal, options: radio)
 
-        guard case .grayscale(let s) = storedSlice, case .grayscale(let l) = lasSlice else {
+        guard case .grayscale(let s) = storedSlice, case .grayscale(let l) = radioSlice else {
             Issue.record("expected grayscale slices")
             return
         }
@@ -660,7 +715,7 @@ struct MIQCoreTests {
     @Test
     func renderingOptionsHashableIncludesOrientation() {
         let a = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, orientation: .stored)
-        let b = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, orientation: .ras)
+        let b = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, orientation: .neurological)
         let c = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, orientation: .stored)
         #expect(a != b)
         #expect(a == c)

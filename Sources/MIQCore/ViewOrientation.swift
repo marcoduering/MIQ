@@ -3,14 +3,21 @@ import Foundation
 /// View-time reorientation mode for slice rendering. The setting is applied at
 /// the slice-extraction stage only; underlying data and headers are untouched.
 ///
-/// - `.stored`: render along storage axes (legacy behavior). Labels come from the affine.
-/// - `.ras`: render in neurological convention — patient R on screen R, S on top, A on top (axial).
-/// - `.las`: render in radiological convention — patient L on screen R, S on top, A on top (axial).
+/// - `.stored`: render along storage axes (no reorientation). Labels come from the affine.
+/// - `.neurological`: reorient to RAS and apply neurological display convention —
+///   patient R on viewer's right (axial/coronal); sagittal shows anterior on viewer's left.
+/// - `.radiological`: reorient to LAS and apply radiological display convention —
+///   patient R on viewer's left (axial/coronal); sagittal shows anterior on viewer's left.
+///
+/// Sagittal renders identically in both reoriented modes (no L/R component in-plane).
 ///
 /// When the affine is undeterminable (no sform/qform, no MIF orientation override),
-/// `.ras` and `.las` fall back to `.stored` for that file.
+/// the reoriented modes fall back to `.stored` for that file.
+///
+/// Raw values `"ras"` / `"las"` are preserved to keep existing user preferences valid
+/// across this rename.
 public enum ViewOrientation: String, Sendable, Hashable, CaseIterable {
     case stored
-    case ras
-    case las
+    case neurological = "ras"
+    case radiological = "las"
 }

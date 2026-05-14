@@ -78,7 +78,7 @@ struct SliceAxisPlan {
 /// Maps voxel axes to anatomical (RAS) world directions and produces display labels.
 ///
 /// Reads `MIQHeader.orientationFrame` as the single authoritative source. When the
-/// frame is `nil`, labels become `.unknown` and `.ras`/`.las` modes fall back to
+/// frame is `nil`, labels become `.unknown` and the reoriented modes fall back to
 /// `.stored` slicing — the volume still renders, but without making anatomical claims.
 struct OrientationResolver {
     private let header: MIQHeader
@@ -127,7 +127,7 @@ struct OrientationResolver {
     // MARK: - Reorientation
 
     /// Per-storage-axis anatomical role, or `nil` when the orientation frame is absent.
-    /// `.ras`/`.las` view modes fall back to `.stored` when this is `nil`.
+    /// Reoriented view modes fall back to `.stored` when this is `nil`.
     func storageAxisOrientations() -> [StorageAxisOrientation]? {
         header.orientationFrame?.axes
     }
@@ -139,7 +139,7 @@ struct OrientationResolver {
         switch mode {
         case .stored:
             return storedPlan(for: plane)
-        case .ras, .las:
+        case .neurological, .radiological:
             guard let axes = storageAxisOrientations() else {
                 return storedPlan(for: plane)
             }
@@ -171,43 +171,44 @@ struct OrientationResolver {
     private func anatomicalTarget(for plane: SlicePlane, mode: ViewOrientation) -> AnatomicalTarget {
         switch plane {
         case .coronal:
-            // RAS: +R at trailing edge; LAS mirrors horizontally. Vertical: +S at top in both.
-            let isRAS = (mode == .ras)
+            // Neurological: +R at trailing edge; radiological mirrors horizontally. Vertical: +S at top in both.
+            let isNeurological = (mode == .neurological)
             return AnatomicalTarget(
                 sliceAnatomy: .anteriorPosterior,
                 hAnatomy: .rightLeft,
                 vAnatomy: .superiorInferior,
-                hPositive: isRAS,
+                hPositive: isNeurological,
                 vPositive: true,
                 labels: SliceOrientationLabels(
-                    leading: isRAS ? "L" : "R",
-                    trailing: isRAS ? "R" : "L",
+                    leading: isNeurological ? "L" : "R",
+                    trailing: isNeurological ? "R" : "L",
                     top: "S",
                     bottom: "I"
                 )
             )
         case .sagittal:
-            // No L/R component in the plane; RAS/LAS render identically (A on trailing, S on top).
+            // No L/R component in the plane; neurological/radiological render identically.
+            // Both conventions display sagittal with anterior on viewer's left.
             return AnatomicalTarget(
                 sliceAnatomy: .rightLeft,
                 hAnatomy: .anteriorPosterior,
                 vAnatomy: .superiorInferior,
-                hPositive: true,
+                hPositive: false,
                 vPositive: true,
-                labels: SliceOrientationLabels(leading: "P", trailing: "A", top: "S", bottom: "I")
+                labels: SliceOrientationLabels(leading: "A", trailing: "P", top: "S", bottom: "I")
             )
         case .axial:
-            // RAS: +R at trailing edge; LAS mirrors horizontally. Vertical: +A at top in both.
-            let isRAS = (mode == .ras)
+            // Neurological: +R at trailing edge; radiological mirrors horizontally. Vertical: +A at top in both.
+            let isNeurological = (mode == .neurological)
             return AnatomicalTarget(
                 sliceAnatomy: .superiorInferior,
                 hAnatomy: .rightLeft,
                 vAnatomy: .anteriorPosterior,
-                hPositive: isRAS,
+                hPositive: isNeurological,
                 vPositive: true,
                 labels: SliceOrientationLabels(
-                    leading: isRAS ? "L" : "R",
-                    trailing: isRAS ? "R" : "L",
+                    leading: isNeurological ? "L" : "R",
+                    trailing: isNeurological ? "R" : "L",
                     top: "A",
                     bottom: "P"
                 )

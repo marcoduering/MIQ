@@ -37,12 +37,27 @@ final class MIQSliceCanvas: NSView {
         didSet { needsDisplay = true }
     }
 
+    var crosshair: MIQNormalizedPoint? {
+        didSet { needsDisplay = true }
+    }
+
+    var isInteractiveModeActive: Bool = false
+
+    var onActivate: (@MainActor (SlicePlane) -> Void)?
+    var onScroll: (@MainActor (SlicePlane, Int) -> Void)?
+    var onCursorPosition: (@MainActor (SlicePlane, MIQNormalizedPoint) -> Void)?
+
+    private let plane: SlicePlane
     private let imageAlignment: ImageAlignment
+    private var scrollAccumulator: CGFloat = 0
+    private var earlyClickMonitor: Any?
+    private var lastEarlyClickEventNumber: Int?
     #if DEBUG
     var debugBorderColor: NSColor = .cyan
     #endif
 
-    init(imageAlignment: ImageAlignment, orientation: SliceOrientationLabels) {
+    init(plane: SlicePlane, imageAlignment: ImageAlignment, orientation: SliceOrientationLabels) {
+        self.plane = plane
         self.imageAlignment = imageAlignment
         self.orientation = orientation
         super.init(frame: .zero)
@@ -54,9 +69,104 @@ final class MIQSliceCanvas: NSView {
         return nil
     }
 
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if let earlyClickMonitor {
+            NSEvent.removeMonitor(earlyClickMonitor)
+            self.earlyClickMonitor = nil
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        earlyClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            MainActor.assumeIsolated {
+                self?.handleEarlyMouseDown(event)
+            }
+            return event
+        }
+    }
+
+    private func handleEarlyMouseDown(_ event: NSEvent) {
+        guard isInteractiveModeActive,
+              let window,
+              event.window === window else { return }
+        let location = convert(event.locationInWindow, from: nil)
+        guard imageRect().contains(location) else { return }
+        lastEarlyClickEventNumber = event.eventNumber
+        notifyCursorPosition(at: location)
+    }
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         needsDisplay = true
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+
+        if isInteractiveModeActive {
+            guard imageRect().contains(location) else {
+                super.mouseDown(with: event)
+                return
+            }
+            // The early local monitor already handled this click immediately on press,
+            // bypassing the QuickLook host's gesture-recognizer delay. Skip the duplicate.
+            if lastEarlyClickEventNumber == event.eventNumber { return }
+            notifyCursorPosition(at: location)
+            return
+        }
+
+        // Accept activation clicks anywhere in the canvas, even before the first
+        // image arrives, so an early click is not silently dropped.
+        onActivate?(plane)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard isInteractiveModeActive else {
+            super.mouseDragged(with: event)
+            return
+        }
+
+        let location = convert(event.locationInWindow, from: nil)
+        guard imageRect().contains(location) else {
+            super.mouseDragged(with: event)
+            return
+        }
+
+        notifyCursorPosition(at: location)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        guard imageRect().contains(location) else {
+            super.scrollWheel(with: event)
+            return
+        }
+
+        let deltaY = event.scrollingDeltaY
+        let deltaX = event.scrollingDeltaX
+        let dominantDelta = abs(deltaY) >= abs(deltaX) ? deltaY : deltaX
+        guard dominantDelta != 0 else { return }
+
+        if event.hasPreciseScrollingDeltas {
+            let threshold: CGFloat = 14
+            scrollAccumulator += dominantDelta
+            if abs(scrollAccumulator) >= threshold {
+                let step = scrollAccumulator > 0 ? -1 : 1
+                onScroll?(plane, step)
+                scrollAccumulator += scrollAccumulator > 0 ? -threshold : threshold
+            }
+            return
+        }
+
+        let step = dominantDelta > 0 ? -1 : 1
+        onScroll?(plane, step)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -92,6 +202,10 @@ final class MIQSliceCanvas: NSView {
 
             if showAxisLabels {
                 drawAxisLabels(for: imageRect, within: viewport)
+            }
+
+            if let crosshair {
+                drawCrosshair(crosshair, in: imageRect)
             }
         }
     }
@@ -172,5 +286,35 @@ final class MIQSliceCanvas: NSView {
 
     private func drawText(_ text: String, at point: NSPoint, attrs: [NSAttributedString.Key: Any]) {
         (text as NSString).draw(at: point, withAttributes: attrs)
+    }
+
+    private func imageRect() -> NSRect {
+        guard let image else { return .zero }
+        return aspectFitRect(for: image.size, inside: bounds)
+    }
+
+    private func notifyCursorPosition(at location: NSPoint) {
+        let imageRect = imageRect()
+        guard imageRect.width > 0, imageRect.height > 0 else { return }
+
+        let normalizedX = max(0, min(1, Double((location.x - imageRect.minX) / imageRect.width)))
+        let normalizedY = max(0, min(1, Double((imageRect.maxY - location.y) / imageRect.height)))
+        onCursorPosition?(plane, MIQNormalizedPoint(x: normalizedX, y: normalizedY))
+    }
+
+    private func drawCrosshair(_ crosshair: MIQNormalizedPoint, in imageRect: NSRect) {
+        let x = imageRect.minX + (CGFloat(crosshair.x) * imageRect.width)
+        let y = imageRect.maxY - (CGFloat(crosshair.y) * imageRect.height)
+
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: x, y: imageRect.minY))
+        path.line(to: NSPoint(x: x, y: imageRect.maxY))
+        path.move(to: NSPoint(x: imageRect.minX, y: y))
+        path.line(to: NSPoint(x: imageRect.maxX, y: y))
+        path.lineWidth = 1.5
+        path.setLineDash([5, 5], count: 2, phase: 0)
+
+        labelColor.setStroke()
+        path.stroke()
     }
 }

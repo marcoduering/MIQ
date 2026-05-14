@@ -4,15 +4,31 @@ import MIQCore
 final class MIQPreviewAppKitView: NSView {
     private static let loadingStatusText = "Loading image preview..."
 
+    private struct MetadataRenderInputs {
+        let entries: [MetadataEntry]
+        let order: [MetadataField]
+        let visibility: [Bool]
+        let hideDisclaimerInPreview: Bool
+        let fontSize: CGFloat
+        let inset: CGFloat
+    }
+
+    var onSliceActivate: (@MainActor (SlicePlane) -> Void)?
+    var onSliceScroll: (@MainActor (SlicePlane, Int) -> Void)?
+    var onSliceCursorPosition: (@MainActor (SlicePlane, MIQNormalizedPoint) -> Void)?
+
     private let coronal = MIQSliceCanvas(
+        plane: .coronal,
         imageAlignment: .init(horizontal: .trailing, vertical: .bottom),
         orientation: .placeholderCoronal
     )
     private let sagittal = MIQSliceCanvas(
+        plane: .sagittal,
         imageAlignment: .init(horizontal: .leading, vertical: .bottom),
         orientation: .placeholderSagittal
     )
     private let axial = MIQSliceCanvas(
+        plane: .axial,
         imageAlignment: .init(horizontal: .trailing, vertical: .top),
         orientation: .placeholderAxial
     )
@@ -21,6 +37,7 @@ final class MIQPreviewAppKitView: NSView {
     private var columnRatioConstraint: NSLayoutConstraint?
     private var rowRatioConstraint: NSLayoutConstraint?
     private var metadataEntries: [MetadataEntry] = []
+    private var lastMetadataRenderInputs: MetadataRenderInputs?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -32,6 +49,10 @@ final class MIQPreviewAppKitView: NSView {
         buildUI()
     }
 
+    func hideStatus() {
+        status.isHidden = true
+    }
+
     func showLoading() {
         status.stringValue = Self.loadingStatusText
         status.isHidden = false
@@ -41,21 +62,41 @@ final class MIQPreviewAppKitView: NSView {
         let showLabels = MIQConfig.showAxisLabels
         let c = MIQConfig.axisLabelColor
         let labelNSColor = NSColor(calibratedRed: c.red, green: c.green, blue: c.blue, alpha: c.alpha)
-        coronal.showAxisLabels = showLabels
-        sagittal.showAxisLabels = showLabels
-        axial.showAxisLabels = showLabels
-        coronal.labelColor = labelNSColor
-        sagittal.labelColor = labelNSColor
-        axial.labelColor = labelNSColor
-        coronal.orientation = model.coronalOrientation
-        sagittal.orientation = model.sagittalOrientation
-        axial.orientation = model.axialOrientation
-        coronal.image = model.coronal
-        sagittal.image = model.sagittal
-        axial.image = model.axial
+
+        applyCanvasUpdate(
+            to: coronal,
+            image: model.coronal,
+            orientation: model.coronalOrientation,
+            crosshair: model.crosshairPoint(for: .coronal),
+            showAxisLabels: showLabels,
+            labelColor: labelNSColor,
+            isInteractiveModeActive: model.isInteractiveModeActive
+        )
+        applyCanvasUpdate(
+            to: sagittal,
+            image: model.sagittal,
+            orientation: model.sagittalOrientation,
+            crosshair: model.crosshairPoint(for: .sagittal),
+            showAxisLabels: showLabels,
+            labelColor: labelNSColor,
+            isInteractiveModeActive: model.isInteractiveModeActive
+        )
+        applyCanvasUpdate(
+            to: axial,
+            image: model.axial,
+            orientation: model.axialOrientation,
+            crosshair: model.crosshairPoint(for: .axial),
+            showAxisLabels: showLabels,
+            labelColor: labelNSColor,
+            isInteractiveModeActive: model.isInteractiveModeActive
+        )
+
         updateFOVLayoutRatios()
-        metadataEntries = model.metadataEntries
-        needsLayout = true
+        if !areMetadataEntriesEqual(metadataEntries, model.metadataEntries) {
+            metadataEntries = model.metadataEntries
+            lastMetadataRenderInputs = nil
+            needsLayout = true
+        }
 
         switch model.state {
         case .failed(let message):
@@ -64,8 +105,7 @@ final class MIQPreviewAppKitView: NSView {
         case .ready:
             status.isHidden = true
         case .idle, .loading:
-            status.stringValue = Self.loadingStatusText
-            status.isHidden = false
+            break
         }
     }
 
@@ -78,12 +118,36 @@ final class MIQPreviewAppKitView: NSView {
         let panelWidth = (bounds.width - 5) * 0.5
         let panelHeight = (bounds.height - 5) * 0.5
         let labelFontSize = max(7, min(13, panelWidth * 0.03))
-        coronal.labelFontSize = labelFontSize
-        sagittal.labelFontSize = labelFontSize
-        axial.labelFontSize = labelFontSize
+        applyLabelFontSize(labelFontSize)
 
-        guard !metadataEntries.isEmpty else { return }
         let order = MIQConfig.metadataOrder
+        let visibility = MetadataField.allCases.map(MIQConfig.showMetadataField)
+        let fontSize = max(7, min(18, min(panelWidth, panelHeight) * 0.05))
+        let inset = max(6, min(24, min(panelWidth, panelHeight) * 0.05))
+        let inputs = MetadataRenderInputs(
+            entries: metadataEntries,
+            order: order,
+            visibility: visibility,
+            hideDisclaimerInPreview: MIQConfig.hideDisclaimerInPreview,
+            fontSize: fontSize,
+            inset: inset
+        )
+
+        // Skip metadata sort/rebuild unless metadata inputs or panel metrics changed.
+        if let lastMetadataRenderInputs,
+           areMetadataRenderInputsEqual(lastMetadataRenderInputs, inputs) {
+            return
+        }
+
+        lastMetadataRenderInputs = inputs
+
+        guard !metadataEntries.isEmpty else {
+            if metadata.attributedText != nil {
+                metadata.attributedText = nil
+            }
+            return
+        }
+
         let orderIndex: [MetadataField: Int] = Dictionary(
             uniqueKeysWithValues: order.enumerated().map { ($1, $0) }
         )
@@ -96,9 +160,9 @@ final class MIQPreviewAppKitView: NSView {
             if let field = entry.field, !MIQConfig.showMetadataField(field) { return nil }
             return entry.text
         }
-        let fontSize = max(7, min(18, min(panelWidth, panelHeight) * 0.05))
-        let inset = max(6, min(24, min(panelWidth, panelHeight) * 0.05))
-        metadata.inset = inset
+        if abs(metadata.inset - inset) > 0.001 {
+            metadata.inset = inset
+        }
         metadata.attributedText = makeMetadataAttributedString(from: visibleLines, fontSize: fontSize)
     }
 
@@ -139,6 +203,36 @@ final class MIQPreviewAppKitView: NSView {
         gridLikeLayout.addSubview(sagittal)
         gridLikeLayout.addSubview(axial)
         gridLikeLayout.addSubview(meta)
+
+        coronal.onActivate = { [weak self] plane in
+            self?.onSliceActivate?(plane)
+        }
+        sagittal.onActivate = { [weak self] plane in
+            self?.onSliceActivate?(plane)
+        }
+        axial.onActivate = { [weak self] plane in
+            self?.onSliceActivate?(plane)
+        }
+
+        coronal.onScroll = { [weak self] plane, step in
+            self?.onSliceScroll?(plane, step)
+        }
+        sagittal.onScroll = { [weak self] plane, step in
+            self?.onSliceScroll?(plane, step)
+        }
+        axial.onScroll = { [weak self] plane, step in
+            self?.onSliceScroll?(plane, step)
+        }
+
+        coronal.onCursorPosition = { [weak self] plane, point in
+            self?.onSliceCursorPosition?(plane, point)
+        }
+        sagittal.onCursorPosition = { [weak self] plane, point in
+            self?.onSliceCursorPosition?(plane, point)
+        }
+        axial.onCursorPosition = { [weak self] plane, point in
+            self?.onSliceCursorPosition?(plane, point)
+        }
 
         let columnRatio = coronal.widthAnchor.constraint(equalTo: sagittal.widthAnchor, multiplier: 1.0)
         let rowRatio = axial.heightAnchor.constraint(equalTo: coronal.heightAnchor, multiplier: 1.0)
@@ -221,17 +315,114 @@ final class MIQPreviewAppKitView: NSView {
         // row ratio = FOVy/FOVz approximated by axial.height/coronal.height
         let desiredColumnRatio = clamp(coronalImage.size.width / sagittalImage.size.width, min: 0.25, max: 4.0)
         let desiredRowRatio = clamp(axialImage.size.height / coronalImage.size.height, min: 0.25, max: 4.0)
+        let epsilon: CGFloat = 0.001
 
-        replaceConstraint(
-            &columnRatioConstraint,
-            with: coronal.widthAnchor.constraint(equalTo: sagittal.widthAnchor, multiplier: desiredColumnRatio)
-        )
-        replaceConstraint(
-            &rowRatioConstraint,
-            with: axial.heightAnchor.constraint(equalTo: coronal.heightAnchor, multiplier: desiredRowRatio)
-        )
+        var didUpdateConstraint = false
 
-        needsLayout = true
+        if abs((columnRatioConstraint?.multiplier ?? 0) - desiredColumnRatio) > epsilon {
+            replaceConstraint(
+                &columnRatioConstraint,
+                with: coronal.widthAnchor.constraint(equalTo: sagittal.widthAnchor, multiplier: desiredColumnRatio)
+            )
+            didUpdateConstraint = true
+        }
+
+        if abs((rowRatioConstraint?.multiplier ?? 0) - desiredRowRatio) > epsilon {
+            replaceConstraint(
+                &rowRatioConstraint,
+                with: axial.heightAnchor.constraint(equalTo: coronal.heightAnchor, multiplier: desiredRowRatio)
+            )
+            didUpdateConstraint = true
+        }
+
+        if didUpdateConstraint {
+            needsLayout = true
+        }
+    }
+
+    private func areMetadataEntriesEqual(_ lhs: [MetadataEntry], _ rhs: [MetadataEntry]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        return zip(lhs, rhs).allSatisfy { left, right in
+            left.field == right.field && left.text == right.text
+        }
+    }
+
+    private func areMetadataRenderInputsEqual(_ lhs: MetadataRenderInputs, _ rhs: MetadataRenderInputs) -> Bool {
+        areMetadataEntriesEqual(lhs.entries, rhs.entries) &&
+        lhs.order == rhs.order &&
+        lhs.visibility == rhs.visibility &&
+        lhs.hideDisclaimerInPreview == rhs.hideDisclaimerInPreview &&
+        abs(lhs.fontSize - rhs.fontSize) <= 0.001 &&
+        abs(lhs.inset - rhs.inset) <= 0.001
+    }
+
+    private func applyLabelFontSize(_ size: CGFloat) {
+        if abs(coronal.labelFontSize - size) > 0.001 {
+            coronal.labelFontSize = size
+        }
+        if abs(sagittal.labelFontSize - size) > 0.001 {
+            sagittal.labelFontSize = size
+        }
+        if abs(axial.labelFontSize - size) > 0.001 {
+            axial.labelFontSize = size
+        }
+    }
+
+    private func applyCanvasUpdate(
+        to canvas: MIQSliceCanvas,
+        image: NSImage?,
+        orientation: SliceOrientationLabels,
+        crosshair: MIQNormalizedPoint?,
+        showAxisLabels: Bool,
+        labelColor: NSColor,
+        isInteractiveModeActive: Bool
+    ) {
+        if canvas.showAxisLabels != showAxisLabels {
+            canvas.showAxisLabels = showAxisLabels
+        }
+
+        if !areColorsEqual(canvas.labelColor, labelColor) {
+            canvas.labelColor = labelColor
+        }
+
+        if canvas.isInteractiveModeActive != isInteractiveModeActive {
+            canvas.isInteractiveModeActive = isInteractiveModeActive
+        }
+
+        if !areOrientationLabelsEqual(canvas.orientation, orientation) {
+            canvas.orientation = orientation
+        }
+
+        if !areImagesIdentical(canvas.image, image) {
+            canvas.image = image
+        }
+
+        if canvas.crosshair != crosshair {
+            canvas.crosshair = crosshair
+        }
+    }
+
+    private func areColorsEqual(_ lhs: NSColor, _ rhs: NSColor) -> Bool {
+        lhs.isEqual(rhs)
+    }
+
+    private func areOrientationLabelsEqual(_ lhs: SliceOrientationLabels, _ rhs: SliceOrientationLabels) -> Bool {
+        lhs.leading == rhs.leading &&
+        lhs.trailing == rhs.trailing &&
+        lhs.top == rhs.top &&
+        lhs.bottom == rhs.bottom &&
+        lhs.isUnknown == rhs.isUnknown
+    }
+
+    private func areImagesIdentical(_ lhs: NSImage?, _ rhs: NSImage?) -> Bool {
+        switch (lhs, rhs) {
+        case (.none, .none):
+            return true
+        case let (.some(left), .some(right)):
+            return left === right
+        default:
+            return false
+        }
     }
 
     private func replaceConstraint(_ existing: inout NSLayoutConstraint?, with newConstraint: NSLayoutConstraint) {

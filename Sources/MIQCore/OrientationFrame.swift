@@ -18,7 +18,7 @@ public enum OrientationSource: String, Sendable, Hashable {
 /// Built once at parse time by each format-specific parser, then consumed by
 /// `OrientationResolver` as the single source of truth for both display labels
 /// and slice planning. `nil` causes the resolver to emit `SliceOrientationLabels.unknown`
-/// and `.ras`/`.las` view modes to fall back to `.stored` slicing.
+/// and reoriented view modes to fall back to `.stored` slicing.
 public struct OrientationFrame: Sendable, Hashable {
     public let axes: [StorageAxisOrientation]
     public let source: OrientationSource

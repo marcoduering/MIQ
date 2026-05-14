@@ -8,9 +8,9 @@ extension ViewOrientation {
 
     var label: String {
         switch self {
-        case .stored: return "As stored (default)"
-        case .ras:    return "Reorient to RAS"
-        case .las:    return "Reorient to LAS"
+        case .stored:        return "As stored (default)"
+        case .neurological:  return "Neurological view"
+        case .radiological:  return "Radiological view"
         }
     }
 }
@@ -77,7 +77,129 @@ private func metadataHelpText(_ field: MetadataField) -> String? {
 }
 
 
+private enum SettingsTab: String, CaseIterable, Hashable {
+    case about
+    case imageDisplay
+    case metadataPanel
+
+    var label: String {
+        switch self {
+        case .about:         return "About"
+        case .imageDisplay:  return "Image Display"
+        case .metadataPanel: return "Metadata Panel"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .about:         return "info.circle"
+        case .imageDisplay:  return "photo"
+        case .metadataPanel: return "list.bullet.rectangle"
+        }
+    }
+
+    var toolbarItemIdentifier: NSToolbarItem.Identifier {
+        NSToolbarItem.Identifier("miq.settings.\(rawValue)")
+    }
+
+    static func tab(for identifier: NSToolbarItem.Identifier) -> SettingsTab? {
+        SettingsTab.allCases.first { $0.toolbarItemIdentifier == identifier }
+    }
+}
+
+private struct SettingsToolbarInstaller: NSViewRepresentable {
+    @Binding var selection: SettingsTab
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(selection: $selection)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            context.coordinator.install(into: view.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if context.coordinator.window == nil {
+            DispatchQueue.main.async {
+                context.coordinator.install(into: nsView.window)
+            }
+        }
+        context.coordinator.update(selection: selection)
+    }
+
+    final class Coordinator: NSObject, NSToolbarDelegate {
+        @Binding var selection: SettingsTab
+        weak var window: NSWindow?
+
+        init(selection: Binding<SettingsTab>) {
+            self._selection = selection
+        }
+
+        func install(into window: NSWindow?) {
+            guard let window else { return }
+            self.window = window
+            if window.toolbar?.identifier == NSToolbar.Identifier("MIQSettings") {
+                window.toolbar?.selectedItemIdentifier = selection.toolbarItemIdentifier
+                return
+            }
+            let toolbar = NSToolbar(identifier: NSToolbar.Identifier("MIQSettings"))
+            toolbar.displayMode = .iconAndLabel
+            toolbar.allowsUserCustomization = false
+            toolbar.delegate = self
+            window.toolbar = toolbar
+            window.toolbarStyle = .preference
+            toolbar.selectedItemIdentifier = selection.toolbarItemIdentifier
+        }
+
+        func update(selection: SettingsTab) {
+            guard let toolbar = window?.toolbar,
+                  toolbar.selectedItemIdentifier != selection.toolbarItemIdentifier
+            else { return }
+            toolbar.selectedItemIdentifier = selection.toolbarItemIdentifier
+        }
+
+        func toolbar(_ toolbar: NSToolbar,
+                     itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+                     willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+            guard let tab = SettingsTab.tab(for: itemIdentifier) else { return nil }
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = tab.label
+            item.paletteLabel = tab.label
+            item.image = NSImage(systemSymbolName: tab.symbol, accessibilityDescription: tab.label)
+            item.target = self
+            item.action = #selector(itemTapped(_:))
+            return item
+        }
+
+        func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+            SettingsTab.allCases.map(\.toolbarItemIdentifier)
+        }
+
+        func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+            SettingsTab.allCases.map(\.toolbarItemIdentifier)
+        }
+
+        func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+            SettingsTab.allCases.map(\.toolbarItemIdentifier)
+        }
+
+        @objc private func itemTapped(_ sender: NSToolbarItem) {
+            if let tab = SettingsTab.tab(for: sender.itemIdentifier) {
+                selection = tab
+            }
+        }
+    }
+}
+
 struct ContentView: View {
+    private enum FocusTarget: Hashable {
+        case resetButton
+    }
+
     private static let store = UserDefaults(suiteName: MIQConfig.appGroupID)
 
     @AppStorage(MIQConfig.Keys.imageOrientation, store: Self.store)
@@ -109,10 +231,11 @@ struct ContentView: View {
     @AppStorage(MIQConfig.Keys.hideDisclaimerInPreview, store: Self.store)
     private var hideDisclaimerInPreview: Bool = MIQConfig.Defaults.hideDisclaimerInPreview
 
-    @FocusState private var initialFocus: Bool
+    @FocusState private var focusedTarget: FocusTarget?
     @State private var showHideDisclaimerConfirm = false
     @State private var draggedMetadataField: MetadataField?
     @State private var presentedMetadataInfoField: MetadataField?
+    @State private var selectedTab: SettingsTab = .about
 
     private static let disclaimerText = """
         MIQ is **not a medical device** and is **not intended for diagnostic use**. It is a developer and researcher convenience tool only; do not use it for clinical decisions.
@@ -121,6 +244,52 @@ struct ContentView: View {
         """
 
     var body: some View {
+        Group {
+            switch selectedTab {
+            case .about:         aboutSettingsView
+            case .imageDisplay:  imageDisplaySettingsView
+            case .metadataPanel: metadataPanelSettingsView
+            }
+        }
+        .background(SettingsToolbarInstaller(selection: $selectedTab))
+        .alert("Hide disclaimer in preview?", isPresented: $showHideDisclaimerConfirm) {
+            Button("Cancel", role: .cancel) {
+                hideDisclaimerInPreview = false
+            }
+            Button("I understand, hide it") {
+                hideDisclaimerInPreview = true
+            }
+        } message: {
+            Text(Self.disclaimerText + "\n\nBy hiding the disclaimer in previews, you confirm that you understand and accept these terms.")
+        }
+        .frame(minWidth: 550, idealWidth: 550, maxWidth: 550, minHeight: 560, idealHeight: 560, maxHeight: 560)
+        .onAppear {
+            focusedTarget = .resetButton
+        }
+        #if DEBUG
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            let appDate = BuildDate.formatted(for: Bundle.main.executableURL) ?? "unknown"
+            let extExec = Bundle.main.builtInPlugInsURL?
+                .appendingPathComponent("MIQQuickLookExtension.appex/Contents/MacOS/MIQQuickLookExtension")
+            let extDate = BuildDate.formatted(for: extExec) ?? "unknown"
+            VStack(spacing: 0) {
+                Divider()
+                HStack {
+                    Text("App built: \(appDate)")
+                    Spacer()
+                    Text("Extension built: \(extDate)")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+            }
+            .background(.bar)
+        }
+        #endif
+    }
+
+    private var aboutSettingsView: some View {
         Form {
             Section {
                 VStack(spacing: 8) {
@@ -147,15 +316,49 @@ struct ContentView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Section("Image display") {
+            Section("General") {
+                HStack {
+                    Text("Restore default settings")
+                    Spacer()
+                    Button("Reset") {
+                        restoreDefaults()
+                    }
+                    .focused($focusedTarget, equals: .resetButton)
+                }
+            }
+
+            Section("Disclaimer") {
+                Text(.init(Self.disclaimerText))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle("Hide disclaimer in preview", isOn: Binding(
+                    get: { hideDisclaimerInPreview },
+                    set: { newValue in
+                        if newValue {
+                            showHideDisclaimerConfirm = true
+                        } else {
+                            hideDisclaimerInPreview = false
+                        }
+                    }
+                ))
+            }
+        }
+        .formStyle(.grouped)
+        .scrollDisabled(true)
+    }
+
+    private var imageDisplaySettingsView: some View {
+        Form {
+            Section {
                 VStack(alignment: .leading, spacing: 6) {
                     Picker("Orientation", selection: $imageOrientation) {
                         ForEach(ViewOrientation.allCases, id: \.rawValue) { orientation in
                             Text(orientation.label).tag(orientation)
                         }
                     }
-                    .focused($initialFocus)
-                    Text("By default, the image is rendered as stored to provide a quick preview of your data. Depending on its orientation, it may appear rotated or flipped. If you prefer a standardized view, the preview can be rendered reoriented to RAS or LAS.")
+                    Text("By default, the image is rendered as stored (best for checking your raw data). Depending on its orientation, it may appear rotated or flipped. If you prefer a standardized view, the preview can be rendered in the neurological convention (patient right on viewer's right) or the radiological convention (patient right on viewer's left).")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -202,7 +405,26 @@ struct ContentView: View {
                 }
             }
 
-            Section("Metadata") {
+            Section("Tip") {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "lightbulb.fill")
+                        .font(.title2)
+                        .foregroundStyle(.yellow)
+
+                    Text("Click on the images to enter **interactive mode**. After a cross-hair appears, you can click, drag and scroll the orthogonal view to change slice positions.")
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(5)
+
+            }
+        }
+        .formStyle(.grouped)
+        .scrollDisabled(true)
+    }
+
+    private var metadataPanelSettingsView: some View {
+        Form {
+            Section {
                 Text("Choose which fields appear in the metadata panel. Drag and drop to rearrange the order.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -249,70 +471,9 @@ struct ContentView: View {
                     ))
                 }
             }
-
-            Section("General") {
-                HStack {
-                    Text("Restore default settings")
-                    Spacer()
-                    Button("Reset") {
-                        restoreDefaults()
-                    }
-                }
-            }
-
-            Section("Disclaimer") {
-                Text(.init(Self.disclaimerText))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Toggle("Hide disclaimer in preview", isOn: Binding(
-                    get: { hideDisclaimerInPreview },
-                    set: { newValue in
-                        if newValue {
-                            showHideDisclaimerConfirm = true
-                        } else {
-                            hideDisclaimerInPreview = false
-                        }
-                    }
-                ))
-            }
-        }
-        .alert("Hide disclaimer in preview?", isPresented: $showHideDisclaimerConfirm) {
-            Button("Cancel", role: .cancel) {
-                hideDisclaimerInPreview = false
-            }
-            Button("I understand, hide it") {
-                hideDisclaimerInPreview = true
-            }
-        } message: {
-            Text(Self.disclaimerText + "\n\nBy hiding the disclaimer in previews, you confirm that you understand and accept these terms.")
         }
         .formStyle(.grouped)
-        .navigationTitle("Settings")
-        .frame(minWidth: 550, idealWidth: 550, maxWidth: 550, minHeight: 600)
-        .onAppear { initialFocus = true }
-        #if DEBUG
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            let appDate = BuildDate.formatted(for: Bundle.main.executableURL) ?? "unknown"
-            let extExec = Bundle.main.builtInPlugInsURL?
-                .appendingPathComponent("MIQQuickLookExtension.appex/Contents/MacOS/MIQQuickLookExtension")
-            let extDate = BuildDate.formatted(for: extExec) ?? "unknown"
-            VStack(spacing: 0) {
-                Divider()
-                HStack {
-                    Text("App built: \(appDate)")
-                    Spacer()
-                    Text("Extension built: \(extDate)")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-            }
-            .background(.bar)
-        }
-        #endif
+        .scrollDisabled(true)
     }
 
     private func visibilityBinding(for field: MetadataField) -> Binding<Bool> {

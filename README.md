@@ -63,31 +63,32 @@ brew uninstall --cask miq
 
 MIQ is a lightweight convenience tool for quickly inspecting medical image files directly from the Finder. It prioritizes speed and ease of use over advanced visualization, and is not meant to replace dedicated medical image viewers.
 
-By default, MIQ displays data **as stored on disk**, without reorienting. Depending on acquisition and processing, images may appear upside down, mirrored, or rotated. This is intentional, so you can inspect the raw data and its orientation. If desired, there is a setting to reorient to RAS or LAS. For multi-volume (4D) data, only the first volume is shown.
+### Orientation
 
-## Performance
+By default, MIQ displays data **as stored on disk**, without reorienting. Depending on acquisition and processing, images may appear upside down, mirrored, or rotated. This is intentional, so you can inspect the raw data and its orientation. If desired, there are settings to reorient to **Neurological view** or **Radiological view**. In both reoriented conventions, sagittal displays anterior on the viewer's left. Please note that for multi-volume (4D) data, only the first volume is shown.
 
-Previews are designed to appear almost instantly. Uncompressed files (`.nii`, `.mgh`, `.mif`) are memory-mapped and impose essentially no load time regardless of size. Compressed files (`.nii.gz`, `.mgz`, `.mif.gz`) require decompression before rendering and very large compressed volumes may take a few seconds to load.
+### Interactive Mode
+
+The preview is static (showing center slices) by default for maximum speed. However, there is an **interactive mode** that allows you to navigate through slices. Activate it by clicking on the image, a cross-hair will appear. You can click, drag and scroll to explore the volume.
+
+### Customization
+
+Use the settings (main app) to tailor the preview to your needs. You can adjust the orientation (see above), intensity scaling, label colors and content as well as order of the metadata panel.
+
+### Performance
+
+Static previews are designed to appear almost instantly. Uncompressed files (`.nii`, `.mgh`, `.mif`) are memory-mapped and impose essentially no load time regardless of size. Compressed files (`.nii.gz`, `.mgz`, `.mif.gz`) require decompression before rendering and very large compressed volumes may take a few seconds to load.
 
 ## Troubleshooting
 
 ### Conflicts with Other Quick Look Extensions
 
-macOS assigns Quick Look extensions to file types based on their extensions. Since `.gz` is a generic extension shared by many file types, MIQ must claim it broadly to handle `.nii.gz` and `.mif.gz` files. This can interfere with other Quick Look extensions that also manage `.gz` files (for example, extensions for compressed archives or source code).
-
+macOS assigns Quick Look extensions to file types based on their extensions. Since `.gz` is a generic extension shared by many file types, MIQ must claim it broadly to handle `.nii.gz` and `.mif.gz` files. This can interfere with other Quick Look extensions that also manage `.gz` files (for example, extensions for compressed archives or source code).  
 The most recently installed extension should have priority, but this does not work consistently. You might need to deactivate another extension to reliably open gzip-compressed files with MIQ. This is a known limitation of how macOS Quick Look handles compound extensions like `.nii.gz`.
 
 ## Active Development
 
-The extension is still in development. It was created with the support of AI coding agents. Please report any issues using GitHub [**Issues**](https://github.com/marcoduering/MIQ/issues). If you would like to contribute, see [CONTRIBUTING.md](./CONTRIBUTING.md) or feel free to reach out.
-
-### Development Roadmap
-
-- [ ] `PLANNED`: Improved performance for gzip compressed formats
-- [ ] Under consideration: Support for additional compressed formats (e.g. `.zst`, `.bz2`). Would probably require a third-party library.
-- [ ] Under consideration: Display of sform and qform orientation information
-- [ ] Under consideration: Support for additional image formats. Please provide feedback if you have any requests.
-- [ ] Under consideration (long term): Interactive preview.
+The extension is still in development. It was created with the support of AI coding agents. Please report any issues or feature suggestions using [**GitHub Issues**](https://github.com/marcoduering/MIQ/issues). If you would like to contribute, see [CONTRIBUTING.md](./CONTRIBUTING.md) or feel free to reach out.
 
 ## Disclaimer & License
 
