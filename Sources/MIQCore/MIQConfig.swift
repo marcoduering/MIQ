@@ -1,8 +1,19 @@
 import Foundation
+import os.log
 
 public enum MIQConfig {
+    private static let configLogger = Logger(subsystem: "miq.core", category: "config")
+    nonisolated(unsafe) private static var loggedMissingAppGroupID = false
+
     public static var appGroupID: String {
-        Bundle.main.object(forInfoDictionaryKey: "MIQAppGroupID") as? String ?? ""
+        if let value = Bundle.main.object(forInfoDictionaryKey: "MIQAppGroupID") as? String, !value.isEmpty {
+            return value
+        }
+        if !loggedMissingAppGroupID {
+            loggedMissingAppGroupID = true
+            configLogger.notice("MIQAppGroupID missing from Info.plist — falling back to UserDefaults.standard; settings won't propagate between app and extension")
+        }
+        return ""
     }
 
     public enum Keys {

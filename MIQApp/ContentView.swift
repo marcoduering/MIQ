@@ -131,6 +131,7 @@ private struct SettingsToolbarInstaller: NSViewRepresentable {
         context.coordinator.update(selection: selection)
     }
 
+    @MainActor
     final class Coordinator: NSObject, NSToolbarDelegate {
         @Binding var selection: SettingsTab
         weak var window: NSWindow?

@@ -41,7 +41,7 @@ enum MIQPreviewCache {
         let modDate: String
         if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
            let date = attrs[.modificationDate] as? Date {
-            modDate = String(date.timeIntervalSinceReferenceDate)
+            modDate = String(format: "%.6f", date.timeIntervalSinceReferenceDate)
         } else {
             modDate = ""
         }
