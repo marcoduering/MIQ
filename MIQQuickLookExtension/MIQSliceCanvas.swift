@@ -176,10 +176,12 @@ final class MIQSliceCanvas: NSView {
         let viewport = bounds
 
         #if DEBUG
-        debugBorderColor.setStroke()
-        let debugBorder = NSBezierPath(rect: bounds.insetBy(dx: 1, dy: 1))
-        debugBorder.lineWidth = 2
-        debugBorder.stroke()
+        if MIQConfig.debugShowLayoutBorders {
+            debugBorderColor.setStroke()
+            let debugBorder = NSBezierPath(rect: bounds.insetBy(dx: 1, dy: 1))
+            debugBorder.lineWidth = 2
+            debugBorder.stroke()
+        }
         #endif
 
         if let image {

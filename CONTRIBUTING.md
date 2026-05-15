@@ -65,6 +65,7 @@ These design decisions affect the render path — keep them in mind when working
 - Uncompressed files (`.nii`, `.mgh`, `.mif`) are memory-mapped; the payload is never copied.
 - Slice extraction computes only the requested planes — no full volume resampling.
 - Each slice is downsampled to a maximum of 512 px on the long side before display.
+- Parsers are implemented from scratch in Swift, without third-party dependencies or bindings to C/C++ libraries.
 
 > Please note that Debug builds are not optimized for performance and are much slower. Test performance only with Release builds.
 
@@ -77,4 +78,4 @@ These design decisions affect the render path — keep them in mind when working
 
 ## Releasing (maintainers only)
 
-Notarized release builds require a Developer ID Application certificate (paid Apple Developer Program membership) and the `scripts/release_notarize.sh` script. See the comments inside that script for setup instructions.
+Notarized release builds require a Developer ID Application certificate (paid Apple Developer Program membership) and the `scripts/release_notarize.sh` script.

@@ -169,7 +169,9 @@ final class MIQPreviewAppKitView: NSView {
     private func buildUI() {
         wantsLayer = true
         #if DEBUG
-        layer?.backgroundColor = NSColor.orange.cgColor
+        layer?.backgroundColor = MIQConfig.debugShowLayoutBorders
+            ? NSColor.orange.cgColor
+            : NSColor.black.cgColor
         #else
         layer?.backgroundColor = NSColor.black.cgColor
         #endif
@@ -500,10 +502,12 @@ private final class MetadataView: NSView {
         NSColor.black.setFill()
         bounds.fill()
         #if DEBUG
-        NSColor.yellow.setStroke()
-        let debugBorder = NSBezierPath(rect: bounds.insetBy(dx: 1, dy: 1))
-        debugBorder.lineWidth = 2
-        debugBorder.stroke()
+        if MIQConfig.debugShowLayoutBorders {
+            NSColor.yellow.setStroke()
+            let debugBorder = NSBezierPath(rect: bounds.insetBy(dx: 1, dy: 1))
+            debugBorder.lineWidth = 2
+            debugBorder.stroke()
+        }
         #endif
         guard let text = attributedText else { return }
         text.draw(in: bounds.insetBy(dx: inset, dy: inset))

@@ -31,6 +31,10 @@ public enum MIQConfig {
         public static let showMetadataScaling     = "showMetadataScaling"
         public static let metadataOrder           = "metadataOrder"
         public static let hideDisclaimerInPreview = "hideDisclaimerInPreview"
+        public static let lastKnownLatestVersion  = "lastKnownLatestVersion"
+        #if DEBUG
+        public static let debugShowLayoutBorders  = "debugShowLayoutBorders"
+        #endif
     }
 
     public enum Defaults {
@@ -109,6 +113,17 @@ public enum MIQConfig {
         let d = defaults
         return d.object(forKey: Keys.hideDisclaimerInPreview) as? Bool ?? Defaults.hideDisclaimerInPreview
     }
+
+    public static var lastKnownLatestVersion: String? {
+        get { defaults.string(forKey: Keys.lastKnownLatestVersion) }
+        set { defaults.set(newValue, forKey: Keys.lastKnownLatestVersion) }
+    }
+
+    #if DEBUG
+    public static var debugShowLayoutBorders: Bool {
+        defaults.object(forKey: Keys.debugShowLayoutBorders) as? Bool ?? false
+    }
+    #endif
 
     public static func showMetadataField(_ field: MetadataField) -> Bool {
         let d = defaults

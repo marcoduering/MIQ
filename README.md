@@ -3,7 +3,7 @@
 MIQ is a lightweight **macOS QuickLook preview extension** for medical volume images stored in common research formats. Press **Space** on a supported file in Finder to instantly see an orthogonal slice view alongside a metadata panel:
 
 <div align="center">
-  <img src="./MIQ_screenshot.png" width="65%">
+  <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_screenshot.webp" width="65%">
 </div>
 
 Inspired by the old, deprecated [DTI-TK Quick Look **plugin**](http://dti-tk.sourceforge.net/pmwiki/pmwiki.php) by Gary Hui Zhang, which offered similar functionality on older macOS versions but is incompatible with current macOS Quick Look **extension** architecture.
@@ -17,7 +17,7 @@ Inspired by the old, deprecated [DTI-TK Quick Look **plugin**](http://dti-tk.sou
 
 All formats are supported uncompressed and gzip-compressed. The extension relies on the file extension to determine the format, so it is **important that files have the correct extensions**.
 
-## Installation
+## Installation & Updates
 
 The app and extension can be installed manually or via the package manager [Homebrew](https://brew.sh). 
 
@@ -30,10 +30,16 @@ The app and extension can be installed manually or via the package manager [Home
 2. Unzip and move **`MIQ.app`** to your **`/Applications`** folder.
 3. **Open `MIQ.app`** at least once to register the Quick Look preview extension.
 4. Press **Space** on any supported file in Finder.
-5. Optional: Configure preview settings in the MIQ app.
+5. Optional: **Configure the preview settings** in the MIQ app.
 
-> [!TIP]
-> **Staying up to date:** To receive an email notification when a new release is published, click **Watch → Custom → Releases** at the top of this GitHub page.
+<div align="center">
+  <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_settings1.webp" width="49%">
+  <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_settings2.webp" width="49%">
+</div>
+
+### Manual update
+
+The MIQ main app has an update checker, which will alert you in case a new version is available. Make sure to open the main app from time to time to check for updates.
 
 ### Installation via Homebrew
 
@@ -43,20 +49,14 @@ The app and extension can be installed manually or via the package manager [Home
 brew tap marcoduering/miq
 brew install --cask miq
 ```
-2. **Open `MIQ.app`** at least once to register the Quick Look preview extension.
+2. **Open `MIQ.app`** (in `/Applications`) at least once to register the Quick Look preview extension.
 3. Press **Space** on any supported file in Finder.
-4. Optional: Configure preview settings in the MIQ app.
+4. Optional: Configure the preview settings in the MIQ app.
 
 #### Updating via Homebrew
 
 ```bash
 brew upgrade --cask miq
-```
-
-#### Uninstalling via Homebrew
-
-```bash
-brew uninstall --cask miq
 ```
 
 ## Usage
@@ -65,15 +65,15 @@ MIQ is a lightweight convenience tool for quickly inspecting medical image files
 
 ### Orientation
 
-By default, MIQ displays data **as stored on disk**, without reorienting. Depending on acquisition and processing, images may appear upside down, mirrored, or rotated. This is intentional, so you can inspect the raw data and its orientation. If desired, there are settings to reorient to **Neurological view** or **Radiological view**. In both reoriented conventions, sagittal displays anterior on the viewer's left. Please note that for multi-volume (4D) data, only the first volume is shown.
+By default, MIQ displays data **as stored on disk**, without reorienting. Depending on acquisition and processing, images may appear upside down, mirrored, or rotated. This is intentional, so you can quickly inspect the raw data including its orientation. If desired, there are settings to reorient to **Neurological view** or **Radiological view**. In both reoriented conventions, sagittal displays patient anterior on the viewer's left. Please note that for multi-volume (4D) data, only the first volume is shown.
 
 ### Interactive Mode
 
-The preview is static (showing center slices) by default for maximum speed. However, there is an **interactive mode** that allows you to navigate through slices. Activate it by clicking on the image, a cross-hair will appear. You can click, drag and scroll to explore the volume.
+The preview is initially static (showing center slices) for maximum speed. However, there is an **interactive mode** that allows you to navigate through the slices. Activate it by clicking on an image slice, a cross-hair will appear. You can click, drag and scroll to navigate the volume.
 
 ### Customization
 
-Use the settings (main app) to tailor the preview to your needs. You can adjust the orientation (see above), intensity scaling, label colors and content as well as order of the metadata panel.
+Use the settings (main app) to tailor the preview to your needs. You can adjust the render orientation (see above), intensity scaling, label colors and the metadata panel (content and order of the items).
 
 ### Performance
 
