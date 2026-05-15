@@ -32,11 +32,6 @@ The app and extension can be installed manually or via the package manager [Home
 4. Press **Space** on any supported file in Finder.
 5. Optional: **Configure the preview settings** in the MIQ app.
 
-<div align="center">
-  <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_settings1.webp" width="49%">
-  <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_settings2.webp" width="49%">
-</div>
-
 ### Manual update
 
 The MIQ main app has an update checker, which will alert you in case a new version is available. Make sure to open the main app from time to time to check for updates.
@@ -63,6 +58,15 @@ brew upgrade --cask miq
 
 MIQ is a lightweight convenience tool for quickly inspecting medical image files directly from the Finder. It prioritizes speed and ease of use over advanced visualization, and is not meant to replace dedicated medical image viewers.
 
+### Customization
+
+Use the settings (main app) to tailor the preview to your needs. You can adjust the render orientation (see explanation below), intensity scaling, label colors and the metadata panel (content and order of the items).
+
+<div align="center">
+  <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_settings1.webp" width="49%">
+  <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_settings2.webp" width="49%">
+</div>
+
 ### Orientation
 
 By default, MIQ displays data **as stored on disk**, without reorienting. Depending on acquisition and processing, images may appear upside down, mirrored, or rotated. This is intentional, so you can quickly inspect the raw data including its orientation. If desired, there are settings to reorient to **Neurological view** or **Radiological view**. In both reoriented conventions, sagittal displays patient anterior on the viewer's left. Please note that for multi-volume (4D) data, only the first volume is shown.
@@ -70,10 +74,6 @@ By default, MIQ displays data **as stored on disk**, without reorienting. Depend
 ### Interactive Mode
 
 The preview is initially static (showing center slices) for maximum speed. However, there is an **interactive mode** that allows you to navigate through the slices. Activate it by clicking on an image slice, a cross-hair will appear. You can click, drag and scroll to navigate the volume.
-
-### Customization
-
-Use the settings (main app) to tailor the preview to your needs. You can adjust the render orientation (see above), intensity scaling, label colors and the metadata panel (content and order of the items).
 
 ### Performance
 
