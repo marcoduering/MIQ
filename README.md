@@ -71,13 +71,13 @@ Use the settings (main app) to tailor the preview to your needs. You can adjust 
 
 By default, MIQ displays data **as stored on disk**, without reorienting. Depending on acquisition and processing, images may appear upside down, mirrored, or rotated. This is intentional, so you can quickly inspect the raw data including its orientation. If desired, there are settings to reorient to **Neurological view** or **Radiological view**. In both reoriented conventions, sagittal displays patient anterior on the viewer's left. Please note that for multi-volume (4D) data, only the first volume is shown.
 
-### Interactive Mode
+### Interaction
 
-The preview is initially static (showing center slices) for maximum speed. However, there is an **interactive mode** that allows you to navigate through the slices. Activate it by clicking on an image slice, a cross-hair will appear. You can click, drag and scroll to navigate the volume.
+The preview starts by displaying center slices. You can change slice positions by clicking on an image slice, dragging with the mouse or scrolling. A crosshair will appear once you start changing the slice positions. With the right mouse button (click and drag), you can adjust the intensity scaling (window/level) of the image.
 
 ### Performance
 
-Static previews are designed to appear almost instantly. Uncompressed files (`.nii`, `.mgh`, `.mif`) are memory-mapped and impose essentially no load time regardless of size. Compressed files (`.nii.gz`, `.mgz`, `.mif.gz`) require decompression before rendering and very large compressed volumes may take a few seconds to load.
+Previews are designed to appear almost instantly. Uncompressed files (`.nii`, `.mgh`, `.mif`) are memory-mapped and impose essentially no load time regardless of size. Compressed files (`.nii.gz`, `.mgz`, `.mif.gz`) require decompression before rendering and very large compressed volumes may take a few seconds to load.
 
 ## Troubleshooting
 

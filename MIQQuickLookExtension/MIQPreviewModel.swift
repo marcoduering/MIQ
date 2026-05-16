@@ -38,8 +38,7 @@ final class MIQPreviewModel {
     var axialOrientation = SliceOrientationLabels.placeholderAxial
     var metadataEntries: [MetadataEntry] = []
     var onChange: (() -> Void)?
-    private(set) var isInteractiveModeActive = false
-    var isInteractiveModeReady: Bool { interactiveState != nil }
+    private(set) var hasInteracted = false
 
     private let url: URL
     private let maxDimension = 512
@@ -47,10 +46,11 @@ final class MIQPreviewModel {
     private var interactiveState: InteractivePreviewState?
     private var currentCursor: MIQVolumeCursor?
     private var displayedCursor: MIQVolumeCursor?
+    private var windowAdjustment: MIQIntensityWindowBounds?
+    private var pendingForceRender = false
     private var interactionPreparationTask: Task<Void, Never>?
     private var renderTask: Task<Void, Never>?
     private var pendingRenderCursor: MIQVolumeCursor?
-    private var pendingInteractiveActivation = false
 
     init(url: URL) {
         self.url = url
@@ -75,25 +75,33 @@ final class MIQPreviewModel {
         logger.notice("load() started for: \(fileURL.lastPathComponent, privacy: .public)")
         logger.notice("MIQConfig percentiles: lower=\(options.lowerPercentile, privacy: .public), upper=\(options.upperPercentile, privacy: .public), orientation=\(options.orientation.rawValue, privacy: .public), showAxisLabels=\(MIQConfig.showAxisLabels, privacy: .public)")
 
+        // Preserve interactiveState when reloading the same file with the same options
+        // (the typical cache-hit path). Clearing it forces a re-parse before the first
+        // scroll can fire, causing silent drops that feel like lag.
+        let reusingInteractiveState = interactiveState != nil && renderingOptions == options
+
         interactionPreparationTask?.cancel()
         interactionPreparationTask = nil
         renderTask?.cancel()
         renderTask = nil
         renderingOptions = options
-        interactiveState = nil
-        currentCursor = nil
-        displayedCursor = nil
-        isInteractiveModeActive = false
+        if !reusingInteractiveState {
+            interactiveState = nil
+        }
+        currentCursor = interactiveState?.centerCursor
+        displayedCursor = interactiveState?.centerCursor
+        hasInteracted = false
+        windowAdjustment = nil
+        pendingForceRender = false
         pendingRenderCursor = nil
-        // pendingInteractiveActivation is preserved: an early click (before load()
-        // ran) may have set it, and we want that intent honored once we're ready.
 
         if let cached = MIQPreviewCache.bundle(for: cacheKey) {
-            logger.notice("load() cache hit — applying cached center preview")
+            let stateLabel = reusingInteractiveState ? "reused" : "pending"
+            logger.notice("load() cache hit — applying cached center preview (interactive state \(stateLabel, privacy: .public))")
             apply(bundle: cached)
             state = .ready
             onChange?()
-            if pendingInteractiveActivation, interactionPreparationTask == nil {
+            if !reusingInteractiveState {
                 prepareInteractiveState(fileURL: fileURL, options: options)
             }
             return
@@ -110,10 +118,6 @@ final class MIQPreviewModel {
             state = .ready
             logger.notice("load() finished successfully")
             onChange?()
-            if pendingInteractiveActivation, let interactiveState {
-                pendingInteractiveActivation = false
-                activateInteractionMode(using: interactiveState)
-            }
         } catch {
             logger.error("load() failed: \(error.localizedDescription, privacy: .public)")
             state = .failed(error.localizedDescription)
@@ -121,8 +125,15 @@ final class MIQPreviewModel {
         }
     }
 
+    func scrollGestureBegan() {
+        renderTask?.cancel()
+        renderTask = nil
+        pendingRenderCursor = nil
+    }
+
     func stepSlice(plane: SlicePlane, deltaSteps: Int) {
-        guard isInteractiveModeActive, deltaSteps != 0, let interactiveState else { return }
+        guard deltaSteps != 0, let interactiveState else { return }
+        hasInteracted = true
         let cursor = currentCursor ?? interactiveState.centerCursor
         let geometry = interactiveState.volume.sliceGeometry(for: plane, options: interactiveState.options)
         let dimensions = [interactiveState.volume.width, interactiveState.volume.height, interactiveState.volume.depth]
@@ -141,7 +152,8 @@ final class MIQPreviewModel {
     }
 
     func updateCursor(plane: SlicePlane, normalizedPoint: MIQNormalizedPoint) {
-        guard isInteractiveModeActive, let interactiveState else { return }
+        guard let interactiveState else { return }
+        hasInteracted = true
         let cursor = currentCursor ?? interactiveState.centerCursor
         let sliceIndex = interactiveState.volume.sliceIndex(for: plane, cursor: cursor, options: interactiveState.options)
         let updated = interactiveState.volume.cursor(
@@ -157,45 +169,23 @@ final class MIQPreviewModel {
         scheduleRender(for: updated)
     }
 
-    func toggleInteractionMode() {
-        if isInteractiveModeActive {
-            deactivateInteractionMode()
-            return
-        }
-        if let interactiveState {
-            activateInteractionMode(using: interactiveState)
-            return
-        }
+    func adjustWindow(deltaX: CGFloat, deltaY: CGFloat) {
+        guard let interactiveState, let initialBounds = interactiveState.windowBounds else { return }
 
-        pendingInteractiveActivation = true
-        // If load() hasn't established options yet, the pending flag will be
-        // honored once load() completes. Otherwise, kick off prep now.
-        guard let options = renderingOptions else { return }
-        guard interactionPreparationTask == nil else { return }
-        prepareInteractiveState(fileURL: url, options: options)
-    }
+        let current = windowAdjustment ?? initialBounds
+        let initialRange = initialBounds.high - initialBounds.low
+        let sensitivity = initialRange * 0.005
+        let minWidth = max(1e-6, initialRange * 0.01)
 
-    private func deactivateInteractionMode() {
-        guard let interactiveState else { return }
-        pendingInteractiveActivation = false
-        isInteractiveModeActive = false
-        currentCursor = interactiveState.centerCursor
-        scheduleRender(for: interactiveState.centerCursor)
+        let level = (current.high + current.low) / 2 + Float(deltaY) * sensitivity
+        let width = max(minWidth, (current.high - current.low) + Float(deltaX) * sensitivity)
+        windowAdjustment = MIQIntensityWindowBounds(low: level - width / 2, high: level + width / 2)
         onChange?()
-    }
-
-    private func activateInteractionMode(using interactiveState: InteractivePreviewState) {
-        isInteractiveModeActive = true
-        if currentCursor == nil {
-            currentCursor = interactiveState.centerCursor
-        }
-        onChange?()
+        scheduleFullRender()
     }
 
     func crosshairPoint(for plane: SlicePlane) -> MIQNormalizedPoint? {
-        guard isInteractiveModeActive, let interactiveState, let currentCursor else {
-            return nil
-        }
+        guard hasInteracted, let interactiveState, let currentCursor else { return nil }
         return interactiveState.volume.normalizedPoint(for: plane, cursor: currentCursor, options: interactiveState.options)
     }
 
@@ -260,15 +250,9 @@ final class MIQPreviewModel {
                 self.interactiveState = interactiveState
                 self.currentCursor = interactiveState.centerCursor
                 self.displayedCursor = interactiveState.centerCursor
-                if self.pendingInteractiveActivation {
-                    self.pendingInteractiveActivation = false
-                    self.activateInteractionMode(using: interactiveState)
-                    return
-                }
                 self.onChange?()
             } catch {
                 self.interactionPreparationTask = nil
-                self.pendingInteractiveActivation = false
                 self.logger.error("interactive state preparation failed: \(error.localizedDescription, privacy: .public)")
             }
         }
@@ -281,6 +265,14 @@ final class MIQPreviewModel {
         startNextRenderIfNeeded()
     }
 
+    private func scheduleFullRender() {
+        guard let interactiveState else { return }
+        pendingRenderCursor = currentCursor ?? interactiveState.centerCursor
+        pendingForceRender = true
+        guard renderTask == nil else { return }
+        startNextRenderIfNeeded()
+    }
+
     private func startNextRenderIfNeeded() {
         guard let interactiveState, let cursor = pendingRenderCursor else {
             renderTask = nil
@@ -288,12 +280,14 @@ final class MIQPreviewModel {
         }
 
         pendingRenderCursor = nil
+        let forceAll = pendingForceRender
+        pendingForceRender = false
         let displayedCursor = self.displayedCursor ?? cursor
-        let planesToRender = Self.planesNeedingRender(
-            from: displayedCursor,
-            to: cursor,
-            interactiveState: interactiveState
-        )
+        let planesToRender = forceAll
+            ? SlicePlane.allCases
+            : Self.planesNeedingRender(from: displayedCursor, to: cursor, interactiveState: interactiveState)
+        let effectiveWindowBounds = windowAdjustment ?? interactiveState.windowBounds
+
         guard !planesToRender.isEmpty else {
             self.displayedCursor = cursor
             renderTask = nil
@@ -304,7 +298,7 @@ final class MIQPreviewModel {
         renderTask = Task { [weak self] in
             guard let self else { return }
             let slices = await Task.detached(priority: .userInitiated) { () -> [SlicePlane: SliceImage] in
-                Self.renderSlices(for: cursor, planes: planesToRender, interactiveState: interactiveState)
+                Self.renderSlices(for: cursor, planes: planesToRender, interactiveState: interactiveState, windowBounds: effectiveWindowBounds)
             }.value
             guard !Task.isCancelled else { return }
             self.apply(sliceImages: slices)
@@ -323,8 +317,19 @@ final class MIQPreviewModel {
         try withSecurityScopedAccess(to: fileURL) {
             let image = try MIQParser().parse(url: fileURL)
             let volume = MIQVolume(image: image)
-            let interactiveState = makeInteractiveState(volume: volume, options: options, maxDimension: maxDimension)
-            let slices = renderSlices(for: interactiveState.centerCursor, planes: SlicePlane.allCases, interactiveState: interactiveState)
+            // Single decode of the center slices: the pooled buffer that derives the
+            // window is the same buffer finalized into the first-frame images. The
+            // previous makeInteractiveState + renderSlices(centerCursor) path decoded
+            // them twice (once for the window, once for the render).
+            let preview = volume.centerPreview(volumeIndex: 0, maxDimension: maxDimension, options: options)
+            let interactiveState = InteractivePreviewState(
+                volume: volume,
+                options: options,
+                maxDimension: maxDimension,
+                windowBounds: preview.windowBounds,
+                centerCursor: volume.centerCursor()
+            )
+            let slices = preview.slices
 
             var orientations: [SlicePlane: SliceOrientationLabels] = [:]
             for plane in SlicePlane.allCases {
@@ -375,7 +380,8 @@ final class MIQPreviewModel {
     private nonisolated static func renderSlices(
         for cursor: MIQVolumeCursor,
         planes: [SlicePlane],
-        interactiveState: InteractivePreviewState
+        interactiveState: InteractivePreviewState,
+        windowBounds: MIQIntensityWindowBounds?
     ) -> [SlicePlane: SliceImage] {
         var slices: [SlicePlane: SliceImage] = [:]
         for plane in planes {
@@ -386,7 +392,7 @@ final class MIQPreviewModel {
                 volumeIndex: 0,
                 maxDimension: interactiveState.maxDimension,
                 options: interactiveState.options,
-                windowBounds: interactiveState.windowBounds
+                windowBounds: windowBounds
             )
         }
         return slices

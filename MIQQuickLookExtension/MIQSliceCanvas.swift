@@ -41,11 +41,10 @@ final class MIQSliceCanvas: NSView {
         didSet { needsDisplay = true }
     }
 
-    var isInteractiveModeActive: Bool = false
-
-    var onActivate: (@MainActor (SlicePlane) -> Void)?
+    var onScrollGestureBegan: (@MainActor () -> Void)?
     var onScroll: (@MainActor (SlicePlane, Int) -> Void)?
     var onCursorPosition: (@MainActor (SlicePlane, MIQNormalizedPoint) -> Void)?
+    var onWindowAdjust: (@MainActor (CGFloat, CGFloat) -> Void)?
 
     private let plane: SlicePlane
     private let imageAlignment: ImageAlignment
@@ -89,9 +88,7 @@ final class MIQSliceCanvas: NSView {
     }
 
     private func handleEarlyMouseDown(_ event: NSEvent) {
-        guard isInteractiveModeActive,
-              let window,
-              event.window === window else { return }
+        guard let window, event.window === window else { return }
         let location = convert(event.locationInWindow, from: nil)
         guard imageRect().contains(location) else { return }
         lastEarlyClickEventNumber = event.eventNumber
@@ -109,36 +106,31 @@ final class MIQSliceCanvas: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
-
-        if isInteractiveModeActive {
-            guard imageRect().contains(location) else {
-                super.mouseDown(with: event)
-                return
-            }
-            // The early local monitor already handled this click immediately on press,
-            // bypassing the QuickLook host's gesture-recognizer delay. Skip the duplicate.
-            if lastEarlyClickEventNumber == event.eventNumber { return }
-            notifyCursorPosition(at: location)
+        guard imageRect().contains(location) else {
+            super.mouseDown(with: event)
             return
         }
+        // The early local monitor already handled this click immediately on press,
+        // bypassing the QuickLook host's gesture-recognizer delay. Skip the duplicate.
+        if lastEarlyClickEventNumber == event.eventNumber { return }
+        notifyCursorPosition(at: location)
+    }
 
-        // Accept activation clicks anywhere in the canvas, even before the first
-        // image arrives, so an early click is not silently dropped.
-        onActivate?(plane)
+    override func rightMouseDragged(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        guard imageRect().contains(location) else {
+            super.rightMouseDragged(with: event)
+            return
+        }
+        onWindowAdjust?(event.deltaX, event.deltaY)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard isInteractiveModeActive else {
-            super.mouseDragged(with: event)
-            return
-        }
-
         let location = convert(event.locationInWindow, from: nil)
         guard imageRect().contains(location) else {
             super.mouseDragged(with: event)
             return
         }
-
         notifyCursorPosition(at: location)
     }
 
@@ -147,6 +139,11 @@ final class MIQSliceCanvas: NSView {
         guard imageRect().contains(location) else {
             super.scrollWheel(with: event)
             return
+        }
+
+        if event.phase.contains(.began) {
+            scrollAccumulator = 0
+            onScrollGestureBegan?()
         }
 
         let deltaY = event.scrollingDeltaY

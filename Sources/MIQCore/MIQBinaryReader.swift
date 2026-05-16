@@ -95,6 +95,68 @@ enum MIQBinaryReader {
         return output
     }
 
+    /// Streaming gunzip that stops once at least `maxOutputBytes` have been
+    /// produced (or the stream ends first). Used to decompress only the prefix a
+    /// Quick Look preview actually reads (header + the requested volume) instead
+    /// of the whole — often 100x less work for 4D files. Producing exactly the
+    /// requested cap is a deliberate success, not a truncation error.
+    ///
+    /// For the full-stream case (cap >= uncompressed size) the chunked inflate
+    /// produces byte-identical output to the single-shot `gunzip(_:)` above.
+    static func gunzip(_ data: Foundation.Data, maxOutputBytes: Int) throws -> Foundation.Data {
+        guard data.count >= 18, maxOutputBytes >= 1 else {
+            throw MIQError.decompressionFailed
+        }
+
+        var stream = z_stream()
+        guard inflateInit2_(&stream, 16 + MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else {
+            throw MIQError.decompressionFailed
+        }
+        defer { inflateEnd(&stream) }
+
+        let isize = data.withUnsafeBytes { bytes -> UInt32 in
+            bytes.loadUnaligned(fromByteOffset: data.count - 4, as: UInt32.self)
+        }.littleEndian
+        guard isize > 0 else {
+            throw MIQError.decompressionFailed
+        }
+
+        // Never allocate (or produce) more than the stream actually holds.
+        let cap = Swift.min(Int(isize), maxOutputBytes)
+        var output = Data(count: cap)
+        var produced = 0
+        let status: Int32 = data.withUnsafeBytes { inBuf -> Int32 in
+            output.withUnsafeMutableBytes { outBuf -> Int32 in
+                guard let inBase = inBuf.bindMemory(to: Bytef.self).baseAddress,
+                      let outBase = outBuf.bindMemory(to: Bytef.self).baseAddress else {
+                    return Z_DATA_ERROR
+                }
+                stream.next_in = UnsafeMutablePointer(mutating: inBase)
+                stream.avail_in = UInt32(data.count)
+                var ret: Int32 = Z_OK
+                while produced < cap {
+                    stream.next_out = outBase + produced
+                    stream.avail_out = UInt32(cap - produced)
+                    ret = inflate(&stream, Z_NO_FLUSH)
+                    produced = cap - Int(stream.avail_out)
+                    if ret != Z_OK { break }   // Z_STREAM_END, Z_BUF_ERROR, or hard error
+                }
+                return ret
+            }
+        }
+
+        // Success: the whole stream decompressed, OR we filled the requested cap
+        // (a deliberate early stop). Z_BUF_ERROR with a filled cap is expected —
+        // it means "no output space left", which is exactly why we stopped.
+        guard status == Z_STREAM_END || produced == cap else {
+            throw MIQError.decompressionFailed
+        }
+        if produced < output.count {
+            output.removeLast(output.count - produced)
+        }
+        return output
+    }
+
     static func uint16(_ data: Foundation.Data, _ offset: Int, littleEndian: Bool) -> UInt16 {
         let base = data.startIndex + offset
         let b0 = UInt16(data[base])

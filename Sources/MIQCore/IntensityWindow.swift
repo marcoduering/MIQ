@@ -12,21 +12,42 @@ enum IntensityWindow {
     /// per-slice windowing, or from multiple slices to get a window shared across them.
     /// Returns `nil` if no finite values are present.
     static func bounds(for values: [Float], lowerPercentile: Double, upperPercentile: Double) -> Bounds? {
-        let finiteValues = values.filter { $0.isFinite }
+        // One fused pass replaces the previous filter + filter + min + max chain:
+        // collect finite values and the non-zero subset, tracking finite min/max
+        // inline. The chosen window source is then sorted *in place* (we own both
+        // buffers), avoiding the extra copy `.sorted()` made. Output is bit-identical
+        // to the old sort-based path — the rendered preview must not change.
+        var finiteValues = [Float]()
+        finiteValues.reserveCapacity(values.count)
+        var nonZeroValues = [Float]()
+        var minV = Float.greatestFiniteMagnitude
+        var maxV = -Float.greatestFiniteMagnitude
+
+        for value in values where value.isFinite {
+            finiteValues.append(value)
+            if value < minV { minV = value }
+            if value > maxV { maxV = value }
+            if abs(value) > 1e-6 {
+                nonZeroValues.append(value)
+            }
+        }
+
         guard !finiteValues.isEmpty else {
             return nil
         }
 
         // Prefer a non-zero subset for windowing if it's substantial; otherwise fall back to all finite values.
         // The /20 ratio guards against rejecting legitimate dim regions when most voxels are background.
-        let nonZeroValues = finiteValues.filter { abs($0) > 1e-6 }
-        let windowSource = nonZeroValues.count >= max(64, finiteValues.count / 20) ? nonZeroValues : finiteValues
-        let sorted = windowSource.sorted()
+        let useNonZero = nonZeroValues.count >= max(64, finiteValues.count / 20)
+        if useNonZero {
+            nonZeroValues.sort()
+        } else {
+            finiteValues.sort()
+        }
+        let sorted = useNonZero ? nonZeroValues : finiteValues
 
         let lower = percentile(sorted, p: Float(lowerPercentile) / 100.0)
         let upper = percentile(sorted, p: Float(upperPercentile) / 100.0)
-        let minV = finiteValues.min() ?? lower
-        let maxV = finiteValues.max() ?? upper
         let windowLow = lower < upper ? lower : minV
         let windowHigh = lower < upper ? upper : maxV
         return Bounds(low: windowLow, high: windowHigh)

@@ -10,6 +10,19 @@ public struct MIQIntensityWindowBounds: Sendable, Hashable {
     }
 }
 
+/// Center slices for each plane plus the shared intensity window they were
+/// rendered with. Returned by `MIQVolume.centerPreview` so the cold preview path
+/// can derive the window and the first-frame images from a single decode.
+public struct MIQCenterPreview: Sendable {
+    public let slices: [SlicePlane: SliceImage]
+    public let windowBounds: MIQIntensityWindowBounds?
+
+    public init(slices: [SlicePlane: SliceImage], windowBounds: MIQIntensityWindowBounds?) {
+        self.slices = slices
+        self.windowBounds = windowBounds
+    }
+}
+
 public struct MIQVolumeCursor: Sendable, Hashable {
     public let x: Int
     public let y: Int
@@ -137,32 +150,17 @@ public struct MIQVolume: Sendable {
         return MIQNormalizedPoint(x: x, y: y)
     }
 
+    /// Shared intensity window for the center slices, *without* rendering them.
+    /// Used by the cache-hit interactive path, which only needs the window + cursor
+    /// to render subsequently scrolled slices — decoding the center slices here and
+    /// rendering them would be wasted work on that path.
     public func fixedCenterWindow(
         planes: [SlicePlane] = SlicePlane.allCases,
         volumeIndex: Int = 0,
         options: RenderingOptions
     ) -> MIQIntensityWindowBounds? {
-        let dims = [width, height, depth]
-        var pooled = [Float]()
-
-        for plane in planes {
-            let plan = orientation.plan(for: plane, mode: options.orientation)
-            let center = max(0, dims[plan.sliceAxis] / 2)
-            let prepared = prepareSlice(plan: plan, index: center, volumeIndex: volumeIndex)
-            if case .grayscale(let values, _, _) = prepared {
-                pooled.append(contentsOf: values)
-            }
-        }
-
-        guard let bounds = IntensityWindow.bounds(
-            for: pooled,
-            lowerPercentile: options.lowerPercentile,
-            upperPercentile: options.upperPercentile
-        ) else {
-            return nil
-        }
-
-        return MIQIntensityWindowBounds(low: bounds.low, high: bounds.high)
+        let bounds = prepareCenterSlices(planes: planes, volumeIndex: volumeIndex, options: options).bounds
+        return bounds.map { MIQIntensityWindowBounds(low: $0.low, high: $0.high) }
     }
 
     public func voxel(x: Int, y: Int, z: Int, t: Int = 0) -> Float {
@@ -208,15 +206,51 @@ public struct MIQVolume: Sendable {
         return slice(plan: plan, index: center, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options, windowBounds: windowBounds)
     }
 
-    /// Renders the center slice for each requested plane using a *shared* intensity window.
-    /// Voxels from every grayscale plane are pooled before percentile windowing, so all
-    /// returned slices share the same low/high mapping (RGB planes bypass windowing).
+    /// Renders the center slice for each requested plane using a *shared* intensity
+    /// window, and returns that window. Voxels from every grayscale plane are pooled
+    /// before percentile windowing, so all returned slices share the same low/high
+    /// mapping (RGB planes bypass windowing). The returned `windowBounds` is the
+    /// same window subsequently-scrolled slices must reuse for a stable appearance.
+    ///
+    /// This decodes each center slice exactly once: the pooled buffer used to derive
+    /// the window is the same buffer that gets finalized into the returned images.
+    public func centerPreview(
+        planes: [SlicePlane] = SlicePlane.allCases,
+        volumeIndex: Int = 0,
+        maxDimension: Int = 512,
+        options: RenderingOptions
+    ) -> MIQCenterPreview {
+        let (prepared, bounds) = prepareCenterSlices(planes: planes, volumeIndex: volumeIndex, options: options)
+        var slices: [SlicePlane: SliceImage] = [:]
+        slices.reserveCapacity(prepared.count)
+        for entry in prepared {
+            slices[entry.plane] = finalize(prepared: entry.slice, bounds: bounds, maxDimension: maxDimension)
+        }
+        return MIQCenterPreview(
+            slices: slices,
+            windowBounds: bounds.map { MIQIntensityWindowBounds(low: $0.low, high: $0.high) }
+        )
+    }
+
+    /// Renders the center slice for each requested plane using a shared intensity window.
     public func centerSlices(
         planes: [SlicePlane] = SlicePlane.allCases,
         volumeIndex: Int = 0,
         maxDimension: Int = 512,
         options: RenderingOptions
     ) -> [SlicePlane: SliceImage] {
+        centerPreview(planes: planes, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options).slices
+    }
+
+    /// Decodes the center slice of each requested plane once and derives the shared
+    /// percentile window from the pooled grayscale voxels. Single source of truth for
+    /// "center slices + their shared window" — `fixedCenterWindow` stops at the bounds,
+    /// `centerPreview` continues to finalize the prepared slices.
+    private func prepareCenterSlices(
+        planes: [SlicePlane],
+        volumeIndex: Int,
+        options: RenderingOptions
+    ) -> (prepared: [(plane: SlicePlane, slice: PreparedSlice)], bounds: IntensityWindow.Bounds?) {
         let dims = [width, height, depth]
         var prepared: [(plane: SlicePlane, slice: PreparedSlice)] = []
         prepared.reserveCapacity(planes.count)
@@ -239,18 +273,12 @@ public struct MIQVolume: Sendable {
                 pooled.append(contentsOf: values)
             }
         }
-        let sharedBounds = IntensityWindow.bounds(
+        let bounds = IntensityWindow.bounds(
             for: pooled,
             lowerPercentile: options.lowerPercentile,
             upperPercentile: options.upperPercentile
         )
-
-        var result: [SlicePlane: SliceImage] = [:]
-        result.reserveCapacity(prepared.count)
-        for entry in prepared {
-            result[entry.plane] = finalize(prepared: entry.slice, bounds: sharedBounds, maxDimension: maxDimension)
-        }
-        return result
+        return (prepared, bounds)
     }
 
     /// Returns a 3-letter storage orientation label (e.g. "RAS", "LAS") if determinable.
@@ -322,29 +350,114 @@ public struct MIQVolume: Sendable {
         let config = SliceConfig(plan: plan, width: width, height: height, depth: depth, dx: dx, dy: dy, dz: dz)
         let maxPhysicalExtent = max(Float(width) * dx, Float(height) * dy, Float(depth) * dz)
 
-        switch image.header.datatype {
+        // Hot path. This is intentionally a faster re-expression of the public
+        // `voxel()` accessor (and the analogous RGB byte read): the per-voxel
+        // datatype switch is hoisted out of the loop (one typed reader chosen up
+        // front) and the payload is read through a single `withUnsafeBytes` raw
+        // pointer instead of `Data` byte subscripting. Output must stay
+        // bit-identical to `voxel()` — it remains the public API and the
+        // correctness reference (the test suite renders slices across every
+        // datatype / endianness / MIF stride layout and compares pixels, and
+        // also asserts `voxel()` directly). x/y/z from `SliceConfig.coordinate`
+        // are always in range; only the `t` and byte-range guards remain.
+        let datatype = image.header.datatype
+        let bpv = datatype.bytesPerVoxel
+        let payloadCount = image.payloadCount
+        let payloadBase = image.payloadOffset
+        let le = image.header.littleEndian
+        let slope = image.header.sclSlope
+        let intercept = image.header.sclInter
+        let applyScale = slope != 0
+        let tInRange = volumeIndex >= 0 && volumeIndex < volumes
+        let sampleCount = config.sliceWidth * config.sliceHeight
+        let rowCount = config.outerCount
+        let colCount = config.innerCount
+
+        switch datatype {
         case .rgb24, .rgba32:
-            var pixels = [UInt8]()
-            pixels.reserveCapacity(config.sliceWidth * config.sliceHeight * 3)
-            for row in 0..<config.outerCount {
-                for col in 0..<config.innerCount {
-                    let coord = config.coordinate(slice: index, row: row, col: col)
-                    let (r, g, b) = voxelRGB(x: coord.x, y: coord.y, z: coord.z, t: volumeIndex)
-                    pixels.append(r)
-                    pixels.append(g)
-                    pixels.append(b)
+            // RGB read: ignore alpha (preview is opaque), guard with literal 3
+            // (not bpv, so rgba32's 4th byte is never required), zero on miss.
+            let pixels = [UInt8](unsafeUninitializedCapacity: sampleCount * 3) { buf, initialized in
+                if !tInRange {
+                    for i in 0..<(sampleCount * 3) { buf[i] = 0 }
+                    initialized = sampleCount * 3
+                    return
                 }
+                image.storage.withUnsafeBytes { (rawBuf: UnsafeRawBufferPointer) in
+                    var w = 0
+                    for row in 0..<rowCount {
+                        for col in 0..<colCount {
+                            let coord = config.coordinate(slice: index, row: row, col: col)
+                            let elemIndex = image.voxelElementIndex(x: coord.x, y: coord.y, z: coord.z, t: volumeIndex)
+                            let byteOffset = elemIndex * bpv
+                            if byteOffset < 0 || byteOffset + 3 > payloadCount {
+                                buf[w] = 0; buf[w + 1] = 0; buf[w + 2] = 0
+                            } else {
+                                let abs = payloadBase + byteOffset
+                                buf[w] = rawBuf.loadUnaligned(fromByteOffset: abs, as: UInt8.self)
+                                buf[w + 1] = rawBuf.loadUnaligned(fromByteOffset: abs + 1, as: UInt8.self)
+                                buf[w + 2] = rawBuf.loadUnaligned(fromByteOffset: abs + 2, as: UInt8.self)
+                            }
+                            w += 3
+                        }
+                    }
+                }
+                initialized = sampleCount * 3
             }
             return .rgb(pixels: pixels, config: config, maxPhysicalExtent: maxPhysicalExtent)
 
         default:
-            var values = [Float]()
-            values.reserveCapacity(config.sliceWidth * config.sliceHeight)
-            for row in 0..<config.outerCount {
-                for col in 0..<config.innerCount {
-                    let coord = config.coordinate(slice: index, row: row, col: col)
-                    values.append(voxel(x: coord.x, y: coord.y, z: coord.z, t: volumeIndex))
+            // Typed reader chosen once; mirrors `rawVoxelValue` arm-for-arm.
+            // `le ? u : u.byteSwapped` reproduces MIQBinaryReader's manual
+            // little/big-endian byte assembly on this little-endian host.
+            let read: (UnsafeRawBufferPointer, Int) -> Float
+            switch datatype {
+            case .uint8:
+                read = { Float($0.loadUnaligned(fromByteOffset: $1, as: UInt8.self)) }
+            case .int8:
+                read = { Float(Int8(bitPattern: $0.loadUnaligned(fromByteOffset: $1, as: UInt8.self))) }
+            case .int16:
+                read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt16.self); return Float(Int16(bitPattern: le ? u : u.byteSwapped)) }
+            case .uint16:
+                read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt16.self); return Float(le ? u : u.byteSwapped) }
+            case .int32:
+                read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt32.self); return Float(Int32(bitPattern: le ? u : u.byteSwapped)) }
+            case .uint32:
+                read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt32.self); return Float(le ? u : u.byteSwapped) }
+            case .float32:
+                read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt32.self); return Float(bitPattern: le ? u : u.byteSwapped) }
+            case .float64:
+                read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt64.self); return Float(Double(bitPattern: le ? u : u.byteSwapped)) }
+            case .rgb24, .rgba32:
+                read = { _, _ in 0 } // unreachable: handled by the RGB case above
+            }
+
+            let values = [Float](unsafeUninitializedCapacity: sampleCount) { buf, initialized in
+                if !tInRange {
+                    for i in 0..<sampleCount { buf[i] = 0 }
+                    initialized = sampleCount
+                    return
                 }
+                image.storage.withUnsafeBytes { (rawBuf: UnsafeRawBufferPointer) in
+                    var w = 0
+                    for row in 0..<rowCount {
+                        for col in 0..<colCount {
+                            let coord = config.coordinate(slice: index, row: row, col: col)
+                            let elemIndex = image.voxelElementIndex(x: coord.x, y: coord.y, z: coord.z, t: volumeIndex)
+                            let byteOffset = elemIndex * bpv
+                            let v: Float
+                            if byteOffset < 0 || byteOffset + bpv > payloadCount {
+                                v = 0
+                            } else {
+                                let raw = read(rawBuf, payloadBase + byteOffset)
+                                v = applyScale ? raw * slope + intercept : raw
+                            }
+                            buf[w] = v
+                            w += 1
+                        }
+                    }
+                }
+                initialized = sampleCount
             }
             return .grayscale(values: values, config: config, maxPhysicalExtent: maxPhysicalExtent)
         }
@@ -378,29 +491,6 @@ public struct MIQVolume: Sendable {
         }
     }
 
-    private func voxelRGB(x: Int, y: Int, z: Int, t: Int) -> (r: UInt8, g: UInt8, b: UInt8) {
-        guard x >= 0, x < width,
-              y >= 0, y < height,
-              z >= 0, z < depth,
-              t >= 0, t < volumes else {
-            return (0, 0, 0)
-        }
-
-        let voxelIndex = image.voxelElementIndex(x: x, y: y, z: z, t: t)
-        let byteOffset = voxelIndex * image.header.datatype.bytesPerVoxel
-
-        // Alpha is intentionally ignored for rgba32 — the preview is opaque.
-        guard byteOffset >= 0, byteOffset + 3 <= image.payloadCount else {
-            return (0, 0, 0)
-        }
-
-        return (
-            image.byte(atPayloadOffset: byteOffset),
-            image.byte(atPayloadOffset: byteOffset + 1),
-            image.byte(atPayloadOffset: byteOffset + 2)
-        )
-    }
-
     private func rawVoxelValue(byteOffset: Int) -> Float {
         let bytesNeeded = image.header.datatype.bytesPerVoxel
         guard byteOffset >= 0, byteOffset + bytesNeeded <= image.payloadCount else {
@@ -426,9 +516,10 @@ public struct MIQVolume: Sendable {
         case .float64:
             return Float(Double(bitPattern: MIQBinaryReader.uint64(image.storage, absOffset, littleEndian: le)))
         case .rgb24, .rgba32:
-            // RGB slices go through `voxelRGB` in the slicing path; this branch is only reached
-            // via the public `voxel()` accessor, where a single Float makes more sense than a tuple.
-            // Returns BT.601 luma so the value is at least a meaningful scalar.
+            // RGB slices are rendered by the dedicated RGB reader in `prepareSlice`;
+            // this branch is only reached via the public `voxel()` accessor, where a
+            // single Float makes more sense than a tuple. Returns BT.601 luma so the
+            // value is at least a meaningful scalar.
             let r = Float(image.byte(atPayloadOffset: byteOffset))
             let g = Float(image.byte(atPayloadOffset: byteOffset + 1))
             let b = Float(image.byte(atPayloadOffset: byteOffset + 2))

@@ -450,7 +450,7 @@ struct ContentView: View {
                             .labelsHidden()
                     }
 
-                    Text("Sets the percentile thresholds (for non-zero voxels) used to map voxel intensities to the greyscale display range (default: 2% - 98%).")
+                    Text("Initial grayscale intensity range using percentile thresholds for non-zero voxels (default: 2% - 98%).")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -480,7 +480,7 @@ struct ContentView: View {
                         .font(.title2)
                         .foregroundStyle(.yellow)
 
-                    Text("Click on an image slice to enter **interactive mode**. After a cross-hair appears, you can click, drag and scroll the orthogonal view to change slice positions.")
+                    Text("The view is interactive. You can **click, drag and scroll** the orthogonal view to change slice positions. A crosshair will appear once you start changing the slice positions.\nUse **right mouse button** click and drag to adjust the windowing (intensity range).")
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(5)

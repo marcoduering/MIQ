@@ -13,9 +13,10 @@ final class MIQPreviewAppKitView: NSView {
         let inset: CGFloat
     }
 
-    var onSliceActivate: (@MainActor (SlicePlane) -> Void)?
+    var onSliceScrollGestureBegan: (@MainActor () -> Void)?
     var onSliceScroll: (@MainActor (SlicePlane, Int) -> Void)?
     var onSliceCursorPosition: (@MainActor (SlicePlane, MIQNormalizedPoint) -> Void)?
+    var onSliceWindowAdjust: (@MainActor (CGFloat, CGFloat) -> Void)?
 
     private let coronal = MIQSliceCanvas(
         plane: .coronal,
@@ -69,8 +70,7 @@ final class MIQPreviewAppKitView: NSView {
             orientation: model.coronalOrientation,
             crosshair: model.crosshairPoint(for: .coronal),
             showAxisLabels: showLabels,
-            labelColor: labelNSColor,
-            isInteractiveModeActive: model.isInteractiveModeActive
+            labelColor: labelNSColor
         )
         applyCanvasUpdate(
             to: sagittal,
@@ -78,8 +78,7 @@ final class MIQPreviewAppKitView: NSView {
             orientation: model.sagittalOrientation,
             crosshair: model.crosshairPoint(for: .sagittal),
             showAxisLabels: showLabels,
-            labelColor: labelNSColor,
-            isInteractiveModeActive: model.isInteractiveModeActive
+            labelColor: labelNSColor
         )
         applyCanvasUpdate(
             to: axial,
@@ -87,8 +86,7 @@ final class MIQPreviewAppKitView: NSView {
             orientation: model.axialOrientation,
             crosshair: model.crosshairPoint(for: .axial),
             showAxisLabels: showLabels,
-            labelColor: labelNSColor,
-            isInteractiveModeActive: model.isInteractiveModeActive
+            labelColor: labelNSColor
         )
 
         updateFOVLayoutRatios()
@@ -206,15 +204,9 @@ final class MIQPreviewAppKitView: NSView {
         gridLikeLayout.addSubview(axial)
         gridLikeLayout.addSubview(meta)
 
-        coronal.onActivate = { [weak self] plane in
-            self?.onSliceActivate?(plane)
-        }
-        sagittal.onActivate = { [weak self] plane in
-            self?.onSliceActivate?(plane)
-        }
-        axial.onActivate = { [weak self] plane in
-            self?.onSliceActivate?(plane)
-        }
+        coronal.onScrollGestureBegan = { [weak self] in self?.onSliceScrollGestureBegan?() }
+        sagittal.onScrollGestureBegan = { [weak self] in self?.onSliceScrollGestureBegan?() }
+        axial.onScrollGestureBegan = { [weak self] in self?.onSliceScrollGestureBegan?() }
 
         coronal.onScroll = { [weak self] plane, step in
             self?.onSliceScroll?(plane, step)
@@ -235,6 +227,10 @@ final class MIQPreviewAppKitView: NSView {
         axial.onCursorPosition = { [weak self] plane, point in
             self?.onSliceCursorPosition?(plane, point)
         }
+
+        coronal.onWindowAdjust = { [weak self] dx, dy in self?.onSliceWindowAdjust?(dx, dy) }
+        sagittal.onWindowAdjust = { [weak self] dx, dy in self?.onSliceWindowAdjust?(dx, dy) }
+        axial.onWindowAdjust = { [weak self] dx, dy in self?.onSliceWindowAdjust?(dx, dy) }
 
         let columnRatio = coronal.widthAnchor.constraint(equalTo: sagittal.widthAnchor, multiplier: 1.0)
         let rowRatio = axial.heightAnchor.constraint(equalTo: coronal.heightAnchor, multiplier: 1.0)
@@ -376,8 +372,7 @@ final class MIQPreviewAppKitView: NSView {
         orientation: SliceOrientationLabels,
         crosshair: MIQNormalizedPoint?,
         showAxisLabels: Bool,
-        labelColor: NSColor,
-        isInteractiveModeActive: Bool
+        labelColor: NSColor
     ) {
         if canvas.showAxisLabels != showAxisLabels {
             canvas.showAxisLabels = showAxisLabels
@@ -385,10 +380,6 @@ final class MIQPreviewAppKitView: NSView {
 
         if !areColorsEqual(canvas.labelColor, labelColor) {
             canvas.labelColor = labelColor
-        }
-
-        if canvas.isInteractiveModeActive != isInteractiveModeActive {
-            canvas.isInteractiveModeActive = isInteractiveModeActive
         }
 
         if !areOrientationLabelsEqual(canvas.orientation, orientation) {

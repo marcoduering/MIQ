@@ -192,6 +192,78 @@ struct MIQCoreTests {
         #expect(abs(ratio - 1.25) < 0.05)
     }
 
+    /// Partial decompression must produce a volume-0 view byte-identical to a
+    /// full decompression for a 4D NIfTI, while actually truncating the payload
+    /// (proving the optimization engaged, not silently doing full work).
+    @Test
+    func partialDecompressionMatchesFullForFourDNifti() throws {
+        let w = 8, h = 6, d = 4, t = 5
+        let raw = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: t)
+        let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let plainURL = tmpDir.appendingPathComponent("miq-test-\(UUID().uuidString).nii")
+        let gzURL = tmpDir.appendingPathComponent("miq-test-\(UUID().uuidString).nii.gz")
+        defer {
+            try? FileManager.default.removeItem(at: plainURL)
+            try? FileManager.default.removeItem(at: gzURL)
+        }
+        try raw.write(to: plainURL)
+        try TestZlib.gzip(raw).write(to: gzURL)
+
+        let full = try MIQParser().parse(url: plainURL)      // whole payload (all 5 volumes)
+        let partial = try MIQParser().parse(url: gzURL)       // gz → volume-0-only prefix
+
+        let bpv = MIQDatatype.int16.bytesPerVoxel
+        #expect(full.payloadCount == w * h * d * t * bpv)
+        #expect(partial.payloadCount == w * h * d * bpv)      // truncated to volume 0
+        #expect(partial.payloadCount < full.payloadCount)     // optimization engaged
+
+        let fullVol = MIQVolume(image: full)
+        let partialVol = MIQVolume(image: partial)
+        for z in 0..<d {
+            for y in 0..<h {
+                for x in 0..<w {
+                    #expect(partialVol.voxel(x: x, y: y, z: z, t: 0) == fullVol.voxel(x: x, y: y, z: z, t: 0))
+                }
+            }
+        }
+        for plane in SlicePlane.allCases {
+            let a = fullVol.centerSlice(plane: plane, options: testRenderingOptions)
+            let b = partialVol.centerSlice(plane: plane, options: testRenderingOptions)
+            #expect(a.width == b.width)
+            #expect(a.height == b.height)
+        }
+    }
+
+    /// 3D NIfTI: the budget equals the full payload, so the streaming inflater
+    /// must yield exactly the same bytes as the single-shot path (no regression).
+    @Test
+    func partialDecompressionFullStreamMatchesForThreeDNifti() throws {
+        let raw = TestMIQFactory.makeNii(width: 7, height: 5, depth: 3, datatype: .int16)
+        let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let plainURL = tmpDir.appendingPathComponent("miq-test-\(UUID().uuidString).nii")
+        let gzURL = tmpDir.appendingPathComponent("miq-test-\(UUID().uuidString).nii.gz")
+        defer {
+            try? FileManager.default.removeItem(at: plainURL)
+            try? FileManager.default.removeItem(at: gzURL)
+        }
+        try raw.write(to: plainURL)
+        try TestZlib.gzip(raw).write(to: gzURL)
+
+        let full = try MIQParser().parse(url: plainURL)
+        let gz = try MIQParser().parse(url: gzURL)
+
+        #expect(gz.payloadCount == full.payloadCount)
+        let fullVol = MIQVolume(image: full)
+        let gzVol = MIQVolume(image: gz)
+        for z in 0..<3 {
+            for y in 0..<5 {
+                for x in 0..<7 {
+                    #expect(gzVol.voxel(x: x, y: y, z: z) == fullVol.voxel(x: x, y: y, z: z))
+                }
+            }
+        }
+    }
+
     @Test
     func parsesMghAndRendersSlices() throws {
         let data = TestMIQFactory.makeMgh(width: 6, height: 4, depth: 3, frames: 1, datatype: .uint8)
@@ -1026,7 +1098,8 @@ private enum TestMIQFactory {
         height: Int,
         depth: Int,
         datatype: MIQDatatype,
-        pixdim: [Float] = [1, 1, 1, 1]
+        pixdim: [Float] = [1, 1, 1, 1],
+        volumes: Int = 1
     ) -> Data {
         let headerSize = 348
         let voxOffset = 352
@@ -1034,11 +1107,13 @@ private enum TestMIQFactory {
 
         write(Int32(headerSize), to: &bytes, at: 0)
 
-        write(Int16(3), to: &bytes, at: 40)
+        // ndim 3 (+ dim[4] = 1) when volumes == 1 keeps output byte-identical to
+        // before; ndim 4 with dim[4] = volumes for the 4D case.
+        write(Int16(volumes > 1 ? 4 : 3), to: &bytes, at: 40)
         write(Int16(width), to: &bytes, at: 42)
         write(Int16(height), to: &bytes, at: 44)
         write(Int16(depth), to: &bytes, at: 46)
-        write(Int16(1), to: &bytes, at: 48)
+        write(Int16(volumes), to: &bytes, at: 48)
 
         write(datatype.rawValue, to: &bytes, at: 70)
         write(Int16(datatype.bytesPerVoxel * 8), to: &bytes, at: 72)
@@ -1054,7 +1129,7 @@ private enum TestMIQFactory {
         write(Int16(1), to: &bytes, at: 252)
         write(Int16(1), to: &bytes, at: 254)
 
-        let voxelCount = width * height * depth
+        let voxelCount = width * height * depth * max(1, volumes)
         var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
 
         for i in 0..<voxelCount {

@@ -13,7 +13,6 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
     private var loadingIndicatorTask: Task<Void, Never>?
     private var currentURL: URL?
     private var automaticTerminationDisabled = false
-    private var pendingActivationBeforeModel = false
 
     override var preferredContentSize: NSSize {
         get { NSSize(width: 700, height: 600) }
@@ -22,22 +21,17 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
 
     override func loadView() {
         let root = MIQPreviewAppKitView(frame: NSRect(x: 0, y: 0, width: 700, height: 600))
-        root.onSliceActivate = { [weak self] _ in
-            guard let self else { return }
-            if let model = self.model {
-                model.toggleInteractionMode()
-            } else {
-                // Click landed before the model was created (Quick Look's view
-                // is shown before preparePreviewOfFile schedules the load).
-                // Remember the intent so it can be honored once the model exists.
-                self.pendingActivationBeforeModel = true
-            }
+        root.onSliceScrollGestureBegan = { [weak self] in
+            self?.model?.scrollGestureBegan()
         }
         root.onSliceScroll = { [weak self] plane, step in
             self?.model?.stepSlice(plane: plane, deltaSteps: step)
         }
         root.onSliceCursorPosition = { [weak self] plane, point in
             self?.model?.updateCursor(plane: plane, normalizedPoint: point)
+        }
+        root.onSliceWindowAdjust = { [weak self] deltaX, deltaY in
+            self?.model?.adjustWindow(deltaX: deltaX, deltaY: deltaY)
         }
         self.previewView = root
         self.view = root
@@ -96,21 +90,20 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
         let model = MIQPreviewModel(url: url)
         model.onChange = { [weak self, weak model] in
             guard let self, let model else { return }
+            // Force a synchronous flush only for the initial display so QuickLook
+            // sees the first frame quickly. Once the user has started interacting
+            // the flush becomes a bottleneck: it blocks the main thread on every
+            // onChange (twice per scroll step), starving scroll event processing.
+            // AppKit's normal display cycle (needsDisplay = true) is sufficient
+            // during interaction — updates land within one frame (~16 ms).
             let shouldFlushDisplay: Bool
             switch model.state {
-            case .ready:
-                shouldFlushDisplay = true
-            case .idle, .loading, .failed:
-                shouldFlushDisplay = false
+            case .ready: shouldFlushDisplay = !model.hasInteracted
+            case .idle, .loading, .failed: shouldFlushDisplay = false
             }
             self.refreshPreviewView(from: model, flushDisplay: shouldFlushDisplay)
         }
         self.model = model
-
-        if pendingActivationBeforeModel {
-            pendingActivationBeforeModel = false
-            model.toggleInteractionMode()
-        }
 
         loadingIndicatorTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
