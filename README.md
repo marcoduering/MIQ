@@ -32,9 +32,9 @@ The app and extension can be installed manually or via the package manager [Home
 4. Press **Space** on any supported file in Finder.
 5. Optional: **Configure the preview settings** in the MIQ app.
 
-### Manual update
+#### Manual update
 
-The MIQ main app has an update checker, which will alert you in case a new version is available. Make sure to open the main app from time to time to check for updates.
+The MIQ main app has an update checker, which will alert you in case a new version is available. **Make sure to open the main app from time to time to check for updates.** The app downloads the latest version, but you will need to manually replace the old version in your `/Applications` folder with the new one.
 
 ### Installation via Homebrew
 
