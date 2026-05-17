@@ -66,6 +66,13 @@ final class MIQPreviewModel {
     private var currentCursor: MIQVolumeCursor?
     private var displayedCursor: MIQVolumeCursor?
     private var windowAdjustment: MIQIntensityWindowBounds?
+    /// `MIQConfig.perVolumeIntensityWindow` captured at `load()`. Settings can
+    /// only change while no preview is open, so it is fixed for an interaction.
+    private var perVolumeWindow = false
+    /// The auto (non-manual) window the most recent render actually applied. In
+    /// per-volume mode this is the displayed volume's own window, so a W/L drag
+    /// starts from what's on screen instead of snapping back to volume 0.
+    private var lastAppliedAutoBounds: MIQIntensityWindowBounds?
     private var pendingForceRender = false
     private var interactionPreparationTask: Task<Void, Never>?
     private var renderTask: Task<Void, Never>?
@@ -98,6 +105,10 @@ final class MIQPreviewModel {
             orientation: MIQConfig.imageOrientation
         )
         let maxDimension = self.maxDimension
+        // Read before the cache short-circuit so the interactive path honours it
+        // on a cache hit too (the setting only affects volumes > 0, never the
+        // cached volume-0 cold preview — see MIQConfig.perVolumeIntensityWindow).
+        perVolumeWindow = MIQConfig.perVolumeIntensityWindow
         let cacheKey = MIQPreviewCache.makeKey(fileURL: fileURL, maxDimension: maxDimension, options: options)
         logger.notice("load() started for: \(fileURL.lastPathComponent, privacy: .public)")
         logger.notice("MIQConfig percentiles: lower=\(options.lowerPercentile, privacy: .public), upper=\(options.upperPercentile, privacy: .public), orientation=\(options.orientation.rawValue, privacy: .public), showAxisLabels=\(MIQConfig.showAxisLabels, privacy: .public)")
@@ -256,6 +267,7 @@ final class MIQPreviewModel {
                 guard !Task.isCancelled else { return }
                 self.expansionTask = nil
                 self.interactiveState = expanded
+                self.lastAppliedAutoBounds = expanded.windowBounds
                 self.expansionState = .expanded
                 self.logger.notice("4D expansion complete — full decompression swapped in")
                 // The cursor is unchanged but the underlying volume is not, so
@@ -296,7 +308,11 @@ final class MIQPreviewModel {
     }
 
     func adjustWindow(deltaX: CGFloat, deltaY: CGFloat) {
-        guard let interactiveState, let initialBounds = interactiveState.windowBounds else { return }
+        guard let interactiveState else { return }
+        // Drag starts from the window currently on screen: in per-volume mode
+        // that's the displayed volume's own window (lastAppliedAutoBounds), not
+        // volume 0's. `nil` only when there is no window at all (RGB-only).
+        guard let initialBounds = lastAppliedAutoBounds ?? interactiveState.windowBounds else { return }
 
         let current = windowAdjustment ?? initialBounds
         let initialRange = initialBounds.high - initialBounds.low
@@ -327,6 +343,7 @@ final class MIQPreviewModel {
 
     private func apply(raw: RawPreviewData) {
         interactiveState = raw.interactiveState
+        lastAppliedAutoBounds = raw.interactiveState.windowBounds
         expansionState = Self.needsExpansion(kind: fileKind, volumes: raw.interactiveState.volume.volumes) ? .pending : .notNeeded
         currentCursor = raw.interactiveState.centerCursor
         displayedCursor = raw.interactiveState.centerCursor
@@ -375,6 +392,7 @@ final class MIQPreviewModel {
                 guard !Task.isCancelled else { return }
                 self.interactionPreparationTask = nil
                 self.interactiveState = interactiveState
+                self.lastAppliedAutoBounds = interactiveState.windowBounds
                 self.expansionState = Self.needsExpansion(kind: self.fileKind, volumes: interactiveState.volume.volumes) ? .pending : .notNeeded
                 self.currentCursor = interactiveState.centerCursor
                 self.displayedCursor = interactiveState.centerCursor
@@ -414,8 +432,6 @@ final class MIQPreviewModel {
         let planesToRender = forceAll
             ? SlicePlane.allCases
             : Self.planesNeedingRender(from: displayedCursor, to: cursor, interactiveState: interactiveState)
-        let effectiveWindowBounds = windowAdjustment ?? interactiveState.windowBounds
-
         guard !planesToRender.isEmpty else {
             self.displayedCursor = cursor
             renderTask = nil
@@ -423,13 +439,28 @@ final class MIQPreviewModel {
             return
         }
 
+        // A manual W/L adjustment is sticky across all volumes (it overrides
+        // per-volume auto entirely). Otherwise the auto window is resolved per
+        // volume off the MainActor inside the detached task below.
+        let manualBounds = windowAdjustment
+        let perVolume = perVolumeWindow
+
         renderTask = Task { [weak self] in
             guard let self else { return }
-            let slices = await Task.detached(priority: .userInitiated) { () -> [SlicePlane: SliceImage] in
-                Self.renderSlices(for: cursor, planes: planesToRender, interactiveState: interactiveState, windowBounds: effectiveWindowBounds)
+            let result = await Task.detached(priority: .userInitiated) { () -> (bounds: MIQIntensityWindowBounds?, slices: [SlicePlane: SliceImage]) in
+                let bounds = Self.resolveWindowBounds(
+                    cursor: cursor,
+                    interactiveState: interactiveState,
+                    manual: manualBounds,
+                    perVolume: perVolume
+                )
+                let slices = Self.renderSlices(for: cursor, planes: planesToRender, interactiveState: interactiveState, windowBounds: bounds)
+                return (bounds, slices)
             }.value
             guard !Task.isCancelled else { return }
-            self.apply(sliceImages: slices)
+            self.apply(sliceImages: result.slices)
+            // Remember the auto window so a subsequent W/L drag starts from it.
+            if manualBounds == nil { self.lastAppliedAutoBounds = result.bounds }
             self.displayedCursor = cursor
             self.onChange?()
             self.renderTask = nil
@@ -526,6 +557,26 @@ final class MIQPreviewModel {
                 centerCursor: volume.centerCursor()
             )
         }
+    }
+
+    /// The window the render should use for `cursor`. A manual adjustment wins
+    /// for every volume (sticky). Otherwise, in per-volume mode, re-derive the
+    /// window from this volume's own pooled center slices (same mechanic as the
+    /// cold preview, just for `cursor.t`); a single-volume file or a missing
+    /// window falls back to the volume-0 bounds. Called only inside the detached
+    /// render task — `fixedCenterWindow` decodes 3 center slices.
+    private nonisolated static func resolveWindowBounds(
+        cursor: MIQVolumeCursor,
+        interactiveState: InteractivePreviewState,
+        manual: MIQIntensityWindowBounds?,
+        perVolume: Bool
+    ) -> MIQIntensityWindowBounds? {
+        if let manual { return manual }
+        guard perVolume, interactiveState.volume.volumes > 1 else {
+            return interactiveState.windowBounds
+        }
+        return interactiveState.volume.fixedCenterWindow(volumeIndex: cursor.t, options: interactiveState.options)
+            ?? interactiveState.windowBounds
     }
 
     private nonisolated static func renderSlices(

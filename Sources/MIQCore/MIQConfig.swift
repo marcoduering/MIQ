@@ -20,6 +20,7 @@ public enum MIQConfig {
         public static let showAxisLabels        = "showAxisLabels"
         public static let windowLowerPercentile = "windowLowerPercentile"
         public static let windowUpperPercentile = "windowUpperPercentile"
+        public static let perVolumeIntensityWindow = "perVolumeIntensityWindow"
         public static let imageOrientation      = "imageOrientation"
         public static let axisLabelColor        = "axisLabelColor"
         public static let showMetadataFormat      = "showMetadataFormat"
@@ -41,6 +42,7 @@ public enum MIQConfig {
         public static let showAxisLabels        = true
         public static let windowLowerPercentile = 2.0
         public static let windowUpperPercentile = 98.0
+        public static let perVolumeIntensityWindow = false
         public static let imageOrientation      = "stored"
         public static let axisLabelColor        = "1.0,0.15,0.1,1.0"
         public static let showMetadataFormat      = true
@@ -75,6 +77,18 @@ public enum MIQConfig {
     public static var windowUpperPercentile: Double {
         let d = defaults
         return d.object(forKey: Keys.windowUpperPercentile) as? Double ?? Defaults.windowUpperPercentile
+    }
+
+    /// When `true`, 4D previews re-derive the percentile window from each
+    /// volume's own pooled center slices instead of reusing volume 0's window
+    /// for the whole timeseries. Deliberately *not* part of `RenderingOptions`:
+    /// the cache only holds the volume-0 cold preview, whose window is identical
+    /// either way, so this never needs to invalidate the cache. It is a
+    /// model-layer choice of *which* bounds to feed `MIQVolume.slice`, consumed
+    /// only by the extension's interactive render path.
+    public static var perVolumeIntensityWindow: Bool {
+        let d = defaults
+        return d.object(forKey: Keys.perVolumeIntensityWindow) as? Bool ?? Defaults.perVolumeIntensityWindow
     }
 
     public static var imageOrientation: ViewOrientation {

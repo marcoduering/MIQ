@@ -1,6 +1,33 @@
 import AppKit
 import MIQCore
 
+/// Size-responsive typography dials for the preview's metadata panel. File-scoped
+/// because this file *is* the whole preview component (the view, `MetadataView`,
+/// the scrubber) — so the related scale/clamp triplets are legible side by side
+/// and divergence (e.g. a missing `min(w,h)` driver) is obvious at a glance.
+/// Geometry-coupled constants whose correctness is relative to surrounding layout
+/// stay on their type instead (see `MIQVolumeScrubber`).
+private enum Metrics {
+    // Resolved size = clamp(min(panelWidth, panelHeight) * scale, min...max).
+    static let edgeLabelScale: CGFloat = 0.03
+    static let edgeLabelMin: CGFloat = 7
+    static let edgeLabelMax: CGFloat = 13
+
+    static let metadataTextScale: CGFloat = 0.045
+    static let metadataTextMin: CGFloat = 7
+    static let metadataTextMax: CGFloat = 16
+
+    static let insetScale: CGFloat = 0.05
+    static let insetMin: CGFloat = 6
+    static let insetMax: CGFloat = 24
+
+    // Derived from the resolved metadata font size.
+    static let rowSpacingFactor: CGFloat = 0.1
+    static let disclaimerFontFactor: CGFloat = 0.8
+    static let disclaimerFontMin: CGFloat = 6
+    static let disclaimerGapFactor: CGFloat = 2
+}
+
 final class MIQPreviewAppKitView: NSView {
     private static let loadingStatusText = "Loading image preview..."
 
@@ -141,13 +168,14 @@ final class MIQPreviewAppKitView: NSView {
     private func refreshMetadataText() {
         let panelWidth = (bounds.width - 5) * 0.5
         let panelHeight = (bounds.height - 5) * 0.5
-        let labelFontSize = max(7, min(13, panelWidth * 0.03))
+        let minPanelExtent = min(panelWidth, panelHeight)
+        let labelFontSize = clamp(minPanelExtent * Metrics.edgeLabelScale, min: Metrics.edgeLabelMin, max: Metrics.edgeLabelMax)
         applyLabelFontSize(labelFontSize)
 
         let order = MIQConfig.metadataOrder
         let visibility = MetadataField.allCases.map(MIQConfig.showMetadataField)
-        let fontSize = max(7, min(18, min(panelWidth, panelHeight) * 0.05))
-        let inset = max(6, min(24, min(panelWidth, panelHeight) * 0.05))
+        let fontSize = clamp(minPanelExtent * Metrics.metadataTextScale, min: Metrics.metadataTextMin, max: Metrics.metadataTextMax)
+        let inset = clamp(minPanelExtent * Metrics.insetScale, min: Metrics.insetMin, max: Metrics.insetMax)
         let isFourD = volumeCount > 1
         let inputs = MetadataRenderInputs(
             entries: metadataEntries,
@@ -501,7 +529,7 @@ final class MIQPreviewAppKitView: NSView {
         // line's glyphs at its fragment top, so the scrubber — drawn at its
         // fragment top — still aligns with its neighbours.
         let rowStyle = NSMutableParagraphStyle()
-        rowStyle.paragraphSpacing = fontSize * 0.2
+        rowStyle.paragraphSpacing = fontSize * Metrics.rowSpacingFactor
         let result = NSMutableAttributedString()
 
         for (index, line) in lines.enumerated() {
@@ -536,10 +564,10 @@ final class MIQPreviewAppKitView: NSView {
         }
 
         if !MIQConfig.hideDisclaimerInPreview {
-            let disclaimerFont = NSFont.systemFont(ofSize: max(6, fontSize * 0.8), weight: .regular)
+            let disclaimerFont = NSFont.systemFont(ofSize: max(Metrics.disclaimerFontMin, fontSize * Metrics.disclaimerFontFactor), weight: .regular)
             let disclaimerColor = NSColor(calibratedWhite: 0.35, alpha: 1.0)
             let firstLineStyle = NSMutableParagraphStyle()
-            firstLineStyle.paragraphSpacingBefore = fontSize * 2
+            firstLineStyle.paragraphSpacingBefore = fontSize * Metrics.disclaimerGapFactor
             let firstLineAttrs: [NSAttributedString.Key: Any] = [
                 .font: disclaimerFont,
                 .foregroundColor: disclaimerColor,
@@ -737,6 +765,19 @@ private final class MIQVolumeScrubber: NSView {
 
     private static let labelColor = NSColor(calibratedWhite: 0.68, alpha: 1.0)
 
+    // Geometry dials. Kept here (not in the file-scoped `Metrics`) because each
+    // is only meaningful next to the formula it feeds — `valueToTrackGap` only
+    // makes sense beside `labelW + widestValue`, the knob ratios only relative
+    // to `lineH`. Naming buys the documentation; locality keeps the rationale.
+    private static let valueToTrackGap: CGFloat = 5      // after the "N / N" readout
+    private static let trackTrailingInset: CGFloat = 10  // track right-edge inset
+    private static let minTrackWidth: CGFloat = 12       // hide the track below this
+    private static let seekHitSlop: CGFloat = 6          // mouseDown grace left of track
+    private static let trackThicknessFactor: CGFloat = 0.16
+    private static let trackThicknessMin: CGFloat = 3
+    private static let knobWidthFactor: CGFloat = 1.0
+    private static let knobHeightFactor: CGFloat = 0.5
+
     /// Horizontal extent of the draggable track. The reservation uses the
     /// *widest* readout ("N / N"), NOT the live value, so the track origin
     /// stays fixed as the digit count changes mid-drag (otherwise the x→volume
@@ -745,9 +786,9 @@ private final class MIQVolumeScrubber: NSView {
     private func trackRange() -> (minX: CGFloat, maxX: CGFloat)? {
         let labelW = ("Volumes: " as NSString).size(withAttributes: [.font: font]).width
         let widestValue = ("\(count) / \(count)" as NSString).size(withAttributes: [.font: font]).width
-        let minX = labelW + widestValue + 15
-        let maxX = bounds.width - 10
-        guard maxX - minX >= 12, count > 1 else { return nil }
+        let minX = labelW + widestValue + Self.valueToTrackGap
+        let maxX = bounds.width - Self.trackTrailingInset
+        guard maxX - minX >= Self.minTrackWidth, count > 1 else { return nil }
         return (minX, maxX)
     }
 
@@ -779,7 +820,7 @@ private final class MIQVolumeScrubber: NSView {
 
         guard let track = trackRange() else { return }
         let centerY = lineH / 2
-        let thickness = max(3, lineH * 0.16)
+        let thickness = max(Self.trackThicknessMin, lineH * Self.trackThicknessFactor)
         let trackRect = CGRect(x: track.minX, y: centerY - thickness / 2, width: track.maxX - track.minX, height: thickness)
         let radius = thickness / 2
         let dim: CGFloat = expanding ? 0.5 : 1.0
@@ -794,8 +835,8 @@ private final class MIQVolumeScrubber: NSView {
         overlayColor.withAlphaComponent(0.60 * dim).setFill()
         NSBezierPath(roundedRect: filled, xRadius: radius, yRadius: radius).fill()
 
-        let knobW = lineH * 0.78
-        let knobH = lineH * 0.44
+        let knobW = lineH * Self.knobWidthFactor
+        let knobH = lineH * Self.knobHeightFactor
         let knob = CGRect(x: knobX - knobW / 2, y: centerY - knobH / 2, width: knobW, height: knobH)
         let knobRadius = knobH / 2
         overlayColor.withAlphaComponent(dim).setFill()
@@ -809,7 +850,7 @@ private final class MIQVolumeScrubber: NSView {
         let x = convert(event.locationInWindow, from: nil).x
         // The minX guard belongs ONLY here: a click on the "Volumes: n / N"
         // text must not seek. Once a scrub starts, drags are clamped instead.
-        guard x >= track.minX - 6 else { isScrubbing = false; return }
+        guard x >= track.minX - Self.seekHitSlop else { isScrubbing = false; return }
         isScrubbing = true
         applySeek(x: x, track: track)
     }

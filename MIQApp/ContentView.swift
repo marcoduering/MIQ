@@ -267,6 +267,8 @@ struct ContentView: View {
     private var lowerPercentile: Double = MIQConfig.Defaults.windowLowerPercentile
     @AppStorage(MIQConfig.Keys.windowUpperPercentile, store: Self.store)
     private var upperPercentile: Double = MIQConfig.Defaults.windowUpperPercentile
+    @AppStorage(MIQConfig.Keys.perVolumeIntensityWindow, store: Self.store)
+    private var perVolumeIntensityWindow: Bool = MIQConfig.Defaults.perVolumeIntensityWindow
     @AppStorage(MIQConfig.Keys.showAxisLabels, store: Self.store)
     private var showAxisLabels: Bool = MIQConfig.Defaults.showAxisLabels
     @AppStorage(MIQConfig.Keys.axisLabelColor, store: Self.store)
@@ -546,6 +548,16 @@ struct ContentView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
+                        Text("Upper intensity clip")
+                        Spacer()
+                        Text("\(Int(upperPercentile))%")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                        Stepper("", value: $upperPercentile, in: 51...100, step: 1)
+                            .labelsHidden()
+                    }
+                    
+                    HStack {
                         Text("Lower intensity clip")
                         Spacer()
                         Text("\(Int(lowerPercentile))%")
@@ -555,17 +567,21 @@ struct ContentView: View {
                             .labelsHidden()
                     }
 
+                    Text("Initial grayscale intensity range using percentile thresholds for non-zero voxels (default: 2% - 98%).")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text("Upper intensity clip")
+                        Text("Per-volume intensity window for multi-volume (4D) data")
                         Spacer()
-                        Text("\(Int(upperPercentile))%")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                        Stepper("", value: $upperPercentile, in: 51...100, step: 1)
+                        Toggle("", isOn: $perVolumeIntensityWindow)
                             .labelsHidden()
                     }
 
-                    Text("Initial grayscale intensity range using percentile thresholds for non-zero voxels (default: 2% - 98%).")
+                    Text("Off (default): the window is computed once from the first volume and kept constant. On: The window is re-calculated for each volume. A manual window/level adjustment overrides all volumes.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -786,6 +802,7 @@ struct ContentView: View {
         imageOrientation  = ViewOrientation.defaultValue
         lowerPercentile   = MIQConfig.Defaults.windowLowerPercentile
         upperPercentile   = MIQConfig.Defaults.windowUpperPercentile
+        perVolumeIntensityWindow = MIQConfig.Defaults.perVolumeIntensityWindow
         showAxisLabels    = MIQConfig.Defaults.showAxisLabels
         axisLabelColor    = StoredColor.defaultValue
         showMetadataFormat      = MIQConfig.Defaults.showMetadataFormat
