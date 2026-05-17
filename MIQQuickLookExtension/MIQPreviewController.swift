@@ -27,6 +27,12 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
         root.onSliceScroll = { [weak self] plane, step in
             self?.model?.stepSlice(plane: plane, deltaSteps: step)
         }
+        root.onSliceVolumeScroll = { [weak self] step in
+            self?.model?.stepVolume(deltaSteps: step)
+        }
+        root.onVolumeSeek = { [weak self] index in
+            self?.model?.setVolume(to: index)
+        }
         root.onSliceCursorPosition = { [weak self] plane, point in
             self?.model?.updateCursor(plane: plane, normalizedPoint: point)
         }

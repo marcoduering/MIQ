@@ -77,14 +77,71 @@ private func metadataHelpText(_ field: MetadataField) -> String? {
 }
 
 
+/// One interaction in the Usage pane: a title, an optional explanatory note,
+/// and the mouse / trackpad gestures that trigger it.
+private struct InteractionRow: View {
+    let title: String
+    var icon: String? = nil
+    var note: String? = nil
+    var mouse: String? = nil
+    var trackpad: String? = nil
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 5) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 30)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.body)
+                if let note {
+                    Text(note)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if mouse != nil || trackpad != nil {
+                    HStack(spacing: 18) {
+                        if let mouse {
+                            Label(mouse, systemImage: "computermouse")
+                        }
+                        if let trackpad {
+                            Label(trackpad, systemImage: "rectangle.filled.and.hand.point.up.left")
+                        }
+                    }
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+/// A settings pane's header glyph: hierarchical, accent-tinted, static.
+private struct SettingsHeaderIcon: View {
+    let systemName: String
+
+    var body: some View {
+        Image(systemName: systemName)
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(.tint)
+            .font(.system(size: 28))
+    }
+}
+
 private enum SettingsTab: String, CaseIterable, Hashable {
     case about
+    case usage
     case imageDisplay
     case metadataPanel
 
     var label: String {
         switch self {
         case .about:         return "About"
+        case .usage:         return "Usage"
         case .imageDisplay:  return "Image Display"
         case .metadataPanel: return "Metadata Panel"
         }
@@ -93,6 +150,7 @@ private enum SettingsTab: String, CaseIterable, Hashable {
     var symbol: String {
         switch self {
         case .about:         return "info.circle"
+        case .usage:         return "computermouse"
         case .imageDisplay:  return "photo"
         case .metadataPanel: return "list.bullet.rectangle"
         }
@@ -280,6 +338,7 @@ struct ContentView: View {
         Group {
             switch selectedTab {
             case .about:         aboutSettingsView
+            case .usage:         usageSettingsView
             case .imageDisplay:  imageDisplaySettingsView
             case .metadataPanel: metadataPanelSettingsView
             }
@@ -414,8 +473,64 @@ struct ContentView: View {
         .scrollDisabled(true)
     }
 
+    private var usageSettingsView: some View {
+        Form {
+            
+            Section {
+                HStack(spacing: 12) {
+                    SettingsHeaderIcon(systemName: "pointer.arrow.rays")
+                    Text("The preview is **fully interactive**. See below for an overview of the available controls.")
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Section("Orthogonal 3D view") {
+                InteractionRow(
+                    title: "Move the crosshair",
+                    icon: "dot.scope",
+                    mouse: "Click or drag",
+                    trackpad: "Click, tap or one-finger drag"
+                )
+                InteractionRow(
+                    title: "Scroll through slices",
+                    icon: "square.stack",
+                    mouse: "Scroll wheel",
+                    trackpad: "Two-finger scroll"
+                )
+                InteractionRow(
+                    title: "Window / level",
+                    icon: "circle.lefthalf.filled",
+                    note: "Vertical = level (brightness), horizontal = window (contrast).",
+                    mouse: "Secondary-click + drag",
+                    trackpad: "Secondary-click + drag"
+                )
+            }
+
+            Section("4D series (multi-volume)") {
+                InteractionRow(
+                    title: "Change volume",
+                    icon: "square.stack.3d.down.forward",
+                    note: "For 4D image series, a slider appears next to Volume in the metadata panel. Drag the slider or click anywhere on it to change volumes.\nOr use ⌥ **Option-scroll**:",
+                    mouse: "⌥ Option key + scroll wheel",
+                    trackpad: "⌥ Option key + two-finger scroll"
+                )
+            }
+        }
+        .formStyle(.grouped)
+        .scrollDisabled(true)
+    }
+
     private var imageDisplaySettingsView: some View {
         Form {
+            
+            Section {
+                HStack(spacing: 12) {
+                    SettingsHeaderIcon(systemName: "gear.badge.checkmark")
+                    Text("Tailor the image display to your preferences.")
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             Section {
                 VStack(alignment: .leading, spacing: 6) {
                     Picker("Orientation", selection: $imageOrientation) {
@@ -473,19 +588,6 @@ struct ContentView: View {
                         .labelsHidden()
                 }
             }
-
-            Section("Tip") {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "lightbulb.fill")
-                        .font(.title2)
-                        .foregroundStyle(.yellow)
-
-                    Text("The view is interactive. You can **click, drag and scroll** the orthogonal view to change slice positions. A crosshair will appear once you start changing the slice positions.\nUse **right mouse button** click and drag to adjust the windowing (intensity range).")
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(5)
-
-            }
         }
         .formStyle(.grouped)
         .scrollDisabled(true)
@@ -493,12 +595,16 @@ struct ContentView: View {
 
     private var metadataPanelSettingsView: some View {
         Form {
+            
             Section {
-                Text("Choose which fields appear in the metadata panel. Drag and drop to rearrange the order.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
+                HStack(spacing: 12) {
+                    SettingsHeaderIcon(systemName: "checklist")
+                    Text("Choose which fields appear in the metadata panel. Drag and drop to rearrange the order.")
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            
+            Section {
                 let fields = metadataOrder.fields
                 ForEach(fields, id: \.self) { field in
                     HStack {

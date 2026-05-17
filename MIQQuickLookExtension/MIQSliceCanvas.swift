@@ -1,6 +1,20 @@
 import AppKit
 import MIQCore
 
+extension ScrollStepInput {
+    /// Map an `NSEvent` to the AppKit-free input the resolver consumes.
+    init(_ event: NSEvent) {
+        self.init(
+            optionHeld: event.modifierFlags.contains(.option),
+            phaseBegan: event.phase.contains(.began),
+            isLegacyWheel: event.phase == [] && event.momentumPhase == [],
+            deltaX: Double(event.scrollingDeltaX),
+            deltaY: Double(event.scrollingDeltaY),
+            hasPreciseDeltas: event.hasPreciseScrollingDeltas
+        )
+    }
+}
+
 final class MIQSliceCanvas: NSView {
     enum HorizontalImageAlignment {
         case leading
@@ -43,12 +57,15 @@ final class MIQSliceCanvas: NSView {
 
     var onScrollGestureBegan: (@MainActor () -> Void)?
     var onScroll: (@MainActor (SlicePlane, Int) -> Void)?
+    /// Option-modifier scroll: step the 4th (volume/time) axis instead of the
+    /// in-plane slice. Plane-agnostic — the 4th axis is not spatial.
+    var onVolumeScroll: (@MainActor (Int) -> Void)?
     var onCursorPosition: (@MainActor (SlicePlane, MIQNormalizedPoint) -> Void)?
     var onWindowAdjust: (@MainActor (CGFloat, CGFloat) -> Void)?
 
     private let plane: SlicePlane
     private let imageAlignment: ImageAlignment
-    private var scrollAccumulator: CGFloat = 0
+    private var scrollResolver = ScrollStepResolver()
     private var earlyClickMonitor: Any?
     private var lastEarlyClickEventNumber: Int?
     #if DEBUG
@@ -140,30 +157,14 @@ final class MIQSliceCanvas: NSView {
             super.scrollWheel(with: event)
             return
         }
+        guard let outcome = scrollResolver.resolve(ScrollStepInput(event), onBegan: { [weak self] in
+            self?.onScrollGestureBegan?()
+        }) else { return }
 
-        if event.phase.contains(.began) {
-            scrollAccumulator = 0
-            onScrollGestureBegan?()
+        switch outcome.axis {
+        case .slice:  onScroll?(plane, outcome.step)
+        case .volume: onVolumeScroll?(outcome.step)
         }
-
-        let deltaY = event.scrollingDeltaY
-        let deltaX = event.scrollingDeltaX
-        let dominantDelta = abs(deltaY) >= abs(deltaX) ? deltaY : deltaX
-        guard dominantDelta != 0 else { return }
-
-        if event.hasPreciseScrollingDeltas {
-            let threshold: CGFloat = 14
-            scrollAccumulator += dominantDelta
-            if abs(scrollAccumulator) >= threshold {
-                let step = scrollAccumulator > 0 ? -1 : 1
-                onScroll?(plane, step)
-                scrollAccumulator += scrollAccumulator > 0 ? -threshold : threshold
-            }
-            return
-        }
-
-        let step = dominantDelta > 0 ? -1 : 1
-        onScroll?(plane, step)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -290,6 +291,14 @@ final class MIQSliceCanvas: NSView {
     private func imageRect() -> NSRect {
         guard let image else { return .zero }
         return aspectFitRect(for: image.size, inside: bounds)
+    }
+
+    /// Right edge of the rendered image in this canvas's own coordinates, or
+    /// `nil` when nothing is drawn yet. The panel runs to the window edge but
+    /// the image is alignment-positioned within it; the metadata scrubber uses
+    /// this to stop at the image edge instead of the panel edge.
+    var renderedImageRightEdge: CGFloat? {
+        image == nil ? nil : imageRect().maxX
     }
 
     private func notifyCursorPosition(at location: NSPoint) {

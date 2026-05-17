@@ -234,6 +234,220 @@ struct MIQCoreTests {
         }
     }
 
+    // MARK: - 4D navigation
+
+    /// `t` must participate in equality/hash: a timepoint change has to
+    /// invalidate a displayed frame. (This is the building block the extension's
+    /// `planesNeedingRender` relies on for its `oldCursor.t != newCursor.t`
+    /// short-circuit; that lives in the QL target and isn't SPM-testable.)
+    @Test
+    func volumeCursorIncludesTimepointInEquality() {
+        let a = MIQVolumeCursor(x: 2, y: 3, z: 1, t: 0)
+        let b = MIQVolumeCursor(x: 2, y: 3, z: 1, t: 4)
+        let c = MIQVolumeCursor(x: 2, y: 3, z: 1, t: 4)
+        #expect(a != b)
+        #expect(b == c)
+        #expect(Set([a, b, c]).count == 2)
+        #expect(MIQVolumeCursor(x: 0, y: 0, z: 0) == MIQVolumeCursor(x: 0, y: 0, z: 0, t: 0))
+    }
+
+    /// 4D voxel addressing: `voxel(...,t:)` — the correctness reference the hot
+    /// slice loop must stay bit-identical to — resolves the right per-volume
+    /// element, and an out-of-range timepoint returns the zero backstop rather
+    /// than reading a neighbouring volume or crashing.
+    @Test
+    func fourDVoxelAddressingMatchesFillPattern() throws {
+        let w = 5, h = 4, d = 3, t = 6
+        let raw = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: t)
+        let url = Self.tempURL(suffix: ".nii")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try raw.write(to: url)
+        let vol = MIQVolume(image: try MIQParser().parse(url: url))
+
+        // makeNii int16 fill: value at global flat index
+        // i = x + y*W + z*W*H + tp*W*H*D is i % 1024.
+        for tp in [0, 1, t - 1] {
+            for z in 0..<d {
+                for y in 0..<h {
+                    for x in 0..<w {
+                        let i = x + y * w + z * w * h + tp * w * h * d
+                        #expect(vol.voxel(x: x, y: y, z: z, t: tp) == Float(i % 1024))
+                    }
+                }
+            }
+        }
+        #expect(vol.voxel(x: 1, y: 1, z: 1, t: t) == 0)
+        #expect(vol.voxel(x: 0, y: 0, z: 0, t: 999) == 0)
+    }
+
+    /// The render path honours `volumeIndex`: volume 0 of a 4D file is
+    /// byte-identical to the same 3D file (no t==0 regression), and an
+    /// out-of-range volume renders a uniform zero slice instead of garbage.
+    /// (Per-volume *data* correctness is covered at the voxel level by
+    /// `fourDVoxelAddressingMatchesFillPattern` and the gz test below;
+    /// `makeNii`'s linear ramp differs only by an additive constant between
+    /// volumes, which percentile windowing intentionally normalises away.)
+    @Test
+    func centerSliceSelectsRequestedVolume() throws {
+        let w = 8, h = 6, d = 4, t = 5
+        let raw4D = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: t)
+        let raw3D = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16)
+        let url4D = Self.tempURL(suffix: ".nii")
+        let url3D = Self.tempURL(suffix: ".nii")
+        defer {
+            try? FileManager.default.removeItem(at: url4D)
+            try? FileManager.default.removeItem(at: url3D)
+        }
+        try raw4D.write(to: url4D)
+        try raw3D.write(to: url3D)
+        let vol4D = MIQVolume(image: try MIQParser().parse(url: url4D))
+        let vol3D = MIQVolume(image: try MIQParser().parse(url: url3D))
+
+        guard case .grayscale(let v0) = vol4D.centerSlice(plane: .axial, volumeIndex: 0, options: testRenderingOptions),
+              case .grayscale(let only) = vol3D.centerSlice(plane: .axial, options: testRenderingOptions),
+              case .grayscale(let oob) = vol4D.centerSlice(plane: .axial, volumeIndex: t, options: testRenderingOptions) else {
+            Issue.record("expected grayscale slices")
+            return
+        }
+        // Volume 0 of the 4D file == the equivalent 3D file (identical payload
+        // bytes; the 4D path adds no t==0 regression).
+        #expect(v0.width == only.width && v0.height == only.height)
+        #expect(v0.pixels == only.pixels)
+        // Out-of-range volume → zero backstop, never garbage.
+        #expect(Set(oob.pixels).count <= 1)
+    }
+
+    /// Phase 2: the default gz parse caps at volume 0 (timepoints > 0 backstop
+    /// to zero), while `fullyDecompress: true` recovers every volume identical
+    /// to the uncompressed reference. Volume 0 is invariant across all paths.
+    @Test
+    func fullyDecompressRecoversAllVolumesForFourDGz() throws {
+        let w = 8, h = 6, d = 4, t = 5
+        let raw = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: t)
+        let plainURL = Self.tempURL(suffix: ".nii")
+        let gzURL = Self.tempURL(suffix: ".nii.gz")
+        defer {
+            try? FileManager.default.removeItem(at: plainURL)
+            try? FileManager.default.removeItem(at: gzURL)
+        }
+        try raw.write(to: plainURL)
+        try TestZlib.gzip(raw).write(to: gzURL)
+
+        let bpv = MIQDatatype.int16.bytesPerVoxel
+        let plainImg = try MIQParser().parse(url: plainURL)
+        let cappedImg = try MIQParser().parse(url: gzURL)
+        let fullImg = try MIQParser().parse(url: gzURL, fullyDecompress: true)
+
+        #expect(cappedImg.payloadCount == w * h * d * bpv)          // volume 0 only
+        #expect(fullImg.payloadCount == w * h * d * t * bpv)        // every volume
+        #expect(fullImg.payloadCount == plainImg.payloadCount)
+
+        let plain = MIQVolume(image: plainImg)
+        let capped = MIQVolume(image: cappedImg)
+        let full = MIQVolume(image: fullImg)
+        for z in 0..<d {
+            for y in 0..<h {
+                for x in 0..<w {
+                    #expect(capped.voxel(x: x, y: y, z: z, t: 0) == plain.voxel(x: x, y: y, z: z, t: 0))
+                    #expect(full.voxel(x: x, y: y, z: z, t: 0) == plain.voxel(x: x, y: y, z: z, t: 0))
+                    #expect(capped.voxel(x: x, y: y, z: z, t: 1) == 0)
+                    #expect(full.voxel(x: x, y: y, z: z, t: 1) == plain.voxel(x: x, y: y, z: z, t: 1))
+                }
+            }
+        }
+    }
+
+    // MARK: - ScrollStepResolver
+
+    private func scrollInput(
+        option: Bool = false,
+        began: Bool = false,
+        legacy: Bool = false,
+        dx: Double = 0,
+        dy: Double = 0,
+        precise: Bool = false
+    ) -> ScrollStepInput {
+        ScrollStepInput(
+            optionHeld: option,
+            phaseBegan: began,
+            isLegacyWheel: legacy,
+            deltaX: dx,
+            deltaY: dy,
+            hasPreciseDeltas: precise
+        )
+    }
+
+    /// Legacy wheel uses the live modifier; volume steps are the inverse of the
+    /// slice step for the same physical scroll direction.
+    @Test
+    func scrollResolverLegacyWheelRoutesByModifierAndInvertsVolume() {
+        var slice = ScrollStepResolver()
+        var volume = ScrollStepResolver()
+        let s = slice.resolve(scrollInput(legacy: true, dy: 1), onBegan: {})
+        let v = volume.resolve(scrollInput(option: true, legacy: true, dy: 1), onBegan: {})
+        #expect(s?.axis == .slice)
+        #expect(v?.axis == .volume)
+        #expect(s?.step != nil && v?.step != nil)
+        #expect(s!.step == -v!.step)   // 4D inverted vs slice
+    }
+
+    /// Precise (trackpad) deltas accumulate; no step until the threshold is
+    /// crossed, then the remainder carries into the next event.
+    @Test
+    func scrollResolverPreciseDeltasAccumulateToThreshold() {
+        var r = ScrollStepResolver()
+        #expect(r.resolve(scrollInput(began: true, dy: 8, precise: true), onBegan: {}) == nil)
+        let stepped = r.resolve(scrollInput(dy: 8, precise: true), onBegan: {})
+        #expect(stepped?.axis == .slice)            // 16 ≥ 14 → one step
+        #expect(stepped?.step == -1)                // dy > 0 → slice -1
+        // 16 − 14 = 2 carried; a small follow-up still can't reach 14 alone.
+        #expect(r.resolve(scrollInput(dy: 8, precise: true), onBegan: {}) == nil)  // 2+8=10
+        #expect(r.resolve(scrollInput(dy: 8, precise: true), onBegan: {})?.step == -1) // 18 ≥ 14
+    }
+
+    /// The modifier latched at `.began` holds through subsequent (momentum)
+    /// events while Option stays down.
+    @Test
+    func scrollResolverLatchesModifierThroughMomentum() {
+        var r = ScrollStepResolver()
+        let a = r.resolve(scrollInput(option: true, began: true, dy: 20, precise: true), onBegan: {})
+        let b = r.resolve(scrollInput(option: true, dy: 20, precise: true), onBegan: {})
+        #expect(a?.axis == .volume)
+        #expect(b?.axis == .volume)
+    }
+
+    /// Releasing Option mid volume-gesture swallows the rest of the gesture and
+    /// its inertia (does not leak into slice scrolling), until the next `.began`.
+    @Test
+    func scrollResolverReleasingOptionCancelsRemainder() {
+        var r = ScrollStepResolver()
+        #expect(r.resolve(scrollInput(option: true, began: true, dy: 20, precise: true), onBegan: {})?.axis == .volume)
+        #expect(r.resolve(scrollInput(option: false, dy: 20, precise: true), onBegan: {}) == nil)  // released → cancel
+        #expect(r.resolve(scrollInput(option: true, dy: 20, precise: true), onBegan: {}) == nil)   // stays swallowed
+        // A fresh gesture recovers.
+        #expect(r.resolve(scrollInput(began: true, dy: 20, precise: true), onBegan: {})?.axis == .slice)
+    }
+
+    /// A gesture latched to slice ignores Option pressed mid-gesture (no axis
+    /// flip from inertia/modifier changes).
+    @Test
+    func scrollResolverSliceGestureIgnoresLaterOption() {
+        var r = ScrollStepResolver()
+        #expect(r.resolve(scrollInput(began: true, dy: 20, precise: true), onBegan: {})?.axis == .slice)
+        #expect(r.resolve(scrollInput(option: true, dy: 20, precise: true), onBegan: {})?.axis == .slice)
+    }
+
+    /// Zero delta yields no step, and `onBegan` fires exactly once per gesture.
+    @Test
+    func scrollResolverZeroDeltaAndOnBeganOnce() {
+        var r = ScrollStepResolver()
+        var beganCount = 0
+        #expect(r.resolve(scrollInput(began: true, dy: 0), onBegan: { beganCount += 1 }) == nil)
+        _ = r.resolve(scrollInput(dy: 8, precise: true), onBegan: { beganCount += 1 })
+        _ = r.resolve(scrollInput(dy: 8, precise: true), onBegan: { beganCount += 1 })
+        #expect(beganCount == 1)
+    }
+
     /// 3D NIfTI: the budget equals the full payload, so the streaming inflater
     /// must yield exactly the same bytes as the single-shot path (no regression).
     @Test

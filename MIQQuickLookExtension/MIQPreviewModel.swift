@@ -29,6 +29,22 @@ final class MIQPreviewModel {
         case failed(String)
     }
 
+    /// Lifecycle of the lazy full-decompression for 4D `.nii.gz`. Every other
+    /// kind is `.notNeeded` (uncompressed `.nii` is mmap'd; `.mgz`/`.mif.gz`
+    /// already decompress in full; 3D `.nii.gz`'s volume-0 budget is the whole
+    /// payload). `.pending` files re-parse fully the first time the user steps
+    /// past volume 0; until `.expanded`, volumes > 0 render the zero backstop.
+    /// `.failed` keeps volumes > 0 on the backstop *without* retrying on every
+    /// step (no storm), but is reset to `.pending` at the next scroll-gesture
+    /// start so a transient failure isn't permanent for the session.
+    private enum ExpansionState {
+        case notNeeded
+        case pending
+        case expanding
+        case expanded
+        case failed
+    }
+
     var state: State = .idle
     var coronal: NSImage?
     var sagittal: NSImage?
@@ -41,9 +57,12 @@ final class MIQPreviewModel {
     private(set) var hasInteracted = false
 
     private let url: URL
+    private let fileKind: MIQFileKind?
     private let maxDimension = 512
     private var renderingOptions: RenderingOptions?
     private var interactiveState: InteractivePreviewState?
+    private var expansionState: ExpansionState = .notNeeded
+    private var expansionTask: Task<Void, Never>?
     private var currentCursor: MIQVolumeCursor?
     private var displayedCursor: MIQVolumeCursor?
     private var windowAdjustment: MIQIntensityWindowBounds?
@@ -54,11 +73,19 @@ final class MIQPreviewModel {
 
     init(url: URL) {
         self.url = url
+        self.fileKind = MIQFileKind(url: url)
     }
 
     deinit {
         interactionPreparationTask?.cancel()
         renderTask?.cancel()
+        expansionTask?.cancel()
+    }
+
+    /// Only a 4D `.nii.gz` carries a volume-0-capped buffer that hides volumes
+    /// > 0. Everything else already holds the full payload.
+    private static func needsExpansion(kind: MIQFileKind?, volumes: Int) -> Bool {
+        kind == .niiGz && volumes > 1
     }
 
     func load() async {
@@ -87,6 +114,11 @@ final class MIQPreviewModel {
         renderingOptions = options
         if !reusingInteractiveState {
             interactiveState = nil
+            // A fresh parse starts capped again; the cache-hit reuse path keeps
+            // whatever expansion was already achieved for this file+options.
+            expansionTask?.cancel()
+            expansionTask = nil
+            expansionState = .notNeeded
         }
         currentCursor = interactiveState?.centerCursor
         displayedCursor = interactiveState?.centerCursor
@@ -129,6 +161,8 @@ final class MIQPreviewModel {
         renderTask?.cancel()
         renderTask = nil
         pendingRenderCursor = nil
+        // A new gesture earns one more expansion attempt after a prior failure.
+        if expansionState == .failed { expansionState = .pending }
     }
 
     func stepSlice(plane: SlicePlane, deltaSteps: Int) {
@@ -143,12 +177,103 @@ final class MIQPreviewModel {
 
         var coordinates = [cursor.x, cursor.y, cursor.z]
         coordinates[geometry.sliceAxis] = nextIndex
-        let updated = MIQVolumeCursor(x: coordinates[0], y: coordinates[1], z: coordinates[2])
+        let updated = MIQVolumeCursor(x: coordinates[0], y: coordinates[1], z: coordinates[2], t: cursor.t)
         guard updated != currentCursor else { return }
 
         currentCursor = updated
         onChange?()
         scheduleRender(for: updated)
+    }
+
+    /// Step along the 4th (volume/time) axis, leaving x/y/z untouched. No-op for
+    /// 3D files. Reuses the same throttled render path as `stepSlice`. For a
+    /// volume-0-capped `.nii.gz`, timepoints > 0 render the zero backstop until
+    /// the lazy-expand (kicked off here on first 4D intent) swaps in the fully
+    /// decompressed volume.
+    func stepVolume(deltaSteps: Int) {
+        guard deltaSteps != 0, let interactiveState else { return }
+        let volumes = interactiveState.volume.volumes
+        guard volumes > 1 else { return }
+        let cursor = currentCursor ?? interactiveState.centerCursor
+        applyVolume(cursor.t + deltaSteps, interactiveState: interactiveState)
+    }
+
+    /// Absolute timepoint seek (the metadata scrubber). Same path as
+    /// `stepVolume`; clamps into range and is a no-op for 3D files.
+    func setVolume(to index: Int) {
+        guard let interactiveState, interactiveState.volume.volumes > 1 else { return }
+        applyVolume(index, interactiveState: interactiveState)
+    }
+
+    /// Total number of volumes along the 4th axis (1 for 3D).
+    var volumeCount: Int { interactiveState?.volume.volumes ?? 1 }
+
+    /// Current timepoint the preview is showing.
+    var currentVolumeIndex: Int { currentCursor?.t ?? 0 }
+
+    private func applyVolume(_ requestedT: Int, interactiveState: InteractivePreviewState) {
+        let cursor = currentCursor ?? interactiveState.centerCursor
+        let nextT = max(0, min(interactiveState.volume.volumes - 1, requestedT))
+        guard nextT != cursor.t else { return }
+        hasInteracted = true
+
+        let updated = MIQVolumeCursor(x: cursor.x, y: cursor.y, z: cursor.z, t: nextT)
+        guard updated != currentCursor else { return }
+
+        currentCursor = updated
+        triggerExpansionIfNeeded()
+        onChange?()
+        scheduleRender(for: updated)
+    }
+
+    /// `true` while the fully decompressed volume is still being prepared — the
+    /// view layer uses this to show a "decompressing" affordance on the volume
+    /// indicator (Phase 4).
+    var isExpandingVolumes: Bool { expansionState == .expanding }
+
+    /// Kick the one-time full decompression for a 4D `.nii.gz`. Idempotent:
+    /// guarded by `expansionState`, and the model is `@MainActor` so the
+    /// `.pending` → `.expanding` transition can't race a second caller.
+    private func triggerExpansionIfNeeded() {
+        guard expansionState == .pending, let interactiveState else { return }
+        expansionState = .expanding
+        let fileURL = self.url
+        let options = interactiveState.options
+        let maxDimension = interactiveState.maxDimension
+        let windowBounds = interactiveState.windowBounds
+
+        expansionTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let expanded = try await Task.detached(priority: .userInitiated) { () -> InteractivePreviewState in
+                    try Self.loadExpandedInteractiveState(
+                        fileURL: fileURL,
+                        options: options,
+                        maxDimension: maxDimension,
+                        windowBounds: windowBounds
+                    )
+                }.value
+                guard !Task.isCancelled else { return }
+                self.expansionTask = nil
+                self.interactiveState = expanded
+                self.expansionState = .expanded
+                self.logger.notice("4D expansion complete — full decompression swapped in")
+                // The cursor is unchanged but the underlying volume is not, so
+                // force every plane to re-render against the real data.
+                self.scheduleFullRender()
+                self.onChange?()
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.expansionTask = nil
+                // `.failed` (not `.notNeeded`): no retry on every subsequent
+                // step within this gesture (no storm), but `scrollGestureBegan`
+                // resets it to `.pending` so the *next* gesture retries — a
+                // transient failure (I/O, security scope) isn't permanent.
+                // Volumes > 0 keep the zero backstop; volume 0 stays correct.
+                self.expansionState = .failed
+                self.logger.error("4D expansion failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     func updateCursor(plane: SlicePlane, normalizedPoint: MIQNormalizedPoint) {
@@ -160,7 +285,8 @@ final class MIQPreviewModel {
             for: plane,
             sliceIndex: sliceIndex,
             normalizedPoint: normalizedPoint,
-            options: interactiveState.options
+            options: interactiveState.options,
+            t: cursor.t
         )
         guard updated != currentCursor else { return }
 
@@ -201,6 +327,7 @@ final class MIQPreviewModel {
 
     private func apply(raw: RawPreviewData) {
         interactiveState = raw.interactiveState
+        expansionState = Self.needsExpansion(kind: fileKind, volumes: raw.interactiveState.volume.volumes) ? .pending : .notNeeded
         currentCursor = raw.interactiveState.centerCursor
         displayedCursor = raw.interactiveState.centerCursor
         metadataEntries = raw.metadataEntries
@@ -248,6 +375,7 @@ final class MIQPreviewModel {
                 guard !Task.isCancelled else { return }
                 self.interactionPreparationTask = nil
                 self.interactiveState = interactiveState
+                self.expansionState = Self.needsExpansion(kind: self.fileKind, volumes: interactiveState.volume.volumes) ? .pending : .notNeeded
                 self.currentCursor = interactiveState.centerCursor
                 self.displayedCursor = interactiveState.centerCursor
                 self.onChange?()
@@ -377,6 +505,29 @@ final class MIQPreviewModel {
         )
     }
 
+    /// Fully decompressed re-parse for 4D navigation. Reuses the volume-0
+    /// `windowBounds` from the capped state so intensity windowing stays
+    /// constant across the timeseries (comparable frames, no per-volume
+    /// percentile recompute).
+    private nonisolated static func loadExpandedInteractiveState(
+        fileURL: URL,
+        options: RenderingOptions,
+        maxDimension: Int,
+        windowBounds: MIQIntensityWindowBounds?
+    ) throws -> InteractivePreviewState {
+        try withSecurityScopedAccess(to: fileURL) {
+            let image = try MIQParser().parse(url: fileURL, fullyDecompress: true)
+            let volume = MIQVolume(image: image)
+            return InteractivePreviewState(
+                volume: volume,
+                options: options,
+                maxDimension: maxDimension,
+                windowBounds: windowBounds,
+                centerCursor: volume.centerCursor()
+            )
+        }
+    }
+
     private nonisolated static func renderSlices(
         for cursor: MIQVolumeCursor,
         planes: [SlicePlane],
@@ -389,7 +540,7 @@ final class MIQPreviewModel {
             slices[plane] = interactiveState.volume.slice(
                 plane: plane,
                 index: index,
-                volumeIndex: 0,
+                volumeIndex: cursor.t,
                 maxDimension: interactiveState.maxDimension,
                 options: interactiveState.options,
                 windowBounds: windowBounds
@@ -403,7 +554,13 @@ final class MIQPreviewModel {
         to newCursor: MIQVolumeCursor,
         interactiveState: InteractivePreviewState
     ) -> [SlicePlane] {
-        SlicePlane.allCases.filter { plane in
+        // A timepoint change reuses the same x/y/z, so the per-plane slice indices
+        // are unchanged — but every plane samples a different volume and must
+        // re-render. The spatial diff below would otherwise return nothing.
+        if oldCursor.t != newCursor.t {
+            return SlicePlane.allCases
+        }
+        return SlicePlane.allCases.filter { plane in
             let oldIndex = interactiveState.volume.sliceIndex(for: plane, cursor: oldCursor, options: interactiveState.options)
             let newIndex = interactiveState.volume.sliceIndex(for: plane, cursor: newCursor, options: interactiveState.options)
             return oldIndex != newIndex

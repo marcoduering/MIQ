@@ -216,6 +216,140 @@ struct PerformanceBaselineTests {
         return written == Int(isize) ? out : nil
     }
 
+    // MARK: - Real MIF cold-load profile
+
+    /// Comma-separated list of real `.mif` / `.mif.gz` files to profile.
+    private static let mifPaths = ProcessInfo.processInfo.environment["MIQ_PERF_MIF"]
+
+    /// Profiles the *actual Quick Look cold path* for real MIF files, stage by
+    /// stage, and prints the layout-derived strides + per-center-slice byte span
+    /// so the bottleneck is visible rather than guessed.
+    ///
+    ///     MIQ_PERF_MIF="/a/dwi.mif,/a/dwi.mif.gz,/a/test.mif" swift test -c release \
+    ///       --package-path … --scratch-path … --filter realMifProfile
+    @Test(.enabled(if: PerformanceBaselineTests.mifPaths != nil))
+    func realMifProfile() throws {
+        let paths = try #require(Self.mifPaths)
+            .split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+
+        print("")
+        print("=== Real MIF cold-load profile ===")
+        print("host: \(ProcessInfo.processInfo.operatingSystemVersionString)")
+
+        for path in paths {
+            let url = URL(fileURLWithPath: path)
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+                  let size = attrs[.size] as? Int else {
+                print("\n[skip] \(path) — not found"); continue
+            }
+
+            // Cold cost: a fresh QL process does parse + centerPreview with nothing
+            // cached. warmup:0 / iterations:1 captures the first-touch (page fault /
+            // gunzip) cost the user actually waits for.
+            let coldClock = ContinuousClock()
+            let coldDur = coldClock.measure {
+                guard let img = try? MIQParser().parse(url: url) else { return }
+                _ = MIQVolume(image: img).centerPreview(volumeIndex: 0, maxDimension: Self.maxDimension, options: Self.options)
+            }
+
+            let readMs = Self.measure(iterations: 3) {
+                _ = try? Data(contentsOf: url, options: [.mappedIfSafe])
+            }
+            let headerMs = Self.measure(iterations: 3) {
+                _ = try? MIQParser().parseHeader(url: url)
+            }
+            let isGz = url.pathExtension.lowercased() == "gz"
+            var gunzipMs: (minMs: Double, medianMs: Double)?
+            if isGz, let raw = try? Data(contentsOf: url, options: [.mappedIfSafe]) {
+                gunzipMs = Self.measure(iterations: 3) { _ = try? MIQBinaryReader.gunzip(raw) }
+            }
+            let parseMs = Self.measure(iterations: 3) { _ = try? MIQParser().parse(url: url) }
+
+            let image = try MIQParser().parse(url: url)
+            let volume = MIQVolume(image: image)
+            let h = image.header
+
+            let windowMs = Self.measure(iterations: 3) {
+                _ = volume.fixedCenterWindow(volumeIndex: 0, options: Self.options)
+            }
+            let previewMs = Self.measure(iterations: 3) {
+                _ = volume.centerPreview(volumeIndex: 0, maxDimension: Self.maxDimension, options: Self.options)
+            }
+            let bounds = volume.fixedCenterWindow(volumeIndex: 0, options: Self.options)
+            let cursor = volume.centerCursor()
+            let resliceMs = Self.measure(iterations: 5) {
+                let idx = volume.sliceIndex(for: .axial, cursor: cursor, options: Self.options) + 1
+                _ = volume.slice(plane: .axial, index: idx, volumeIndex: 0,
+                                  maxDimension: Self.maxDimension, options: Self.options, windowBounds: bounds)
+            }
+            var volScrollMs: (minMs: Double, medianMs: Double)?
+            if volume.volumes > 1 {
+                volScrollMs = Self.measure(iterations: 5) {
+                    let idx = volume.sliceIndex(for: .axial, cursor: cursor, options: Self.options)
+                    _ = volume.slice(plane: .axial, index: idx, volumeIndex: 1,
+                                     maxDimension: Self.maxDimension, options: Self.options, windowBounds: bounds)
+                }
+            }
+
+            // Layout diagnostics: element strides and the byte span each center
+            // slice walks. A span ≈ whole payload ⇒ no prefix optimization is
+            // possible and uncompressed reads fault in the entire file.
+            let strides = image.payloadElementStrides.map { "\($0)" } ?? "linear (no strides)"
+            let bpv = h.datatype.bytesPerVoxel
+            let payloadBytes = (h.width * h.height * h.depth * max(1, h.volumes)) * bpv
+
+            print("")
+            print("file: \(url.lastPathComponent)  (\(String(format: "%.0f", Double(size) / 1_048_576)) MB on disk)")
+            print("dim: \(h.width)x\(h.height)x\(h.depth) vol=\(h.volumes)  datatype: \(h.datatype) (\(bpv)B)")
+            print("payloadElementStrides [x,y,z,t]: \(strides)  payload: \(String(format: "%.0f", Double(payloadBytes) / 1_048_576)) MB")
+            for plane in SlicePlane.allCases {
+                print("  \(Self.spanLine(plane: plane, volume: volume, bpv: bpv, payloadBytes: payloadBytes))")
+            }
+            print(String(repeating: "-", count: 64))
+            print(Self.row2("stage", "median ms (min)", ""))
+            print(Self.row2("COLD parse+preview (1×)", String(format: "%.0f", Self.ms(coldDur)), "← user-perceived"))
+            print(Self.row2("mmap read", Self.fmt(readMs), ""))
+            print(Self.row2("parseHeader(url)", Self.fmt(headerMs), ""))
+            if let gunzipMs { print(Self.row2("gunzip (zlib, full)", Self.fmt(gunzipMs), "")) }
+            print(Self.row2("parse(url) end-to-end", Self.fmt(parseMs), ""))
+            print(Self.row2("fixedCenterWindow", Self.fmt(windowMs), "3 center decodes + sort"))
+            print(Self.row2("centerPreview", Self.fmt(previewMs), "cold render path"))
+            print(Self.row2("reslice (x/y/z scroll)", Self.fmt(resliceMs), "1 off-center plane"))
+            if let volScrollMs { print(Self.row2("reslice (⌥ volume scroll)", Self.fmt(volScrollMs), "vol 0→1")) }
+            print(String(repeating: "-", count: 64))
+        }
+        print("")
+    }
+
+    /// Byte span (min..max payload byte) a single center slice touches, given the
+    /// signed/abs element strides — the locality fingerprint of the layout.
+    private static func spanLine(plane: SlicePlane, volume: MIQVolume, bpv: Int, payloadBytes: Int) -> String {
+        let geo = volume.sliceGeometry(for: plane, options: options)
+        let cursor = volume.centerCursor()
+        let slice = cursor.coordinate(forAxis: geo.sliceAxis)
+        var lo = Int.max, hi = Int.min
+        let img = volume.image
+        let stepW = max(1, geo.width / 32), stepH = max(1, geo.height / 32)
+        var c = [0, 0, 0]
+        c[geo.sliceAxis] = slice
+        var row = 0
+        while row < geo.height {
+            var col = 0
+            while col < geo.width {
+                c[geo.horizontalAxis] = col
+                c[geo.verticalAxis] = row
+                let e = img.voxelElementIndex(x: c[0], y: c[1], z: c[2], t: 0) * bpv
+                lo = Swift.min(lo, e); hi = Swift.max(hi, e + bpv)
+                col += stepW
+            }
+            row += stepH
+        }
+        let spanMB = Double(hi - lo) / 1_048_576
+        let pct = payloadBytes > 0 ? 100.0 * Double(hi - lo) / Double(payloadBytes) : 0
+        return String(format: "%@ center: spans %.0f MB (%.0f%% of payload)",
+                      "\(plane)".padding(toLength: 9, withPad: " ", startingAt: 0), spanMB, pct)
+    }
+
     private static func row2(_ a: String, _ b: String, _ c: String) -> String {
         let wa = 26, wb = 18
         let pa = a.count >= wa ? a : a + String(repeating: " ", count: wa - a.count)

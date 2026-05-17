@@ -27,11 +27,16 @@ public struct MIQVolumeCursor: Sendable, Hashable {
     public let x: Int
     public let y: Int
     public let z: Int
+    /// Index along the 4th (volume/time) axis. `coordinate(forAxis:)` deliberately
+    /// excludes it — `t` is not a spatial slice axis — but it participates in
+    /// `Hashable`/`Equatable` so a timepoint change invalidates a displayed frame.
+    public let t: Int
 
-    public init(x: Int, y: Int, z: Int) {
+    public init(x: Int, y: Int, z: Int, t: Int = 0) {
         self.x = x
         self.y = y
         self.z = z
+        self.t = t
     }
 
     public func coordinate(forAxis axis: Int) -> Int {
@@ -123,7 +128,8 @@ public struct MIQVolume: Sendable {
         for plane: SlicePlane,
         sliceIndex: Int,
         normalizedPoint: MIQNormalizedPoint,
-        options: RenderingOptions
+        options: RenderingOptions,
+        t: Int = 0
     ) -> MIQVolumeCursor {
         let geometry = sliceGeometry(for: plane, options: options)
         let dims = [width, height, depth]
@@ -135,7 +141,7 @@ public struct MIQVolume: Sendable {
         coordinates[geometry.sliceAxis] = safeSlice
         coordinates[geometry.horizontalAxis] = geometry.horizontalReversed ? (geometry.width - 1 - column) : column
         coordinates[geometry.verticalAxis] = geometry.verticalReversed ? (geometry.height - 1 - row) : row
-        return MIQVolumeCursor(x: coordinates[0], y: coordinates[1], z: coordinates[2])
+        return MIQVolumeCursor(x: coordinates[0], y: coordinates[1], z: coordinates[2], t: t)
     }
 
     public func normalizedPoint(for plane: SlicePlane, cursor: MIQVolumeCursor, options: RenderingOptions) -> MIQNormalizedPoint {

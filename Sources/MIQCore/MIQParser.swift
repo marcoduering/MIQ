@@ -3,8 +3,14 @@ import Foundation
 public struct MIQParser {
     public init() {}
 
-    public func parse(url: URL) throws -> MIQImage {
-        let (data, kind) = try loadAndDecompress(url: url)
+    /// - Parameter fullyDecompress: When `true`, bypass the volume-0 budget cap
+    ///   for `.nii.gz` and decompress the entire stream. The default (`false`)
+    ///   keeps the fast cold-load path that the Quick Look preview opens with;
+    ///   4D navigation re-parses with `true` once the user scrolls past volume 0.
+    ///   A no-op for every other kind (uncompressed `.nii` is mmap'd; `.mgz` /
+    ///   `.mif.gz` already decompress in full).
+    public func parse(url: URL, fullyDecompress: Bool = false) throws -> MIQImage {
+        let (data, kind) = try loadAndDecompress(url: url, fullyDecompress: fullyDecompress)
         return try parseImage(data: data, kind: kind)
     }
 
@@ -19,7 +25,7 @@ public struct MIQParser {
     /// plus typical extensions — enough to compute the payload budget cheaply.
     private static let headerProbeBytes = 64 * 1024
 
-    private func loadAndDecompress(url: URL) throws -> (Data, MIQFileKind) {
+    private func loadAndDecompress(url: URL, fullyDecompress: Bool = false) throws -> (Data, MIQFileKind) {
         guard let kind = MIQFileKind(url: url) else {
             throw MIQError.unsupportedFileFormat
         }
@@ -32,8 +38,9 @@ public struct MIQParser {
         }
 
         // Decompress only the prefix the preview actually reads, when the layout
-        // makes that a bounded prefix. Otherwise fall back to full decompression.
-        if let budget = niftiVolumeZeroBudget(raw: raw, kind: kind) {
+        // makes that a bounded prefix. Otherwise (or when the caller explicitly
+        // needs every volume, e.g. 4D navigation) fall back to full decompression.
+        if !fullyDecompress, let budget = niftiVolumeZeroBudget(raw: raw, kind: kind) {
             return (try MIQBinaryReader.gunzip(raw, maxOutputBytes: budget), kind)
         }
         return (try MIQBinaryReader.gunzip(raw), kind)
@@ -48,10 +55,13 @@ public struct MIQParser {
     /// - MIF: arbitrary `payloadElementStrides` — a spatial or temporal axis can
     ///   be scattered through the entire file, so volume 0 is not a prefix.
     ///
-    /// A Quick Look preview only ever reads volume 0 (the model hard-codes
-    /// volumeIndex 0; scrolling moves only x/y/z), and NIfTI stores time as the
-    /// outermost (slowest) axis with no strides, so this budget is exactly
-    /// sufficient and never short. For 3D NIfTI it equals the full payload.
+    /// The cold preview only ever reads volume 0 (cache-hit/first-frame paths
+    /// pin volumeIndex 0; scrolling moves only x/y/z), and NIfTI stores time as
+    /// the outermost (slowest) axis with no strides, so this budget is exactly
+    /// sufficient and never short for that path. For 3D NIfTI it equals the full
+    /// payload. 4D navigation deliberately steps outside this budget — it
+    /// re-parses with `fullyDecompress: true` (which skips this cap) before
+    /// reading volumes > 0, so the capped buffer is never sampled past volume 0.
     private func niftiVolumeZeroBudget(raw: Data, kind: MIQFileKind) -> Int? {
         guard kind == .niiGz,
               let probe = try? MIQBinaryReader.gunzip(raw, maxOutputBytes: Self.headerProbeBytes),
