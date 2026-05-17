@@ -16,3 +16,5 @@ build/
 CLAUDE.md
 DerivedData/
 LocalSigning.xcconfig
+scripts/perf/testcases.txt
+scripts/perf/results.json

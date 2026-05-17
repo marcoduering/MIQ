@@ -1,0 +1,16 @@
+# MIQ performance corpus — copy this file to `testcases.txt` (gitignored) and
+# point it at real files on your machine.
+#
+# Format: <label><whitespace><absolute path>.  Blank lines and `#` ignored.
+# The label is the stable key used to match a case against baseline.json, so
+# keep it constant across releases (rename the file, not the label).
+#
+# Pick a representative spread: each format, 3D + 4D, compressed + not, and at
+# least one large file per format so IO/decompression cost is exercised.
+
+nii-3d    /absolute/path/to/structural.nii
+nii-gz-3d /absolute/path/to/structural.nii.gz
+nii-gz-4d /absolute/path/to/dwi_4d.nii.gz
+mif-4d    /absolute/path/to/fod.mif
+mgz-3d    /absolute/path/to/freesurfer.mgz
+nrrd-3d   /absolute/path/to/scan.nrrd

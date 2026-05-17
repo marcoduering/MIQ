@@ -216,109 +216,276 @@ struct PerformanceBaselineTests {
         return written == Int(isize) ? out : nil
     }
 
-    // MARK: - Real MIF cold-load profile
+    // MARK: - Real corpus cold-load profile
 
-    /// Comma-separated list of real `.mif` / `.mif.gz` files to profile.
+    /// One stage's median ms. `nil` = not applicable (e.g. gunzip for an
+    /// uncompressed file, ⌥-volume reslice for a 3D volume).
+    private struct Stages: Codable {
+        var previewTotal: Double?       // headline: parse(url) + centerPreview, min-based & stable
+        var coldParsePreview: Double?   // single 1× cold run — real-world cross-check, noisy
+        var mmapRead: Double?
+        var parseHeader: Double?
+        var gunzipFull: Double?
+        var parseEndToEnd: Double?
+        var fixedCenterWindow: Double?
+        var centerPreview: Double?
+        var reslice: Double?
+        var volumeReslice: Double?
+    }
+
+    private struct CaseResult: Codable {
+        var label: String
+        var file: String
+        var sizeMB: Int
+        var dims: String
+        var datatype: String
+        var strides: String
+        var payloadMB: Int
+        var spans: [String]
+        var stages: Stages
+    }
+
+    private struct CorpusReport: Codable {
+        var host: String
+        var generatedAt: String
+        var cases: [CaseResult]
+    }
+
+    /// Path to a gitignored corpus list (`label<TAB>/abs/path`, `#` comments).
+    private static let corpusPath = ProcessInfo.processInfo.environment["MIQ_PERF_CORPUS"]
+
+    /// Profiles every file in the corpus through the *actual Quick Look cold
+    /// path*, stage by stage, prints layout/stride diagnostics, and — when a
+    /// baseline JSON exists — prints the per-stage delta vs history with a
+    /// regression flag. Writes machine-readable results when `MIQ_PERF_JSON` is
+    /// set. Driven by `scripts/perf/profile.sh`; see that script for usage.
+    @Test(.enabled(if: PerformanceBaselineTests.corpusPath != nil))
+    func corpusProfile() throws {
+        let listURL = URL(fileURLWithPath: try #require(Self.corpusPath))
+        let entries = try Self.readCorpus(listURL)
+
+        let threshold = Double(ProcessInfo.processInfo.environment["MIQ_PERF_THRESHOLD"] ?? "") ?? 1.20
+        let baseline = (ProcessInfo.processInfo.environment["MIQ_PERF_BASELINE"])
+            .flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) }
+            .flatMap { try? JSONDecoder().decode(CorpusReport.self, from: $0) }
+
+        print("")
+        print("=== MIQ corpus cold-load profile ===")
+        let host = ProcessInfo.processInfo.operatingSystemVersionString
+        print("host: \(host)")
+        if let baseline {
+            print("baseline: \(baseline.generatedAt) on \(baseline.host)")
+            if baseline.host != host {
+                print("⚠️  baseline host differs — absolute deltas are machine-dependent, read trends not points")
+            }
+        } else {
+            print("baseline: none (run with --update-baseline to seed one)")
+        }
+        print("regression flag at > \(String(format: "%.0f%%", (threshold - 1) * 100)) slower than baseline")
+
+        var results: [CaseResult] = []
+        for entry in entries {
+            guard let result = Self.profile(label: entry.label, path: entry.path) else {
+                print("\n[skip] \(entry.label) — \(entry.path) not found / unparseable")
+                continue
+            }
+            results.append(result)
+            let prior = baseline?.cases.first { $0.label == entry.label }
+            Self.printCase(result, baseline: prior, threshold: threshold)
+        }
+
+        let report = CorpusReport(
+            host: host,
+            generatedAt: ISO8601DateFormatter().string(from: Date()),
+            cases: results
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        let json = try encoder.encode(report)
+
+        if let out = ProcessInfo.processInfo.environment["MIQ_PERF_JSON"] {
+            try json.write(to: URL(fileURLWithPath: out))
+            print("\nresults written: \(out)")
+        }
+        if ProcessInfo.processInfo.environment["MIQ_PERF_UPDATE_BASELINE"] == "1",
+           let base = ProcessInfo.processInfo.environment["MIQ_PERF_BASELINE"] {
+            try json.write(to: URL(fileURLWithPath: base))
+            print("baseline updated: \(base)")
+        }
+        print("")
+    }
+
+    /// Comma-separated ad-hoc list (no baseline / JSON). Kept for one-off probing
+    /// outside the curated corpus.
     private static let mifPaths = ProcessInfo.processInfo.environment["MIQ_PERF_MIF"]
 
-    /// Profiles the *actual Quick Look cold path* for real MIF files, stage by
-    /// stage, and prints the layout-derived strides + per-center-slice byte span
-    /// so the bottleneck is visible rather than guessed.
-    ///
-    ///     MIQ_PERF_MIF="/a/dwi.mif,/a/dwi.mif.gz,/a/test.mif" swift test -c release \
-    ///       --package-path … --scratch-path … --filter realMifProfile
     @Test(.enabled(if: PerformanceBaselineTests.mifPaths != nil))
     func realMifProfile() throws {
         let paths = try #require(Self.mifPaths)
             .split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
-
         print("")
-        print("=== Real MIF cold-load profile ===")
-        print("host: \(ProcessInfo.processInfo.operatingSystemVersionString)")
-
+        print("=== Ad-hoc MIF profile ===  host: \(ProcessInfo.processInfo.operatingSystemVersionString)")
         for path in paths {
-            let url = URL(fileURLWithPath: path)
-            guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-                  let size = attrs[.size] as? Int else {
-                print("\n[skip] \(path) — not found"); continue
+            if let r = Self.profile(label: URL(fileURLWithPath: path).lastPathComponent, path: path) {
+                Self.printCase(r, baseline: nil, threshold: 1.20)
+            } else {
+                print("\n[skip] \(path) — not found")
             }
-
-            // Cold cost: a fresh QL process does parse + centerPreview with nothing
-            // cached. warmup:0 / iterations:1 captures the first-touch (page fault /
-            // gunzip) cost the user actually waits for.
-            let coldClock = ContinuousClock()
-            let coldDur = coldClock.measure {
-                guard let img = try? MIQParser().parse(url: url) else { return }
-                _ = MIQVolume(image: img).centerPreview(volumeIndex: 0, maxDimension: Self.maxDimension, options: Self.options)
-            }
-
-            let readMs = Self.measure(iterations: 3) {
-                _ = try? Data(contentsOf: url, options: [.mappedIfSafe])
-            }
-            let headerMs = Self.measure(iterations: 3) {
-                _ = try? MIQParser().parseHeader(url: url)
-            }
-            let isGz = url.pathExtension.lowercased() == "gz"
-            var gunzipMs: (minMs: Double, medianMs: Double)?
-            if isGz, let raw = try? Data(contentsOf: url, options: [.mappedIfSafe]) {
-                gunzipMs = Self.measure(iterations: 3) { _ = try? MIQBinaryReader.gunzip(raw) }
-            }
-            let parseMs = Self.measure(iterations: 3) { _ = try? MIQParser().parse(url: url) }
-
-            let image = try MIQParser().parse(url: url)
-            let volume = MIQVolume(image: image)
-            let h = image.header
-
-            let windowMs = Self.measure(iterations: 3) {
-                _ = volume.fixedCenterWindow(volumeIndex: 0, options: Self.options)
-            }
-            let previewMs = Self.measure(iterations: 3) {
-                _ = volume.centerPreview(volumeIndex: 0, maxDimension: Self.maxDimension, options: Self.options)
-            }
-            let bounds = volume.fixedCenterWindow(volumeIndex: 0, options: Self.options)
-            let cursor = volume.centerCursor()
-            let resliceMs = Self.measure(iterations: 5) {
-                let idx = volume.sliceIndex(for: .axial, cursor: cursor, options: Self.options) + 1
-                _ = volume.slice(plane: .axial, index: idx, volumeIndex: 0,
-                                  maxDimension: Self.maxDimension, options: Self.options, windowBounds: bounds)
-            }
-            var volScrollMs: (minMs: Double, medianMs: Double)?
-            if volume.volumes > 1 {
-                volScrollMs = Self.measure(iterations: 5) {
-                    let idx = volume.sliceIndex(for: .axial, cursor: cursor, options: Self.options)
-                    _ = volume.slice(plane: .axial, index: idx, volumeIndex: 1,
-                                     maxDimension: Self.maxDimension, options: Self.options, windowBounds: bounds)
-                }
-            }
-
-            // Layout diagnostics: element strides and the byte span each center
-            // slice walks. A span ≈ whole payload ⇒ no prefix optimization is
-            // possible and uncompressed reads fault in the entire file.
-            let strides = image.payloadElementStrides.map { "\($0)" } ?? "linear (no strides)"
-            let bpv = h.datatype.bytesPerVoxel
-            let payloadBytes = (h.width * h.height * h.depth * max(1, h.volumes)) * bpv
-
-            print("")
-            print("file: \(url.lastPathComponent)  (\(String(format: "%.0f", Double(size) / 1_048_576)) MB on disk)")
-            print("dim: \(h.width)x\(h.height)x\(h.depth) vol=\(h.volumes)  datatype: \(h.datatype) (\(bpv)B)")
-            print("payloadElementStrides [x,y,z,t]: \(strides)  payload: \(String(format: "%.0f", Double(payloadBytes) / 1_048_576)) MB")
-            for plane in SlicePlane.allCases {
-                print("  \(Self.spanLine(plane: plane, volume: volume, bpv: bpv, payloadBytes: payloadBytes))")
-            }
-            print(String(repeating: "-", count: 64))
-            print(Self.row2("stage", "median ms (min)", ""))
-            print(Self.row2("COLD parse+preview (1×)", String(format: "%.0f", Self.ms(coldDur)), "← user-perceived"))
-            print(Self.row2("mmap read", Self.fmt(readMs), ""))
-            print(Self.row2("parseHeader(url)", Self.fmt(headerMs), ""))
-            if let gunzipMs { print(Self.row2("gunzip (zlib, full)", Self.fmt(gunzipMs), "")) }
-            print(Self.row2("parse(url) end-to-end", Self.fmt(parseMs), ""))
-            print(Self.row2("fixedCenterWindow", Self.fmt(windowMs), "3 center decodes + sort"))
-            print(Self.row2("centerPreview", Self.fmt(previewMs), "cold render path"))
-            print(Self.row2("reslice (x/y/z scroll)", Self.fmt(resliceMs), "1 off-center plane"))
-            if let volScrollMs { print(Self.row2("reslice (⌥ volume scroll)", Self.fmt(volScrollMs), "vol 0→1")) }
-            print(String(repeating: "-", count: 64))
         }
         print("")
+    }
+
+    // MARK: - Profiling core (shared)
+
+    private static func readCorpus(_ url: URL) throws -> [(label: String, path: String)] {
+        let text = try String(contentsOf: url, encoding: .utf8)
+        var out: [(String, String)] = []
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.hasPrefix("#") { continue }
+            // Split on the first run of whitespace: `label   /abs/path`.
+            guard let sep = line.rangeOfCharacter(from: .whitespaces) else { continue }
+            let label = String(line[..<sep.lowerBound])
+            let path = line[sep.upperBound...].trimmingCharacters(in: .whitespaces)
+            if !label.isEmpty, !path.isEmpty { out.append((label, path)) }
+        }
+        return out
+    }
+
+    /// Runs every cold-path stage for one file. Returns `nil` if the file is
+    /// missing or fails to parse (so the corpus run continues).
+    private static func profile(label: String, path: String) -> CaseResult? {
+        let url = URL(fileURLWithPath: path)
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attrs[.size] as? Int,
+              let image = try? MIQParser().parse(url: url) else {
+            return nil
+        }
+
+        // Cold cost: a fresh QL process does parse + centerPreview with nothing
+        // cached. warmup:0 / iterations:1 captures the first-touch (page-fault /
+        // gunzip) cost the user actually waits for.
+        let coldDur = ContinuousClock().measure {
+            guard let img = try? MIQParser().parse(url: url) else { return }
+            _ = MIQVolume(image: img).centerPreview(volumeIndex: 0, maxDimension: maxDimension, options: options)
+        }
+
+        let readMs = measure(iterations: 3) { _ = try? Data(contentsOf: url, options: [.mappedIfSafe]) }
+        let headerMs = measure(iterations: 3) { _ = try? MIQParser().parseHeader(url: url) }
+        let isGz = url.pathExtension.lowercased() == "gz"
+        var gunzipMs: (minMs: Double, medianMs: Double)?
+        if isGz, let rawData = try? Data(contentsOf: url, options: [.mappedIfSafe]) {
+            gunzipMs = measure(iterations: 3) { _ = try? MIQBinaryReader.gunzip(rawData) }
+        }
+        let parseMs = measure(iterations: 3) { _ = try? MIQParser().parse(url: url) }
+
+        let volume = MIQVolume(image: image)
+        let h = image.header
+        let windowMs = measure(iterations: 3) { _ = volume.fixedCenterWindow(volumeIndex: 0, options: options) }
+        let previewMs = measure(iterations: 3) {
+            _ = volume.centerPreview(volumeIndex: 0, maxDimension: maxDimension, options: options)
+        }
+        let bounds = volume.fixedCenterWindow(volumeIndex: 0, options: options)
+        let cursor = volume.centerCursor()
+        let resliceMs = measure(iterations: 5) {
+            let idx = volume.sliceIndex(for: .axial, cursor: cursor, options: options) + 1
+            _ = volume.slice(plane: .axial, index: idx, volumeIndex: 0,
+                             maxDimension: maxDimension, options: options, windowBounds: bounds)
+        }
+        var volScrollMs: (minMs: Double, medianMs: Double)?
+        if volume.volumes > 1 {
+            volScrollMs = measure(iterations: 5) {
+                let idx = volume.sliceIndex(for: .axial, cursor: cursor, options: options)
+                _ = volume.slice(plane: .axial, index: idx, volumeIndex: 1,
+                                 maxDimension: maxDimension, options: options, windowBounds: bounds)
+            }
+        }
+
+        let bpv = h.datatype.bytesPerVoxel
+        let payloadBytes = (h.width * h.height * h.depth * max(1, h.volumes)) * bpv
+        let spans = SlicePlane.allCases.map {
+            spanLine(plane: $0, volume: volume, bpv: bpv, payloadBytes: payloadBytes)
+        }
+
+        return CaseResult(
+            label: label,
+            file: url.lastPathComponent,
+            sizeMB: Int((Double(size) / 1_048_576).rounded()),
+            dims: "\(h.width)x\(h.height)x\(h.depth) vol=\(h.volumes)",
+            datatype: "\(h.datatype) (\(bpv)B)",
+            strides: image.payloadElementStrides.map { "\($0)" } ?? "linear (no strides)",
+            payloadMB: Int((Double(payloadBytes) / 1_048_576).rounded()),
+            spans: spans,
+            // Compare on MIN, not median: the least-contended sample is the
+            // stablest cross-run statistic for microbenchmarks (median still
+            // drifts with background load and produces false regressions). COLD
+            // is a single 1× run by design — inherently noisy, never flagged.
+            stages: Stages(
+                // The end-to-end cold MIQCore cost: decompress+parse then the
+                // 3-plane center render. Sum of mins = stable, comparable total
+                // (vs the 1× coldParsePreview which page-cache state makes noisy).
+                previewTotal: parseMs.minMs + previewMs.minMs,
+                coldParsePreview: ms(coldDur),
+                mmapRead: readMs.minMs,
+                parseHeader: headerMs.minMs,
+                gunzipFull: gunzipMs?.minMs,
+                parseEndToEnd: parseMs.minMs,
+                fixedCenterWindow: windowMs.minMs,
+                centerPreview: previewMs.minMs,
+                reslice: resliceMs.minMs,
+                volumeReslice: volScrollMs?.minMs
+            )
+        )
+    }
+
+    private static func printCase(_ r: CaseResult, baseline: CaseResult?, threshold: Double) {
+        print("")
+        print("\(r.label)  —  \(r.file)  (\(r.sizeMB) MB on disk)")
+        print("dim: \(r.dims)  datatype: \(r.datatype)")
+        print("strides [x,y,z,t]: \(r.strides)  payload: \(r.payloadMB) MB")
+        for s in r.spans { print("  \(s)") }
+        print(String(repeating: "-", count: 72))
+        print(Self.row3("stage", "min ms", "vs baseline"))
+
+        func line(_ name: String, _ cur: Double?, _ base: Double?, flag: Bool = true) {
+            guard let cur else { return }
+            let curStr = String(format: "%.1f", cur)
+            var cmp = ""
+            if let base, base > 0 {
+                let ratio = cur / base
+                let pct = (ratio - 1) * 100
+                // Flag only when meaningful: the stage is flaggable (COLD is a 1×
+                // run, never flagged) and both sides clear ~1 ms (below that,
+                // timing jitter dominates the ratio — show the delta unflagged so
+                // the tool doesn't cry wolf every release).
+                let stable = flag && base >= 1.0 && cur >= 1.0
+                let mark = !stable ? "" : (ratio > threshold ? " ⚠️ REGRESSION" : (ratio < 0.8 ? " ✅ faster" : ""))
+                cmp = String(format: "%.1f → %.1f (%+.0f%%)%@", base, cur, pct, mark)
+            } else if base == nil {
+                cmp = "—"
+            }
+            print(Self.row3(name, curStr, cmp))
+        }
+        let b = baseline?.stages
+        line("TOTAL parse+preview", r.stages.previewTotal, b?.previewTotal)
+        print(String(repeating: "·", count: 72))
+        line("  COLD 1× (real-world)", r.stages.coldParsePreview, b?.coldParsePreview, flag: false)
+        line("  mmap read", r.stages.mmapRead, b?.mmapRead)
+        line("  parseHeader(url)", r.stages.parseHeader, b?.parseHeader)
+        line("  gunzip (zlib, full)", r.stages.gunzipFull, b?.gunzipFull)
+        line("  parse(url) end-to-end", r.stages.parseEndToEnd, b?.parseEndToEnd)
+        line("  fixedCenterWindow", r.stages.fixedCenterWindow, b?.fixedCenterWindow)
+        line("  centerPreview", r.stages.centerPreview, b?.centerPreview)
+        line("  reslice (x/y/z scroll)", r.stages.reslice, b?.reslice)
+        line("  reslice (⌥ volume scroll)", r.stages.volumeReslice, b?.volumeReslice)
+        print(String(repeating: "-", count: 72))
+    }
+
+    private static func row3(_ a: String, _ b: String, _ c: String) -> String {
+        let wa = 27, wb = 11
+        let pa = a.count >= wa ? a : a + String(repeating: " ", count: wa - a.count)
+        let pb = b.count >= wb ? b : b + String(repeating: " ", count: wb - b.count)
+        return pa + " " + pb + " " + c
     }
 
     /// Byte span (min..max payload byte) a single center slice touches, given the

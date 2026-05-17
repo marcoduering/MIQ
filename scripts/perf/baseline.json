@@ -1,0 +1,154 @@
+{
+  "cases" : [
+    {
+      "datatype" : "int16 (2B)",
+      "dims" : "176x256x256 vol=1",
+      "file" : "1_T1w.nii",
+      "label" : "nii-3d",
+      "payloadMB" : 22,
+      "sizeMB" : 22,
+      "spans" : [
+        "coronal   center: spans 21 MB (97% of payload)",
+        "sagittal  center: spans 21 MB (97% of payload)",
+        "axial     center: spans 0 MB (0% of payload)"
+      ],
+      "stages" : {
+        "centerPreview" : 11.654125,
+        "coldParsePreview" : 17.698458,
+        "fixedCenterWindow" : 9.823,
+        "mmapRead" : 0.0205,
+        "parseEndToEnd" : 0.037625,
+        "parseHeader" : 0.038125,
+        "previewTotal" : 11.69175,
+        "reslice" : 1.749041
+      },
+      "strides" : "linear (no strides)"
+    },
+    {
+      "datatype" : "int16 (2B)",
+      "dims" : "176x256x256 vol=1",
+      "file" : "1_T1w.nii.gz",
+      "label" : "nii-gz-3d",
+      "payloadMB" : 22,
+      "sizeMB" : 7,
+      "spans" : [
+        "coronal   center: spans 21 MB (97% of payload)",
+        "sagittal  center: spans 21 MB (97% of payload)",
+        "axial     center: spans 0 MB (0% of payload)"
+      ],
+      "stages" : {
+        "centerPreview" : 12.184083,
+        "coldParsePreview" : 38.34575,
+        "fixedCenterWindow" : 10.96125,
+        "gunzipFull" : 23.727416,
+        "mmapRead" : 0.029,
+        "parseEndToEnd" : 23.838417,
+        "parseHeader" : 23.945208,
+        "previewTotal" : 36.0225,
+        "reslice" : 1.941666
+      },
+      "strides" : "linear (no strides)"
+    },
+    {
+      "datatype" : "uint16 (2B)",
+      "dims" : "130x130x87 vol=109",
+      "file" : "2_DWI_AP_cmrr.nii.gz",
+      "label" : "nii-gz-4d",
+      "payloadMB" : 306,
+      "sizeMB" : 225,
+      "spans" : [
+        "coronal   center: spans 3 MB (1% of payload)",
+        "sagittal  center: spans 3 MB (1% of payload)",
+        "axial     center: spans 0 MB (0% of payload)"
+      ],
+      "stages" : {
+        "centerPreview" : 4.154125,
+        "coldParsePreview" : 12.553333,
+        "fixedCenterWindow" : 3.068,
+        "gunzipFull" : 671.716542,
+        "mmapRead" : 0.309917,
+        "parseEndToEnd" : 6.816125,
+        "parseHeader" : 6.920292,
+        "previewTotal" : 10.97025,
+        "reslice" : 0.966542,
+        "volumeReslice" : 0.923417
+      },
+      "strides" : "linear (no strides)"
+    },
+    {
+      "datatype" : "float32 (4B)",
+      "dims" : "128x128x72 vol=45",
+      "file" : "3_wmfod.mif",
+      "label" : "mif-4d",
+      "payloadMB" : 203,
+      "sizeMB" : 203,
+      "spans" : [
+        "coronal   center: spans 197 MB (97% of payload)",
+        "sagittal  center: spans 200 MB (99% of payload)",
+        "axial     center: spans 3 MB (1% of payload)"
+      ],
+      "stages" : {
+        "centerPreview" : 2.888709,
+        "coldParsePreview" : 11.103125,
+        "fixedCenterWindow" : 1.93825,
+        "mmapRead" : 0.018334,
+        "parseEndToEnd" : 0.408417,
+        "parseHeader" : 0.382833,
+        "previewTotal" : 3.297126,
+        "reslice" : 0.920375,
+        "volumeReslice" : 0.965875
+      },
+      "strides" : "[45, 5760, 737280, 1]"
+    },
+    {
+      "datatype" : "float32 (4B)",
+      "dims" : "208x240x256 vol=1",
+      "file" : "4_FS.mgz",
+      "label" : "mgz-3d",
+      "payloadMB" : 49,
+      "sizeMB" : 13,
+      "spans" : [
+        "coronal   center: spans 47 MB (97% of payload)",
+        "sagittal  center: spans 47 MB (97% of payload)",
+        "axial     center: spans 0 MB (0% of payload)"
+      ],
+      "stages" : {
+        "centerPreview" : 12.292958,
+        "coldParsePreview" : 63.666625,
+        "fixedCenterWindow" : 12.798833,
+        "mmapRead" : 0.036916,
+        "parseEndToEnd" : 48.305125,
+        "parseHeader" : 42.144917,
+        "previewTotal" : 60.598082999999995,
+        "reslice" : 2.313458
+      },
+      "strides" : "linear (no strides)"
+    },
+    {
+      "datatype" : "float32 (4B)",
+      "dims" : "336x336x22 vol=1",
+      "file" : "5_t1w_se.nrrd",
+      "label" : "nrrd-3d",
+      "payloadMB" : 9,
+      "sizeMB" : 9,
+      "spans" : [
+        "coronal   center: spans 9 MB (95% of payload)",
+        "sagittal  center: spans 9 MB (100% of payload)",
+        "axial     center: spans 0 MB (4% of payload)"
+      ],
+      "stages" : {
+        "centerPreview" : 8.838416,
+        "coldParsePreview" : 14.788291,
+        "fixedCenterWindow" : 8.287208,
+        "mmapRead" : 0.028208,
+        "parseEndToEnd" : 5.312041,
+        "parseHeader" : 5.299208,
+        "previewTotal" : 14.150457,
+        "reslice" : 4.081458
+      },
+      "strides" : "linear (no strides)"
+    }
+  ],
+  "generatedAt" : "2026-05-17T14:12:40Z",
+  "host" : "Version 26.5 (Build 25F71)"
+}
