@@ -502,7 +502,6 @@ public struct MIQVolume: Sendable {
         guard byteOffset >= 0, byteOffset + bytesNeeded <= image.payloadCount else {
             return 0
         }
-        let absOffset = image.payloadOffset + byteOffset
         let le = image.header.littleEndian
         switch image.header.datatype {
         case .uint8:
@@ -510,17 +509,17 @@ public struct MIQVolume: Sendable {
         case .int8:
             return Float(Int8(bitPattern: image.byte(atPayloadOffset: byteOffset)))
         case .int16:
-            return Float(Int16(bitPattern: MIQBinaryReader.uint16(image.storage, absOffset, littleEndian: le)))
+            return Float(Int16(bitPattern: MIQBinaryReader.uint16(image.storage, image.payloadOffset + byteOffset, littleEndian: le)))
         case .uint16:
-            return Float(MIQBinaryReader.uint16(image.storage, absOffset, littleEndian: le))
+            return Float(MIQBinaryReader.uint16(image.storage, image.payloadOffset + byteOffset, littleEndian: le))
         case .int32:
-            return Float(Int32(bitPattern: MIQBinaryReader.uint32(image.storage, absOffset, littleEndian: le)))
+            return Float(Int32(bitPattern: MIQBinaryReader.uint32(image.storage, image.payloadOffset + byteOffset, littleEndian: le)))
         case .uint32:
-            return Float(MIQBinaryReader.uint32(image.storage, absOffset, littleEndian: le))
+            return Float(MIQBinaryReader.uint32(image.storage, image.payloadOffset + byteOffset, littleEndian: le))
         case .float32:
-            return Float(bitPattern: MIQBinaryReader.uint32(image.storage, absOffset, littleEndian: le))
+            return Float(bitPattern: MIQBinaryReader.uint32(image.storage, image.payloadOffset + byteOffset, littleEndian: le))
         case .float64:
-            return Float(Double(bitPattern: MIQBinaryReader.uint64(image.storage, absOffset, littleEndian: le)))
+            return Float(Double(bitPattern: MIQBinaryReader.uint64(image.storage, image.payloadOffset + byteOffset, littleEndian: le)))
         case .rgb24, .rgba32:
             // RGB slices are rendered by the dedicated RGB reader in `prepareSlice`;
             // this branch is only reached via the public `voxel()` accessor, where a

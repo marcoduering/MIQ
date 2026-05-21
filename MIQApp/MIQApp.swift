@@ -20,6 +20,9 @@ struct MIQApp: App {
 
     #if DEBUG
     private static let appGroupStore = UserDefaults(suiteName: MIQConfig.appGroupID)
+    // Backs the Debug menu's "Simulate update available" toggle. Same key is
+    // also bound in ContentView so the About pane reacts to flips; both omit
+    // `store:`, so they share via UserDefaults.standard.
     @AppStorage(DebugFlags.simulateUpdateAvailableKey) private var simulateUpdateAvailable = false
     @AppStorage(MIQConfig.Keys.debugShowLayoutBorders, store: Self.appGroupStore) private var debugShowLayoutBorders = false
     #endif

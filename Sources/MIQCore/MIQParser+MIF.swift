@@ -122,7 +122,6 @@ extension MIQParser {
     private struct MifImageDescriptor {
         let header: MIQHeader
         let strides4: [Int]
-        let baseElementIndex: Int
     }
 
     private func buildMifMIQHeader(dataOffset: Int, header: MifHeader) throws -> MifImageDescriptor {
@@ -175,8 +174,7 @@ extension MIQParser {
 
         return MifImageDescriptor(
             header: miqHeader,
-            strides4: strides4,
-            baseElementIndex: 0
+            strides4: strides4
         )
     }
 
@@ -198,7 +196,6 @@ extension MIQParser {
             header: descriptor.header,
             storage: data,
             payloadOffset: dataOffset,
-            payloadBaseElementIndex: descriptor.baseElementIndex,
             payloadElementStrides: descriptor.strides4
         )
     }

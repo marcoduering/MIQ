@@ -4,30 +4,22 @@ public struct MIQImage: Sendable {
     public let header: MIQHeader
     public let storage: Data
     public let payloadOffset: Int
-    public let payloadBaseElementIndex: Int
+    /// Per-axis element strides for non-canonical storage layouts (e.g. MIF
+    /// permuted axes, NRRD column-vs-row order). `nil` means canonical
+    /// x-fastest layout. Strides are always positive — axis-reversal info
+    /// lives in `MIQHeader.orientationFrame` and feeds display labels, not
+    /// voxel addressing.
     public let payloadElementStrides: [Int]?
-
-    public init(header: MIQHeader, storage: Data, payloadOffset: Int) {
-        self.init(
-            header: header,
-            storage: storage,
-            payloadOffset: payloadOffset,
-            payloadBaseElementIndex: 0,
-            payloadElementStrides: nil
-        )
-    }
 
     public init(
         header: MIQHeader,
         storage: Data,
         payloadOffset: Int,
-        payloadBaseElementIndex: Int,
-        payloadElementStrides: [Int]?
+        payloadElementStrides: [Int]? = nil
     ) {
         self.header = header
         self.storage = storage
         self.payloadOffset = max(0, payloadOffset)
-        self.payloadBaseElementIndex = max(0, payloadBaseElementIndex)
         self.payloadElementStrides = payloadElementStrides
     }
 
@@ -40,11 +32,9 @@ public struct MIQImage: Sendable {
     }
 
     /// Element index of voxel (x, y, z, t) within the payload.
-    /// Honors signed strides + base for non-canonical layouts (e.g. MIF reversed axes).
     public func voxelElementIndex(x: Int, y: Int, z: Int, t: Int) -> Int {
         if let strides = payloadElementStrides, strides.count >= 4 {
-            return payloadBaseElementIndex
-                + x * strides[0]
+            return x * strides[0]
                 + y * strides[1]
                 + z * strides[2]
                 + t * strides[3]

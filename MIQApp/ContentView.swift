@@ -300,6 +300,9 @@ struct ContentView: View {
     @State private var updateState: UpdateState = .idle
     @State private var showUpdateAlert: Bool = false
     #if DEBUG
+    // Mirrors the @AppStorage in MIQApp so the About pane updates when the
+    // Debug menu's "Simulate update available" toggle flips. Same key, no
+    // `store:`, shared via UserDefaults.standard.
     @AppStorage(DebugFlags.simulateUpdateAvailableKey) private var simulateUpdateAvailable = false
     #endif
 

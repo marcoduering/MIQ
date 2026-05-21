@@ -617,8 +617,10 @@ struct MIQCoreTests {
     func parsesReversedAxisMifWithExplicitNegative() throws {
         // Explicit negative stride in symbolic layout.
         // storage axis 0 (x) is reversed, storage axis 1 (y) is fastest.
-        // Both factory and parser use signed strides + base, so display reads should agree
-        // with where the factory wrote — without flipping the value.
+        // The factory writes via signed strides + base (so the on-disk payload is a
+        // valid reversed-axis MIF); the parser reads with absolute strides + base 0
+        // and uses the layout sign only to derive orientation labels. The asserts
+        // below therefore see the data "as stored", not flipped back.
         let width = 4
         let height = 3
         let depth = 2

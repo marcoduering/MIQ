@@ -778,6 +778,13 @@ private final class MIQVolumeScrubber: NSView {
     private static let knobWidthFactor: CGFloat = 1.0
     private static let knobHeightFactor: CGFloat = 0.5
 
+    /// Same formula `NSLayoutManager.defaultLineHeight(for:)` uses internally,
+    /// without allocating a fresh layout manager per call (this is on the
+    /// scrub-drag input path).
+    private static func defaultLineHeight(for font: NSFont) -> CGFloat {
+        font.ascender - font.descender + font.leading
+    }
+
     /// Horizontal extent of the draggable track. The reservation uses the
     /// *widest* readout ("N / N"), NOT the live value, so the track origin
     /// stays fixed as the digit count changes mid-drag (otherwise the x→volume
@@ -789,7 +796,7 @@ private final class MIQVolumeScrubber: NSView {
     private func trackRange() -> (minX: CGFloat, maxX: CGFloat)? {
         let labelW = ("Volumes: " as NSString).size(withAttributes: [.font: font]).width
         let widestValue = ("\(count) / \(count)" as NSString).size(withAttributes: [.font: font]).width
-        let lineH = min(bounds.height, NSLayoutManager().defaultLineHeight(for: font))
+        let lineH = min(bounds.height, Self.defaultLineHeight(for: font))
         let knobHalfW = lineH * Self.knobWidthFactor / 2
         let minX = labelW + widestValue + Self.valueToTrackGap + knobHalfW
         let maxX = bounds.width - Self.trackTrailingInset - knobHalfW
@@ -809,7 +816,7 @@ private final class MIQVolumeScrubber: NSView {
         // The fragment height includes the row's trailing paragraph spacing, so
         // the visible text occupies only the top ~line-height. Centre the track
         // on that text band, not the padded fragment, so it tracks the label.
-        let lineH = min(bounds.height, NSLayoutManager().defaultLineHeight(for: font))
+        let lineH = min(bounds.height, Self.defaultLineHeight(for: font))
         let labelAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Self.labelColor]
         let valueAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: overlayColor]
         let label = "Volumes: " as NSString

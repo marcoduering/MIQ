@@ -233,7 +233,6 @@ extension MIQParser {
             header: descriptor.header,
             storage: storage,
             payloadOffset: payloadOffset,
-            payloadBaseElementIndex: 0,
             payloadElementStrides: descriptor.strides
         )
     }
