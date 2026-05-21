@@ -782,12 +782,17 @@ private final class MIQVolumeScrubber: NSView {
     /// *widest* readout ("N / N"), NOT the live value, so the track origin
     /// stays fixed as the digit count changes mid-drag (otherwise the x→volume
     /// mapping wobbled under the cursor). `count` is constant per file, so this
-    /// is stable for the whole gesture. `nil` when there is no room.
+    /// is stable for the whole gesture. Insets account for the knob's
+    /// half-width on each side so the pill never overlaps the value text or
+    /// the view's right edge when seated at the track ends. `nil` when there
+    /// is no room.
     private func trackRange() -> (minX: CGFloat, maxX: CGFloat)? {
         let labelW = ("Volumes: " as NSString).size(withAttributes: [.font: font]).width
         let widestValue = ("\(count) / \(count)" as NSString).size(withAttributes: [.font: font]).width
-        let minX = labelW + widestValue + Self.valueToTrackGap
-        let maxX = bounds.width - Self.trackTrailingInset
+        let lineH = min(bounds.height, NSLayoutManager().defaultLineHeight(for: font))
+        let knobHalfW = lineH * Self.knobWidthFactor / 2
+        let minX = labelW + widestValue + Self.valueToTrackGap + knobHalfW
+        let maxX = bounds.width - Self.trackTrailingInset - knobHalfW
         guard maxX - minX >= Self.minTrackWidth, count > 1 else { return nil }
         return (minX, maxX)
     }
