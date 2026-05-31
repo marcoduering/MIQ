@@ -27,8 +27,6 @@ public struct MIQMetadata: Sendable {
     public let volumes: Int
     public let sclSlope: Float
     public let sclInter: Float
-    public let qformCode: Int
-    public let sformCode: Int
     public let orientation: String?
 
     public init(header: MIQHeader, orientation: String? = nil) {
@@ -43,8 +41,6 @@ public struct MIQMetadata: Sendable {
         volumes = header.volumes
         sclSlope = header.sclSlope
         sclInter = header.sclInter
-        qformCode = header.qformCode
-        sformCode = header.sformCode
         self.orientation = orientation
     }
 

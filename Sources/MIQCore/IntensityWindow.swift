@@ -67,15 +67,6 @@ enum IntensityWindow {
         }
     }
 
-    /// Convenience: computes bounds from `values` and applies them. Used when the caller
-    /// wants per-slice windowing (single-slice in, normalized bytes out).
-    static func normalize(_ values: [Float], lowerPercentile: Double, upperPercentile: Double) -> [UInt8] {
-        guard let bounds = bounds(for: values, lowerPercentile: lowerPercentile, upperPercentile: upperPercentile) else {
-            return []
-        }
-        return apply(values, bounds: bounds)
-    }
-
     private static func percentile(_ sorted: [Float], p: Float) -> Float {
         guard let first = sorted.first else {
             return 0

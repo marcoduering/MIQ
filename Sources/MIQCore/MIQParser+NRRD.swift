@@ -380,12 +380,9 @@ extension MIQParser {
             if cursor.hasPrefix("none") {
                 result.append(nil)
                 cursor = cursor.dropFirst(4)
-            } else if cursor.hasPrefix("("), let closeIdx = cursor.firstIndex(of: ")") {
-                let inner = String(cursor[cursor.index(after: cursor.startIndex)..<closeIdx])
-                let nums = inner.split(separator: ",")
-                    .compactMap { Float($0.trimmingCharacters(in: .whitespaces)) }
-                result.append(nums.count == 3 ? nums : nil)
-                cursor = cursor[cursor.index(after: closeIdx)...]
+            } else if let group = parseParenthesisedFloats(cursor) {
+                result.append(group.components.count == 3 ? group.components : nil)
+                cursor = group.remainder
             } else {
                 cursor = cursor.drop(while: { !$0.isWhitespace })
             }
@@ -397,10 +394,19 @@ extension MIQParser {
     /// Parses a parenthesised vector like `(x, y, z)`.
     private func parseNrrdVector(_ value: String) -> [Float]? {
         let trimmed = value.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix("("), let closeIdx = trimmed.firstIndex(of: ")") else { return nil }
-        let inner = String(trimmed[trimmed.index(after: trimmed.startIndex)..<closeIdx])
-        let nums = inner.split(separator: ",")
+        guard let group = parseParenthesisedFloats(trimmed[...]) else { return nil }
+        return group.components.count >= 3 ? Array(group.components.prefix(3)) : nil
+    }
+
+    /// Parses the comma-separated floats inside a leading parenthesised group like
+    /// `(x, y, z)`. Returns the parsed components (no arity enforcement — callers
+    /// apply their own count rule) plus the slice of `value` immediately after the
+    /// closing `)`, or `nil` when `value` does not begin with a closed `(...)` group.
+    private func parseParenthesisedFloats(_ value: Substring) -> (components: [Float], remainder: Substring)? {
+        guard value.hasPrefix("("), let closeIdx = value.firstIndex(of: ")") else { return nil }
+        let inner = value[value.index(after: value.startIndex)..<closeIdx]
+        let components = inner.split(separator: ",")
             .compactMap { Float($0.trimmingCharacters(in: .whitespaces)) }
-        return nums.count >= 3 ? Array(nums.prefix(3)) : nil
+        return (components, value[value.index(after: closeIdx)...])
     }
 }

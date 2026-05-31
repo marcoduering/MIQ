@@ -60,9 +60,14 @@ public enum MIQConfig {
         public let red, green, blue, alpha: Double
     }
 
-    private static var defaults: UserDefaults {
-        UserDefaults(suiteName: appGroupID) ?? .standard
-    }
+    /// Shared App Group store, resolved once. Cached rather than reconstructed
+    /// per access because the extension reads ~10 settings per rendered frame
+    /// during interaction (axis labels, overlay colour, metadata order/visibility),
+    /// and `UserDefaults(suiteName:)` allocates on every call. The getters still
+    /// read values live via `object(forKey:)`, so app-side writes remain visible.
+    /// `nonisolated(unsafe)` mirrors `MIQPreviewCache.cache`: `UserDefaults` is
+    /// thread-safe by Apple's contract, so concurrent reads are sound.
+    nonisolated(unsafe) private static let defaults: UserDefaults = UserDefaults(suiteName: appGroupID) ?? .standard
 
     public static var showAxisLabels: Bool {
         let d = defaults
