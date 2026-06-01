@@ -137,6 +137,7 @@ private enum SettingsTab: String, CaseIterable, Hashable {
     case usage
     case imageDisplay
     case metadataPanel
+    case thumbnails
 
     var label: String {
         switch self {
@@ -144,6 +145,7 @@ private enum SettingsTab: String, CaseIterable, Hashable {
         case .usage:         return "Usage"
         case .imageDisplay:  return "Image Display"
         case .metadataPanel: return "Metadata Panel"
+        case .thumbnails:    return "Thumbnails"
         }
     }
 
@@ -153,6 +155,7 @@ private enum SettingsTab: String, CaseIterable, Hashable {
         case .usage:         return "computermouse"
         case .imageDisplay:  return "photo"
         case .metadataPanel: return "list.bullet.rectangle"
+        case .thumbnails:    return "photo.on.rectangle"
         }
     }
 
@@ -291,6 +294,14 @@ struct ContentView: View {
     private var metadataOrder: StoredMetadataOrder = StoredMetadataOrder.defaultValue
     @AppStorage(MIQConfig.Keys.hideDisclaimerInPreview, store: Self.store)
     private var hideDisclaimerInPreview: Bool = MIQConfig.Defaults.hideDisclaimerInPreview
+    @AppStorage(MIQConfig.Keys.showThumbnails, store: Self.store)
+    private var showThumbnails: Bool = MIQConfig.Defaults.showThumbnails
+    @AppStorage(MIQConfig.Keys.thumbnailImageOrientation, store: Self.store)
+    private var thumbnailImageOrientation: ViewOrientation = ViewOrientation.defaultValue
+    @AppStorage(MIQConfig.Keys.thumbnailWindowLowerPercentile, store: Self.store)
+    private var thumbnailLowerPercentile: Double = MIQConfig.Defaults.thumbnailWindowLowerPercentile
+    @AppStorage(MIQConfig.Keys.thumbnailWindowUpperPercentile, store: Self.store)
+    private var thumbnailUpperPercentile: Double = MIQConfig.Defaults.thumbnailWindowUpperPercentile
 
     @FocusState private var focusedTarget: FocusTarget?
     @State private var showHideDisclaimerConfirm = false
@@ -299,6 +310,8 @@ struct ContentView: View {
     @State private var selectedTab: SettingsTab = .about
     @State private var updateState: UpdateState = .idle
     @State private var showUpdateAlert: Bool = false
+    @State private var showThumbnailRefreshInfo = false
+    @State private var didCopyRefreshCommand = false
     #if DEBUG
     // Mirrors the @AppStorage in MIQApp so the About pane updates when the
     // Debug menu's "Simulate update available" toggle flips. Same key, no
@@ -346,6 +359,7 @@ struct ContentView: View {
             case .usage:         usageSettingsView
             case .imageDisplay:  imageDisplaySettingsView
             case .metadataPanel: metadataPanelSettingsView
+            case .thumbnails:    thumbnailSettingsView
             }
         }
         .background(SettingsToolbarInstaller(selection: $selectedTab))
@@ -670,6 +684,121 @@ struct ContentView: View {
         .scrollDisabled(true)
     }
 
+    private var thumbnailSettingsView: some View {
+        Form {
+
+            Section {
+                HStack(spacing: 12) {
+                    SettingsHeaderIcon(systemName: "photo.on.rectangle")
+                    Text("Show an image slice as the file thumbnail in Finder.")
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Show thumbnails in Finder")
+                        Spacer()
+                        Toggle("", isOn: $showThumbnails)
+                            .labelsHidden()
+                    }
+
+                    Text("New thumbnails appear automatically; existing ones refresh when the file changes or when forcing a refresh via Terminal.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(spacing: 8) {
+                        Button {
+                            copyThumbnailRefreshCommand()
+                        } label: {
+                            Label(didCopyRefreshCommand ? "Copied" : "Copy refresh command",
+                                  systemImage: didCopyRefreshCommand ? "checkmark" : "doc.on.doc")
+                        }
+
+                        Button {
+                            showThumbnailRefreshInfo.toggle()
+                        } label: {
+                            Image(systemName: showThumbnailRefreshInfo ? "info.circle.fill" : "info.circle")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .popover(isPresented: $showThumbnailRefreshInfo, arrowEdge: .top) {
+                            Text("Paste into Terminal to refresh already-cached thumbnails.\n\nIf they still look stale, also run:\nrm -rf \"$(getconf DARWIN_USER_CACHE_DIR)com.apple.iconservices.store\" && killall Dock Finder\n\nTo stop generating thumbnails, disable the extension in System Settings › General › Login Items & Extensions.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(width: 300, alignment: .leading)
+                                .padding(12)
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 6) {
+                    Picker("Orientation", selection: $thumbnailImageOrientation) {
+                        ForEach(ViewOrientation.allCases, id: \.rawValue) { orientation in
+                            Text(orientation.label).tag(orientation)
+                        }
+                    }
+                    Text("Same options as Image Display, applied independently to thumbnails.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Upper intensity clip")
+                        Spacer()
+                        Text("\(Int(thumbnailUpperPercentile))%")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                        Stepper("", value: $thumbnailUpperPercentile, in: 51...100, step: 1)
+                            .labelsHidden()
+                    }
+
+                    HStack {
+                        Text("Lower intensity clip")
+                        Spacer()
+                        Text("\(Int(thumbnailLowerPercentile))%")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                        Stepper("", value: $thumbnailLowerPercentile, in: 0...49, step: 1)
+                            .labelsHidden()
+                    }
+
+                    Text("Grayscale intensity range, as percentiles of non-zero voxels (default 2–98%).")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .disabled(!showThumbnails)
+        }
+        .formStyle(.grouped)
+        .scrollDisabled(true)
+    }
+
+    /// Terminal command that drops Quick Look's thumbnail cache and restarts the
+    /// agents so already-cached thumbnails regenerate with the current settings.
+    private static let thumbnailRefreshCommand =
+        "qlmanage -r cache && killall com.apple.quicklook.ThumbnailsAgent Finder"
+
+    private func copyThumbnailRefreshCommand() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(Self.thumbnailRefreshCommand, forType: .string)
+        didCopyRefreshCommand = true
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            didCopyRefreshCommand = false
+        }
+    }
+
     private func visibilityBinding(for field: MetadataField) -> Binding<Bool> {
         switch field {
         case .format:      return $showMetadataFormat
@@ -817,6 +946,10 @@ struct ContentView: View {
         showMetadataScaling     = MIQConfig.Defaults.showMetadataScaling
         metadataOrder           = StoredMetadataOrder.defaultValue
         hideDisclaimerInPreview = MIQConfig.Defaults.hideDisclaimerInPreview
+        showThumbnails            = MIQConfig.Defaults.showThumbnails
+        thumbnailImageOrientation = ViewOrientation.defaultValue
+        thumbnailLowerPercentile  = MIQConfig.Defaults.thumbnailWindowLowerPercentile
+        thumbnailUpperPercentile  = MIQConfig.Defaults.thumbnailWindowUpperPercentile
     }
 }
 

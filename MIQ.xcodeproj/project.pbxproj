@@ -15,6 +15,11 @@
 		9C6AE0FE9F91ECE1B1923E18 /* MIQCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0D703866A54AAA65D0773EF7 /* MIQCore */; };
 		AA00BB00CC00DD00EE00FF01 /* MIQCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB00CC00DD00EE00FF02 /* MIQCore */; };
 		BA1109BAE7000001000003E5 /* MIQLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA1109BAE7000002000003E6 /* MIQLogger.swift */; };
+		BB100000000000000000A0C1 /* MIQThumbnailProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB100000000000000000A009 /* MIQThumbnailProvider.swift */; };
+		BB100000000000000000A0C2 /* MIQImageBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45FE4A9B7D1340FBAA8AEB29 /* MIQImageBridge.swift */; };
+		BB100000000000000000A0C3 /* MIQLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA1109BAE7000002000003E6 /* MIQLogger.swift */; };
+		BB100000000000000000A0C4 /* MIQCore in Frameworks */ = {isa = PBXBuildFile; productRef = BB100000000000000000A007 /* MIQCore */; };
+		BB100000000000000000A0C5 /* MIQThumbnailExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BB100000000000000000A008 /* MIQThumbnailExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C56348DEE1CC6B4E25B8E49F /* MIQPreviewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901139238A3C73F5F746D7A0 /* MIQPreviewModel.swift */; };
 		E8089EA1F58D4F049738209C /* MIQSliceCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24EC29AEA4504CC7AE152ACC /* MIQSliceCanvas.swift */; };
 		E9B000A957C87B753436028A /* MIQPreviewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C034A78ADECC902D98B3BF2F /* MIQPreviewController.swift */; };
@@ -30,6 +35,13 @@
 			remoteGlobalIDString = A449378A6379BA6BE275CF60;
 			remoteInfo = MIQQuickLookExtension;
 		};
+		BB100000000000000000A012 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8EFB9F75CA40FD696A3D6853 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BB100000000000000000A001;
+			remoteInfo = MIQThumbnailExtension;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -40,6 +52,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				0701E1F39439EE434DE78D66 /* MIQQuickLookExtension.appex in Embed Foundation Extensions */,
+				BB100000000000000000A0C5 /* MIQThumbnailExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -59,6 +72,8 @@
 		901139238A3C73F5F746D7A0 /* MIQPreviewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQPreviewModel.swift; sourceTree = "<group>"; };
 		B9BA3B91B2654D418D9CD49E /* MIQPreviewAppKitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQPreviewAppKitView.swift; sourceTree = "<group>"; };
 		BA1109BAE7000002000003E6 /* MIQLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQLogger.swift; sourceTree = "<group>"; };
+		BB100000000000000000A008 /* MIQThumbnailExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MIQThumbnailExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB100000000000000000A009 /* MIQThumbnailProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQThumbnailProvider.swift; sourceTree = "<group>"; };
 		C034A78ADECC902D98B3BF2F /* MIQPreviewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQPreviewController.swift; sourceTree = "<group>"; };
 		C35E6221C4BB0043A82D4EA0 /* MIQApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQApp.swift; sourceTree = "<group>"; };
 		DD43E5703AD6ABBED64F738F /* MIQ.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MIQ.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -79,6 +94,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA00BB00CC00DD00EE00FF01 /* MIQCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB100000000000000000A006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB100000000000000000A0C4 /* MIQCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -110,6 +133,7 @@
 			children = (
 				DD43E5703AD6ABBED64F738F /* MIQ.app */,
 				DEACD5BFB1B39E6BB6A9F28F /* MIQQuickLookExtension.appex */,
+				BB100000000000000000A008 /* MIQThumbnailExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -134,9 +158,18 @@
 				295F76FA9C1925A5383F55EA /* MIQApp */,
 				0ED64C3613347F16C87F4D91 /* Packages */,
 				6BD9CA3ED049BC872048F4E5 /* MIQQuickLookExtension */,
+				BB100000000000000000A010 /* MIQThumbnailExtension */,
 				46F873B00B4816F59C2C4223 /* Products */,
 				4CFCB7F62FAC9F5F00715102 /* LocalSigning.xcconfig */,
 			);
+			sourceTree = "<group>";
+		};
+		BB100000000000000000A010 /* MIQThumbnailExtension */ = {
+			isa = PBXGroup;
+			children = (
+				BB100000000000000000A009 /* MIQThumbnailProvider.swift */,
+			);
+			path = MIQThumbnailExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -155,6 +188,7 @@
 			);
 			dependencies = (
 				390A43D6230CD60A637EFA7B /* PBXTargetDependency */,
+				BB100000000000000000A011 /* PBXTargetDependency */,
 			);
 			name = MIQ;
 			packageProductDependencies = (
@@ -181,6 +215,25 @@
 			);
 			productName = MIQQuickLookExtension;
 			productReference = DEACD5BFB1B39E6BB6A9F28F /* MIQQuickLookExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		BB100000000000000000A001 /* MIQThumbnailExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BB100000000000000000A002 /* Build configuration list for PBXNativeTarget "MIQThumbnailExtension" */;
+			buildPhases = (
+				BB100000000000000000A005 /* Sources */,
+				BB100000000000000000A006 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MIQThumbnailExtension;
+			packageProductDependencies = (
+				BB100000000000000000A007 /* MIQCore */,
+			);
+			productName = MIQThumbnailExtension;
+			productReference = BB100000000000000000A008 /* MIQThumbnailExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
@@ -210,6 +263,7 @@
 			projectRoot = "";
 			targets = (
 				A449378A6379BA6BE275CF60 /* MIQQuickLookExtension */,
+				BB100000000000000000A001 /* MIQThumbnailExtension */,
 				9E0A2FD123D13263216F6002 /* MIQ */,
 			);
 		};
@@ -250,6 +304,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BB100000000000000000A005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB100000000000000000A0C1 /* MIQThumbnailProvider.swift in Sources */,
+				BB100000000000000000A0C2 /* MIQImageBridge.swift in Sources */,
+				BB100000000000000000A0C3 /* MIQLogger.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -257,6 +321,11 @@
 			isa = PBXTargetDependency;
 			target = A449378A6379BA6BE275CF60 /* MIQQuickLookExtension */;
 			targetProxy = 069F20DDA9CB1081D1E93189 /* PBXContainerItemProxy */;
+		};
+		BB100000000000000000A011 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BB100000000000000000A001 /* MIQThumbnailExtension */;
+			targetProxy = BB100000000000000000A012 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -272,7 +341,8 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = 78X8DKBN7C;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = MIQQuickLookExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -386,6 +456,64 @@
 			};
 			name = Debug;
 		};
+		BB100000000000000000A003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 4CFCB7F62FAC9F5F00715102 /* LocalSigning.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = MIQThumbnailExtension/MIQThumbnailExtension.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 78X8DKBN7C;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = MIQThumbnailExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_ID).thumbnail";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		BB100000000000000000A004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 4CFCB7F62FAC9F5F00715102 /* LocalSigning.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = MIQThumbnailExtension/MIQThumbnailExtension.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = 78X8DKBN7C;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = MIQThumbnailExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_ID).thumbnail";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = MIQ_Thumbnails_Provisioning;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 		CAE4412C2F0CD42513ACB24D /* Release */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 4CFCB7F62FAC9F5F00715102 /* LocalSigning.xcconfig */;
@@ -399,7 +527,8 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = 78X8DKBN7C;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = MIQApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Medical Image Quick Look";
@@ -517,6 +646,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
+		BB100000000000000000A002 /* Build configuration list for PBXNativeTarget "MIQThumbnailExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BB100000000000000000A003 /* Debug */,
+				BB100000000000000000A004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		C94DBD2A4D3E1DBB06FA6DAF /* Build configuration list for PBXNativeTarget "MIQQuickLookExtension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -550,6 +688,10 @@
 			productName = MIQCore;
 		};
 		AA00BB00CC00DD00EE00FF02 /* MIQCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MIQCore;
+		};
+		BB100000000000000000A007 /* MIQCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MIQCore;
 		};

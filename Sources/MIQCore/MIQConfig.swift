@@ -32,6 +32,10 @@ public enum MIQConfig {
         public static let showMetadataScaling     = "showMetadataScaling"
         public static let metadataOrder           = "metadataOrder"
         public static let hideDisclaimerInPreview = "hideDisclaimerInPreview"
+        public static let showThumbnails                 = "showThumbnails"
+        public static let thumbnailImageOrientation      = "thumbnailImageOrientation"
+        public static let thumbnailWindowLowerPercentile = "thumbnailWindowLowerPercentile"
+        public static let thumbnailWindowUpperPercentile = "thumbnailWindowUpperPercentile"
         public static let lastKnownLatestVersion  = "lastKnownLatestVersion"
         #if DEBUG
         public static let debugShowLayoutBorders  = "debugShowLayoutBorders"
@@ -54,6 +58,10 @@ public enum MIQConfig {
         public static let showMetadataScaling     = true
         public static let metadataOrder           = "format,dimensions,spacing,orientation,datatype,volumes,scaling"
         public static let hideDisclaimerInPreview = false
+        public static let showThumbnails                 = false
+        public static let thumbnailImageOrientation      = "stored"
+        public static let thumbnailWindowLowerPercentile = 2.0
+        public static let thumbnailWindowUpperPercentile = 98.0
     }
 
     public struct MIQColor: Sendable {
@@ -131,6 +139,31 @@ public enum MIQConfig {
     public static var hideDisclaimerInPreview: Bool {
         let d = defaults
         return d.object(forKey: Keys.hideDisclaimerInPreview) as? Bool ?? Defaults.hideDisclaimerInPreview
+    }
+
+    // MARK: - Thumbnails (Finder / Quick Look thumbnail extension)
+    // Independent of the preview's image-display settings: a user can want, e.g.,
+    // stored-orientation previews but radiological thumbnails. Read by the
+    // thumbnail extension only.
+
+    public static var showThumbnails: Bool {
+        let d = defaults
+        return d.object(forKey: Keys.showThumbnails) as? Bool ?? Defaults.showThumbnails
+    }
+
+    public static var thumbnailImageOrientation: ViewOrientation {
+        let raw = defaults.string(forKey: Keys.thumbnailImageOrientation) ?? Defaults.thumbnailImageOrientation
+        return ViewOrientation(rawValue: raw) ?? .stored
+    }
+
+    public static var thumbnailWindowLowerPercentile: Double {
+        let d = defaults
+        return d.object(forKey: Keys.thumbnailWindowLowerPercentile) as? Double ?? Defaults.thumbnailWindowLowerPercentile
+    }
+
+    public static var thumbnailWindowUpperPercentile: Double {
+        let d = defaults
+        return d.object(forKey: Keys.thumbnailWindowUpperPercentile) as? Double ?? Defaults.thumbnailWindowUpperPercentile
     }
 
     public static var lastKnownLatestVersion: String? {

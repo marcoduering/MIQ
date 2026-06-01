@@ -129,6 +129,8 @@ ${TEAM_ID_ENTRY}
     <string>MIQ_Provisioning</string>
     <key>net.marco-duering.miq.extension</key>
     <string>MIQ_Extension_Provisioning</string>
+    <key>net.marco-duering.miq.thumbnail</key>
+    <string>MIQ_Thumbnails_Provisioning</string>
   </dict>
 </dict>
 </plist>
