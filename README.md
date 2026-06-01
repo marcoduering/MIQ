@@ -3,7 +3,7 @@
 MIQ is a lightweight **macOS QuickLook extension** for medical volume images. Press **Space** on a supported file in Finder to instantly get an **interactive orthogonal slice view** alongside a metadata panel:
 
 <div align="center">
-  <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_screenshot.webp" width="65%">
+  <img src="docs/MIQ_screenshot.webp" width="65%">
 </div>
 
 ## Supported Formats
@@ -64,9 +64,9 @@ In addition to the image preview (spacebar), you can also enable **thumbnail gen
 Use the settings (main app) to tailor the preview and thumbnails to your needs. Adjust render orientation (see explanation below), intensity scaling, label colors and the metadata panel (content and order of the items).
 
 <div align="center">
-  <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_settings1.webp" width="32%">
-  <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_settings2.webp" width="32%">
-  <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_settings3.webp" width="32%">
+  <img src="docs/MIQ_settings1.webp" width="32%">
+  <img src="docs/MIQ_settings2.webp" width="32%">
+  <img src="docs/MIQ_settings3.webp" width="32%">
 
 </div>
 
