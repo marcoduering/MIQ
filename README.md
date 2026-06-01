@@ -1,6 +1,6 @@
 # MIQ — Medical Image Quick Look
 
-MIQ is a lightweight **macOS QuickLook preview extension** for medical volume images. Press **Space** on a supported file in Finder to instantly get an **interactive orthogonal slice view** alongside a metadata panel:
+MIQ is a lightweight **macOS QuickLook extension** for medical volume images. Press **Space** on a supported file in Finder to instantly get an **interactive orthogonal slice view** alongside a metadata panel:
 
 <div align="center">
   <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_screenshot.webp" width="65%">
@@ -26,7 +26,7 @@ The app and extension can be installed manually or via the package manager [Home
 1. 👉 **[Download the latest release (MIQ.app.zip)](https://github.com/marcoduering/MIQ/releases/latest/download/MIQ.app.zip)**
 [![Latest Release](https://img.shields.io/github/v/release/marcoduering/MIQ)](https://github.com/marcoduering/MIQ/releases/latest/download/MIQ.app.zip)
 2. Unzip and move **`MIQ.app`** to your **`/Applications`** folder.
-3. **Open `MIQ.app`** at least once to register the Quick Look preview extension.
+3. **Open `MIQ.app`** at least once to register the Quick Look extension.
 4. Press **Space** on any supported file in Finder.
 5. Optional: **Customize the preview** in the MIQ app.
 
@@ -42,7 +42,7 @@ The app and extension can be installed manually or via the package manager [Home
 brew tap marcoduering/miq
 brew install --cask miq
 ```
-2. **Open `MIQ.app`** (in `/Applications`) at least once to register the Quick Look preview extension.
+2. **Open `MIQ.app`** (in `/Applications`) at least once to register the Quick Look extension.
 3. Press **Space** on any supported file in Finder.
 4. Optional: **Customize the preview** in the MIQ app.
 
@@ -57,13 +57,17 @@ brew upgrade --cask miq
 
 MIQ is a lightweight convenience tool for quickly inspecting medical image files directly from the Finder. It prioritizes speed and ease of use over advanced visualization, and is not meant to replace dedicated medical image viewers.
 
+In addition to the image preview (spacebar), you can also enable **thumbnail generation** in the app so that the file icon in Finder shows an image slice.
+
 ### Customization
 
-Use the settings (main app) to tailor the preview to your needs. Adjust render orientation (see explanation below), intensity scaling, label colors and the metadata panel (content and order of the items).
+Use the settings (main app) to tailor the preview and thumbnails to your needs. Adjust render orientation (see explanation below), intensity scaling, label colors and the metadata panel (content and order of the items).
 
 <div align="center">
-  <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_settings1.webp" width="49%">
-  <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_settings2.webp" width="49%">
+  <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_settings1.webp" width="32%">
+  <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_settings2.webp" width="32%">
+  <img src="https://github.com/marcoduering/MIQ/releases/download/readme-assets/MIQ_settings3.webp" width="32%">
+
 </div>
 
 ### Orientation

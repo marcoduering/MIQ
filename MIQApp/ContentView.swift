@@ -690,7 +690,7 @@ struct ContentView: View {
             Section {
                 HStack(spacing: 12) {
                     SettingsHeaderIcon(systemName: "photo.on.rectangle")
-                    Text("Show an image slice as the file thumbnail in Finder.")
+                    Text("Show an image slice as the file thumbnail in Finder\n(optional feature, off by default).")
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

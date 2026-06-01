@@ -675,6 +675,26 @@ private final class MetadataView: NSView {
         return min(charIdx, max(0, ns.length - 1))
     }
 
+    /// Line fragment rect the scrubber must align to for the reserved (empty)
+    /// Volumes line.
+    ///
+    /// The reservation is an empty string. When it is also the *final* paragraph
+    /// (no Scaling row after it AND the disclaimer is hidden, so nothing trails
+    /// it) it has no glyphs of its own — TextKit represents it as the layout
+    /// manager's *extra* line fragment rather than a normal one. In that case
+    /// `characterIndexForLine` clamps back to the previous line's terminating
+    /// newline, so the glyph-based rect would seat the scrubber on the line
+    /// *above* Volumes and hide it. The extra line fragment exists for this
+    /// builder's output only in exactly that trailing-empty-Volumes case (every
+    /// non-empty last line ends without a newline), so prefer it when present.
+    private func reservedLineFragmentRect(_ index: Int) -> CGRect {
+        if layoutManager.extraLineFragmentTextContainer != nil {
+            return layoutManager.extraLineFragmentRect
+        }
+        let glyphIndex = layoutManager.glyphIndexForCharacter(at: characterIndexForLine(index))
+        return layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+    }
+
     /// Cheap per-frame update: only the live index / expanding flag / colour.
     /// Deliberately does NOT touch `attributedText` so a scrub never re-runs the
     /// throttled metadata sort/rebuild.
@@ -691,8 +711,7 @@ private final class MetadataView: NSView {
         }
         syncContainer()
         if let font = lineFont { scrubber.font = font }
-        let glyphIndex = layoutManager.glyphIndexForCharacter(at: characterIndexForLine(index))
-        let fragment = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+        let fragment = reservedLineFragmentRect(index)
         let originX = inset + fragment.minX
         let fullWidth = bounds.width - inset - originX
         let limitedWidth = scrubberRightLimit.map { $0 - originX } ?? fullWidth
