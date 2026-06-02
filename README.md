@@ -40,6 +40,7 @@ The app and extension can be installed manually or via the package manager [Home
 
 ```bash
 brew tap marcoduering/miq
+brew trust --cask marcoduering/miq/miq
 brew install --cask miq
 ```
 2. **Open `MIQ.app`** (in `/Applications`) at least once to register the Quick Look extension.
