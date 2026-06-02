@@ -6,6 +6,8 @@ MIQ is a lightweight **macOS QuickLook extension** for medical volume images. Pr
   <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_screenshot.webp" width="65%">
 </div>
 
+**See it in action** in the short video at the bottom of this page.
+
 ## Supported Formats
 
 - :white_check_mark: **NIfTI-1 & NIfTI-2** — `.nii`, `.nii.gz`
@@ -100,3 +102,9 @@ MIQ is provided "as is" under [MIT License](./LICENSE), without warranty of any 
 
 > [!CAUTION]
 > This software is **<ins>not</ins> a medical device and is <ins>not</ins> intended for diagnostic use**. It is a developer and researcher convenience tool only. Do not use it to make clinical decisions.
+
+## See it in action
+
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/3058f94e-4ffa-4c0a-a1b8-d1578de0f651" width="600"></video>
+</div>
