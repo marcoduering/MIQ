@@ -3,7 +3,10 @@
 MIQ is a lightweight **macOS QuickLook extension** for medical volume images. Press **Space** on a supported file in Finder to instantly get an **interactive orthogonal slice view** alongside a metadata panel:
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_screenshot.webp" width="65%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_screenshot_dark.webp">
+    <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_screenshot.webp" width="65%">
+  </picture>
 </div>
 
 **See it in action** in the short video at the bottom of this page.
@@ -67,10 +70,18 @@ In addition to the image preview (spacebar), you can also enable **thumbnail gen
 Use the settings (main app) to tailor the preview and thumbnails to your needs. Adjust render orientation (see explanation below), intensity scaling, label colors and the metadata panel (content and order of the items).
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings1.webp" width="32%">
-  <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings2.webp" width="32%">
-  <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings3.webp" width="32%">
-
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings1_dark.webp">
+    <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings1.webp" width="32%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings2_dark.webp">
+    <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings2.webp" width="32%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings3_dark.webp">
+    <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings3.webp" width="32%">
+  </picture>
 </div>
 
 ### Orientation
