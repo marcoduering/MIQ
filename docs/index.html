@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MIQ — Medical Image Quick Look for macOS</title>
+<title>MIQ: Medical Image Quick Look for macOS</title>
 <meta name="description" content="A lightweight macOS Quick Look extension for medical volume images. Press Space in Finder to instantly preview NIfTI, FreeSurfer, MRtrix and NRRD files.">
-<meta property="og:title" content="MIQ — Medical Image Quick Look">
+<meta property="og:title" content="MIQ: Medical Image Quick Look">
 <meta property="og:description" content="Press Space in Finder to instantly preview medical volume images on macOS.">
 <meta property="og:image" content="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_screenshot.webp">
 <meta property="og:type" content="website">
@@ -57,7 +57,7 @@
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
   .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
-  section { padding: 80px 0; }
+  section { padding: 54px 0 54px; }
   h1, h2, h3 { line-height: 1.2; letter-spacing: -0.02em; margin: 0; }
   h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); }
   p { margin: 0 0 1rem; }
@@ -71,7 +71,7 @@
     border-bottom: 1px solid var(--border);
   }
   nav { display: flex; align-items: center; justify-content: space-between; height: 60px; }
-  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 1.05rem; letter-spacing: -0.01em; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 1.05rem; letter-spacing: -0.01em; white-space: nowrap; flex-shrink: 0; }
   .logo {
     width: 30px; height: 30px; border-radius: 7px; display: block;
     box-shadow: 0 1px 3px rgba(20,22,26,.18);
@@ -80,7 +80,8 @@
   .nav-links a { color: var(--fg-soft); font-size: .94rem; font-weight: 500; }
   .nav-links a:hover { color: var(--fg); text-decoration: none; }
   .nav-links a.btn, .nav-links a.btn:hover { color: #fff; }
-  @media (max-width: 680px) { .nav-links .hide-sm { display: none; } }
+  @media (max-width: 750px) { .nav-links .hide-sm { display: none; } }
+  @media (max-width: 460px) { .nav-links .btn { display: none; } }
 
   .btn {
     display: inline-flex; align-items: center; gap: 8px;
@@ -93,7 +94,7 @@
   .btn.ghost:hover { background: var(--bg-soft); }
 
   /* ---- hero ---- */
-  .hero { padding: 92px 0 64px; text-align: center; position: relative; overflow: hidden; }
+  .hero { padding: 72px 0 0px; text-align: center; position: relative; overflow: hidden; }
   .hero::before {
     content: ""; position: absolute; inset: -40% 0 auto 0; height: 560px; z-index: -1;
     background: radial-gradient(60% 70% at 50% 0%, var(--accent-soft), transparent 70%);
@@ -105,7 +106,8 @@
     margin-bottom: 22px;
   }
   .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: #2bb673; }
-  .hero h1 { font-size: clamp(2.2rem, 6vw, 3.6rem); font-weight: 720; max-width: 16ch; margin: 0 auto 18px; }
+  .hero h1 { font-size: clamp(2.2rem, 6vw, 3.6rem); font-weight: 720; max-width: 24ch; margin: 0 auto 18px; }
+  @media (max-width: 480px) { .hero h1 { font-size: clamp(1.35rem, 7.2vw, 2.2rem); } }
   .hero .lede { font-size: clamp(1.05rem, 2.2vw, 1.28rem); color: var(--fg-soft); max-width: 60ch; margin: 0 auto 30px; }
   kbd {
     font-family: inherit; font-weight: 650; font-size: .85em;
@@ -113,12 +115,11 @@
     border-radius: 6px; padding: 1px 8px; color: var(--fg);
   }
   .cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-bottom: 12px; }
-  .cta .sub { color: var(--fg-faint); font-size: .85rem; }
+  .cta.sub { color: var(--fg-faint); font-size: .85rem; }
 
   .shot {
-    margin: 56px auto 0; max-width: 680px; border-radius: var(--radius);
-    border: 1px solid var(--border); box-shadow: var(--shadow); overflow: hidden;
-    background: var(--bg-elev);
+    margin: 0 auto 0; max-width: 680px; border-radius: var(--radius);
+    overflow: hidden;
   }
   .shot picture { display: block; }
   .shot img { display: block; width: 100%; height: auto; }
@@ -126,7 +127,8 @@
   /* ---- features ---- */
   .grid { display: grid; gap: 20px; }
   .features { grid-template-columns: repeat(3, 1fr); }
-  @media (max-width: 860px) { .features { grid-template-columns: 1fr; } }
+  @media (max-width: 860px) { .features { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .features { grid-template-columns: 1fr; } }
   .card {
     background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 26px; transition: border-color .15s ease, transform .15s ease;
@@ -136,7 +138,7 @@
   .card h3 { font-size: 1.1rem; margin-bottom: 8px; }
   .card p { color: var(--fg-soft); font-size: .96rem; margin: 0; }
 
-  .section-head { text-align: center; max-width: 56ch; margin: 0 auto 48px; }
+  .section-head { text-align: center; max-width: 56ch; margin: 0 auto 24px; }
   .section-head p { color: var(--fg-soft); margin-top: 10px; }
   .eyebrow { color: var(--accent); font-weight: 650; font-size: .82rem; text-transform: uppercase; letter-spacing: .08em; }
 
@@ -144,7 +146,7 @@
 
   /* ---- formats ---- */
   .formats { grid-template-columns: repeat(2, 1fr); gap: 16px; }
-  @media (max-width: 680px) { .formats { grid-template-columns: 1fr; } }
+  @media (max-width: 560px) { .formats { grid-template-columns: 1fr; } }
   .fmt {
     display: flex; align-items: center; gap: 16px;
     background: var(--bg-elev); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px;
@@ -189,17 +191,32 @@
 
   /* ---- settings strip ---- */
   .shots3 { grid-template-columns: repeat(3, 1fr); }
-  @media (max-width: 760px) { .shots3 { grid-template-columns: 1fr; } }
+  @media (max-width: 480px) { .shots3 { grid-template-columns: 1fr; } }
   .shots3 picture { display: block; }
   .shots3 img {
     width: 100%; height: auto; display: block; border-radius: 12px;
-    border: 1px solid var(--border); box-shadow: var(--shadow);
+    cursor: zoom-in; transition: transform .15s ease;
+  }
+  .shots3 img:hover { transform: translateY(-2px); }
+
+  /* ---- lightbox ---- */
+  .lightbox {
+    position: fixed; inset: 0; z-index: 100;
+    display: none; align-items: center; justify-content: center; padding: 5vmin;
+    background: rgba(0,0,0,.8);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    cursor: zoom-out;
+  }
+  .lightbox[data-open="true"] { display: flex; }
+  .lightbox img {
+    max-width: 100%; max-height: 100%; height: auto; border-radius: 12px;
+    box-shadow: var(--shadow);
   }
 
   /* ---- video ---- */
   .video-frame {
     max-width: 680px; margin: 0 auto; border-radius: var(--radius);
-    border: 1px solid var(--border); box-shadow: var(--shadow); overflow: hidden;
+    box-shadow: var(--shadow); overflow: hidden;
     background: #000;
   }
   .video-frame video { display: block; width: 100%; height: auto; }
@@ -218,6 +235,7 @@
   footer { border-top: 1px solid var(--border); padding: 40px 0; color: var(--fg-faint); font-size: .9rem; }
   .foot { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: center; justify-content: space-between; }
   .foot a { color: var(--fg-soft); }
+  .sponsor-note { max-width: var(--maxw); margin: 22px auto 0; padding: 0 24px; text-align: center; color: var(--fg-faint); font-size: .88rem; }
 </style>
 </head>
 <body>
@@ -240,13 +258,13 @@
 <section class="hero">
   <div class="wrap">
     <span class="pill"><span class="dot"></span> Free &amp; open source · MIT licensed</span>
-    <h1>Preview medical images, right from Finder.</h1>
-    <p class="lede">MIQ is a lightweight macOS Quick Look extension for medical volume images. Press <kbd>Space</kbd> on a supported file to instantly get an interactive orthogonal slice view and a metadata panel — no app to open, no waiting.</p>
+    <h1>Preview medical images,<br>right from Finder.</h1>
+    <p class="lede">MIQ is a lightweight macOS Quick Look extension for medical volume images. Press <kbd>Space</kbd> on a supported file to instantly get an interactive orthogonal slice view and a metadata panel. No app to open, no waiting.</p>
     <div class="cta">
       <a class="btn" href="https://github.com/marcoduering/MIQ/releases/latest/download/MIQ.app.zip">↓ Download for macOS</a>
       <a class="btn ghost" href="https://github.com/marcoduering/MIQ">View on GitHub</a>
     </div>
-    <p class="cta sub">Universal binary · Apple Silicon &amp; Intel · macOS 14 Sonoma, 15 Sequoia, 26 Tahoe</p>
+    <p class="cta sub">Universal binary · Apple Silicon &amp; Intel · macOS 14&nbsp;Sonoma, 15&nbsp;Sequoia, 26&nbsp;Tahoe</p>
 
     <div class="shot">
       <picture>
@@ -261,19 +279,19 @@
   <div class="wrap">
     <div class="section-head">
       <span class="eyebrow">Why MIQ</span>
-      <h2>Built for a quick look —<br>and nothing else</h2>
+      <h2>Built for a quick look,<br>and nothing else</h2>
       <p>A convenience tool for quickly inspecting medical image files from the Finder. It prioritizes speed and ease of use over advanced visualization.</p>
     </div>
     <div class="grid features">
       <div class="card">
         <span class="ic">⌨️</span>
-        <h3>Just press Space</h3>
-        <p>Native Quick Look integration. Select a file in Finder, hit Space, and the orthogonal slices appear instantly.</p>
+        <h3>Just press <kbd>Space</kbd></h3>
+        <p>Native Quick Look integration. Select a file in Finder, hit <kbd>Space</kbd>, and the orthogonal slices appear instantly.</p>
       </div>
       <div class="card">
         <span class="ic">🧭</span>
         <h3>Interactive 4D view</h3>
-        <p>Scrub through slices and volumes, move the crosshair, and adjust window/level — all inside the preview window.</p>
+        <p>Scrub through slices and volumes, move the crosshair, and adjust window/level, all inside the preview window.</p>
       </div>
       <div class="card">
         <span class="ic">⚡</span>
@@ -321,10 +339,10 @@
       </div>
       <div class="fmt">
         <span class="badge">✳️</span>
-        <div><div class="name">NRRD <span class="ext">— experimental</span></div><div class="ext"><code>.nrrd</code> · single-file variant with attached header</div></div>
+        <div><div class="name">NRRD <span class="ext">(experimental)</span></div><div class="ext"><code>.nrrd</code></div></div>
       </div>
     </div>
-    <p class="note">MIQ relies on the file extension to determine the format — it's important that files have the correct extension.</p>
+    <p class="note">MIQ relies on the file extension to determine the format, so it’s important that files have the correct extension.</p>
   </div>
 </section>
 
@@ -336,36 +354,35 @@
     </div>
 
     <div class="tabs" role="tablist">
-      <button class="tab" role="tab" aria-selected="true" data-tab="brew">Homebrew</button>
-      <button class="tab" role="tab" aria-selected="false" data-tab="manual">Manual</button>
+      <button class="tab" role="tab" aria-selected="true" data-tab="manual">Manual</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="brew">Homebrew</button>
     </div>
 
-    <div class="panel" data-tab="brew" data-active="true">
+    <div class="panel" data-tab="manual" data-active="true">
       <ol class="steps">
-        <li>Install from the command line:
+        <li><strong><a href="https://github.com/marcoduering/MIQ/releases/latest/download/MIQ.app.zip">Download the latest release</a></strong> (MIQ.app.zip).</li>
+        <li>Unzip and move <strong>MIQ.app</strong> to your <strong>/Applications</strong> folder.</li>
+        <li><strong>Open MIQ.app</strong> at least once to register the Quick Look extension.</li>
+        <li>Press <kbd>Space</kbd> on any supported file in Finder.</li>
+        <li>Optional: <strong>customize the preview</strong> in the MIQ app.</li>
+      </ol>
+    </div>
+
+    <div class="panel" data-tab="brew" data-active="false">
+      <ol class="steps">
+        <li>With <strong><a href="https://brew.sh">Homebrew</a></strong> installed, run from the <strong>command line</strong>:
           <pre><span class="c"># tap, trust the cask, and install</span>
 brew tap marcoduering/miq
 brew trust --cask marcoduering/miq/miq
 brew install --cask miq</pre>
         </li>
         <li><strong>Open MIQ.app</strong> (in <code>/Applications</code>) at least once to register the Quick Look extension.</li>
-        <li>Press <strong>Space</strong> on any supported file in Finder.</li>
+        <li>Press <kbd>Space</kbd> on any supported file in Finder.</li>
         <li>Optional: <strong>customize the preview</strong> in the MIQ app.</li>
       </ol>
-      <pre><span class="c"># later, to update</span>
-brew update
-brew upgrade --cask miq</pre>
     </div>
 
-    <div class="panel" data-tab="manual" data-active="false">
-      <ol class="steps">
-        <li><strong><a href="https://github.com/marcoduering/MIQ/releases/latest/download/MIQ.app.zip">Download the latest release</a></strong> (MIQ.app.zip).</li>
-        <li>Unzip and move <strong>MIQ.app</strong> to your <strong>/Applications</strong> folder.</li>
-        <li><strong>Open MIQ.app</strong> at least once to register the Quick Look extension.</li>
-        <li>Press <strong>Space</strong> on any supported file in Finder.</li>
-        <li>Optional: <strong>customize the preview</strong> in the MIQ app. MIQ checks for updates — open the app occasionally to see update alerts.</li>
-      </ol>
-    </div>
+    <p class="note">MIQ checks for updates. Open the app occasionally to see update alerts.</p>
   </div>
 </section>
 
@@ -379,26 +396,26 @@ brew upgrade --cask miq</pre>
     <div class="grid shots3">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="MIQ_settings1_dark.webp">
-        <img src="MIQ_settings1.webp" alt="MIQ settings — general" loading="lazy">
+        <img src="MIQ_settings1.webp" alt="MIQ settings: general" loading="lazy">
       </picture>
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="MIQ_settings2_dark.webp">
-        <img src="MIQ_settings2.webp" alt="MIQ settings — appearance" loading="lazy">
+        <img src="MIQ_settings2.webp" alt="MIQ settings: appearance" loading="lazy">
       </picture>
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="MIQ_settings3_dark.webp">
-        <img src="MIQ_settings3.webp" alt="MIQ settings — metadata panel" loading="lazy">
+        <img src="MIQ_settings3.webp" alt="MIQ settings: metadata panel" loading="lazy">
       </picture>
     </div>
   </div>
 </section>
 
-<section id="demo" class="soft">
+<section id="demo">
   <div class="wrap">
     <div class="section-head">
       <span class="eyebrow">See it in action</span>
       <h2>A quick look, in real time</h2>
-      <p>Press Space, scrub through slices and volumes, and inspect the metadata — all without leaving Finder.</p>
+      <p>Press <kbd>Space</kbd>, scrub through slices and volumes, and inspect the metadata, all without leaving Finder.</p>
     </div>
     <div class="video-frame">
       <video controls playsinline preload="metadata">
@@ -412,7 +429,7 @@ brew upgrade --cask miq</pre>
 <section>
   <div class="wrap">
     <div class="callout">
-      <strong>⚠️ Not a medical device.</strong> MIQ is not intended for diagnostic use — it is a developer and researcher convenience tool only. Do not use it to make clinical decisions. Provided “as is” under the MIT License, without warranty of any kind.
+      <strong>⚠️ Not a medical device.</strong> MIQ is not intended for diagnostic use. It is a developer and researcher convenience tool only. Do not use it to make clinical decisions. Provided “as is” under the MIT License, without warranty of any kind.
     </div>
   </div>
 </section>
@@ -426,9 +443,13 @@ brew upgrade --cask miq</pre>
       <a href="https://github.com/marcoduering/MIQ/blob/main/LICENSE">MIT License</a> ·
       <a href="privacy.html">Privacy</a>
     </div>
-    <div>Created with the support of AI coding agents.</div>
   </div>
+  <p class="sponsor-note">MIQ is free and open source. If it’s useful to you, you can <a href="https://github.com/sponsors/marcoduering">sponsor its development</a>. Entirely optional, always appreciated.</p>
 </footer>
+
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Enlarged screenshot">
+  <img alt="">
+</div>
 
 <script>
   document.querySelectorAll('.tab').forEach(function (tab) {
@@ -441,6 +462,21 @@ brew upgrade --cask miq</pre>
         p.setAttribute('data-active', String(p.dataset.tab === name));
       });
     });
+  });
+
+  var lb = document.getElementById('lightbox');
+  var lbImg = lb.querySelector('img');
+  document.querySelectorAll('.shots3 img').forEach(function (img) {
+    img.addEventListener('click', function () {
+      lbImg.src = img.currentSrc || img.src;
+      lbImg.alt = img.alt;
+      lb.setAttribute('data-open', 'true');
+    });
+  });
+  function closeLightbox() { lb.setAttribute('data-open', 'false'); }
+  lb.addEventListener('click', closeLightbox);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeLightbox();
   });
 </script>
 
