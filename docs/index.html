@@ -235,6 +235,7 @@
   footer { border-top: 1px solid var(--border); padding: 40px 0; color: var(--fg-faint); font-size: .9rem; }
   .foot { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: center; justify-content: space-between; }
   .foot a { color: var(--fg-soft); }
+  .gh-mark { vertical-align: -2px; margin-right: 5px; }
   .sponsor-note { max-width: var(--maxw); margin: 22px auto 0; padding: 0 24px; text-align: center; color: var(--fg-faint); font-size: .88rem; }
 </style>
 </head>
@@ -249,7 +250,12 @@
         <a class="hide-sm" href="#formats">Formats</a>
         <a class="hide-sm" href="#install">Install</a>
         <a class="hide-sm" href="#demo">Demo</a>
-        <a class="btn" href="https://github.com/marcoduering/MIQ/releases/latest/download/MIQ.app.zip">Download</a>
+        <a class="btn" href="https://github.com/marcoduering/MIQ/releases/latest/download/MIQ.app.zip">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M7.25 1.5a.75.75 0 0 1 1.5 0v6.69l2.22-2.22a.75.75 0 1 1 1.06 1.06l-3.5 3.5a.75.75 0 0 1-1.06 0l-3.5-3.5a.75.75 0 0 1 1.06-1.06l2.22 2.22V1.5z"/>
+            <path d="M2.75 9.5a.75.75 0 0 1 .75.75v2.25c0 .14.11.25.25.25h8.5a.25.25 0 0 0 .25-.25V10.25a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 12.5 14.25h-9A1.75 1.75 0 0 1 1.75 12.5V10.25a.75.75 0 0 1 .75-.75z"/>
+          </svg>
+          Download</a>
       </div>
     </nav>
   </div>
@@ -261,8 +267,17 @@
     <h1>Preview medical images,<br>right from Finder.</h1>
     <p class="lede">MIQ is a lightweight macOS Quick Look extension for medical volume images. Press <kbd>Space</kbd> on a supported file to instantly get an interactive orthogonal slice view and a metadata panel. No app to open, no waiting.</p>
     <div class="cta">
-      <a class="btn" href="https://github.com/marcoduering/MIQ/releases/latest/download/MIQ.app.zip">↓ Download for macOS</a>
-      <a class="btn ghost" href="https://github.com/marcoduering/MIQ">View on GitHub</a>
+      <a class="btn" href="https://github.com/marcoduering/MIQ/releases/latest/download/MIQ.app.zip">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M7.25 1.5a.75.75 0 0 1 1.5 0v6.69l2.22-2.22a.75.75 0 1 1 1.06 1.06l-3.5 3.5a.75.75 0 0 1-1.06 0l-3.5-3.5a.75.75 0 0 1 1.06-1.06l2.22 2.22V1.5z"/>
+          <path d="M2.75 9.5a.75.75 0 0 1 .75.75v2.25c0 .14.11.25.25.25h8.5a.25.25 0 0 0 .25-.25V10.25a.75.75 0 0 1 1.5 0v2.25A1.75 1.75 0 0 1 12.5 14.25h-9A1.75 1.75 0 0 1 1.75 12.5V10.25a.75.75 0 0 1 .75-.75z"/>
+        </svg>
+        Download for macOS</a>
+      <a class="btn ghost" href="https://github.com/marcoduering/MIQ">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+        </svg>
+        View on GitHub</a>
     </div>
     <p class="cta sub">Universal binary · Apple Silicon &amp; Intel · macOS 14&nbsp;Sonoma, 15&nbsp;Sequoia, 26&nbsp;Tahoe</p>
 
@@ -285,7 +300,7 @@
     <div class="grid features">
       <div class="card">
         <span class="ic">⌨️</span>
-        <h3>Just press <kbd>Space</kbd></h3>
+        <h3>Just press Space</h3>
         <p>Native Quick Look integration. Select a file in Finder, hit <kbd>Space</kbd>, and the orthogonal slices appear instantly.</p>
       </div>
       <div class="card">
@@ -320,9 +335,9 @@
 <section id="formats" class="soft">
   <div class="wrap">
     <div class="section-head">
-      <span class="eyebrow">Formats</span>
+      <span class="eyebrow">Research Companion</span>
       <h2>The formats you actually use</h2>
-      <p>All formats are supported uncompressed and gzip-compressed.</p>
+      <p>All file formats are supported uncompressed and gzip-compressed.</p>
     </div>
     <div class="grid formats">
       <div class="fmt">
@@ -342,7 +357,7 @@
         <div><div class="name">NRRD <span class="ext">(experimental)</span></div><div class="ext"><code>.nrrd</code></div></div>
       </div>
     </div>
-    <p class="note">MIQ relies on the file extension to determine the format, so it’s important that files have the correct extension.</p>
+    <p class="note">MIQ only supports volume files in research formats, DICOM is currently not supported.<br />MIQ relies on the file extension to determine the format, so it’s important that files have the correct extension.</p>
   </div>
 </section>
 
@@ -429,7 +444,7 @@ brew install --cask miq</pre>
 <section>
   <div class="wrap">
     <div class="callout">
-      <strong>⚠️ Not a medical device.</strong> MIQ is not intended for diagnostic use. It is a developer and researcher convenience tool only. Do not use it to make clinical decisions. Provided “as is” under the MIT License, without warranty of any kind.
+      <strong>⚠️ Not a medical device.</strong><br />MIQ is not intended for diagnostic use. It is a developer and researcher convenience tool only. Do not use it to make clinical decisions. Provided “as is” under the MIT License, without warranty of any kind.
     </div>
   </div>
 </section>
@@ -438,7 +453,7 @@ brew install --cask miq</pre>
   <div class="wrap foot">
     <div class="brand"><img class="logo" src="icon-64.png" width="30" height="30" alt="MIQ app icon"> Medical Image Quick Look</div>
     <div>
-      <a href="https://github.com/marcoduering/MIQ">GitHub</a> ·
+      <a href="https://github.com/marcoduering/MIQ"><svg class="gh-mark" width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a> ·
       <a href="https://github.com/marcoduering/MIQ/issues">Report an issue</a> ·
       <a href="https://github.com/marcoduering/MIQ/blob/main/LICENSE">MIT License</a> ·
       <a href="privacy.html">Privacy</a>
