@@ -157,6 +157,76 @@ enum MIQBinaryReader {
         return output
     }
 
+    /// Streaming gunzip that pulls compressed bytes from `handle` in chunks and
+    /// stops as soon as `hasEnough(produced)` returns `true` — or the input ends
+    /// first (full decompression). The point is the *read*: it touches the file
+    /// only as far into the compressed stream as the requested output prefix
+    /// needs, so on a network volume it never reads the tail. (The in-memory
+    /// `gunzip(_:maxOutputBytes:)` above can't do this — `Data(contentsOf:)` on a
+    /// network mount reads every byte before inflate runs, because `.mappedIfSafe`
+    /// won't map a remote volume.)
+    ///
+    /// `hasEnough` is re-evaluated after each inflate step against the cumulative
+    /// output; it returns `false` until the caller can compute its bound (e.g.
+    /// once the header is present). When it never becomes `true`, the whole stream
+    /// is decompressed and the output is byte-identical to `gunzip(_:)`.
+    static func gunzip(
+        from handle: FileHandle,
+        inputChunkBytes: Int = 1 << 18,
+        hasEnough: (Foundation.Data) -> Bool
+    ) throws -> Foundation.Data {
+        var stream = z_stream()
+        guard inflateInit2_(&stream, 16 + MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else {
+            throw MIQError.decompressionFailed
+        }
+        defer { inflateEnd(&stream) }
+
+        var output = Foundation.Data()
+        var outChunk = [UInt8](repeating: 0, count: inputChunkBytes)
+        let outCapacity = outChunk.count
+        var done = false
+        var sawStreamEnd = false
+
+        while !done {
+            guard let input = try handle.read(upToCount: inputChunkBytes), !input.isEmpty else {
+                break // compressed input exhausted before `hasEnough` — full stream
+            }
+            try input.withUnsafeBytes { (inBuf: UnsafeRawBufferPointer) in
+                guard let inBase = inBuf.bindMemory(to: Bytef.self).baseAddress else {
+                    throw MIQError.decompressionFailed
+                }
+                stream.next_in = UnsafeMutablePointer(mutating: inBase)
+                stream.avail_in = UInt32(input.count)
+                while stream.avail_in > 0 {
+                    let ret: Int32 = outChunk.withUnsafeMutableBytes { (outBuf: UnsafeMutableRawBufferPointer) -> Int32 in
+                        guard let outBase = outBuf.bindMemory(to: Bytef.self).baseAddress else {
+                            return Z_MEM_ERROR
+                        }
+                        stream.next_out = outBase
+                        stream.avail_out = UInt32(outCapacity)
+                        let r = inflate(&stream, Z_NO_FLUSH)
+                        let produced = outCapacity - Int(stream.avail_out)
+                        if produced > 0 { output.append(outBase, count: produced) }
+                        return r
+                    }
+                    if ret == Z_STREAM_END { sawStreamEnd = true; done = true; break }
+                    if ret == Z_BUF_ERROR { break } // no progress possible — need more input
+                    guard ret == Z_OK else { throw MIQError.decompressionFailed }
+                    if hasEnough(output) { done = true; break }
+                }
+            }
+            if !done && hasEnough(output) { done = true }
+        }
+
+        // A bounded early stop (`hasEnough`) is a deliberate success. Only a stream
+        // that ran dry without ever ending *and* without satisfying the bound is a
+        // real failure — that's a truncated/corrupt member.
+        guard done || sawStreamEnd else {
+            throw MIQError.decompressionFailed
+        }
+        return output
+    }
+
     static func uint16(_ data: Foundation.Data, _ offset: Int, littleEndian: Bool) -> UInt16 {
         let base = data.startIndex + offset
         let b0 = UInt16(data[base])

@@ -100,7 +100,7 @@ See the **Usage** panel in the main app to learn how to control the interactive 
 
 ### Performance
 
-Uncompressed files are memory-mapped and load instantly. Compressed NIfTI (`.nii.gz`) is partially decompressed and loads quickly. Very large `.mgz` or `.mif.gz` files may take a few seconds to load.
+Local uncompressed files are memory-mapped and load instantly. Compressed NIfTI (`.nii.gz`) is partially decompressed and loads quickly. For files on a network volume, MIQ reads only the first volume of a NIfTI from disk for the preview (the rest loads on demand when you scroll into 4D), so previews stay fast even over a slow connection. Very large `.mgz` or `.mif.gz` files may take a few seconds to load.
 
 ## Troubleshooting
 

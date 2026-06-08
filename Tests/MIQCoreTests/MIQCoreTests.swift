@@ -234,6 +234,131 @@ struct MIQCoreTests {
         }
     }
 
+    /// Bounded-prefix disk read (the network fast path) must yield a volume-0
+    /// view byte-identical to a full parse, while reading less than the whole
+    /// `.nii.gz` payload. Volume 0 must exceed the 64 KB header probe so the
+    /// budget actually engages (small files legitimately decompress in full).
+    @Test
+    func boundedPrefixReadMatchesFullForFourDNiftiGz() throws {
+        let w = 64, h = 64, d = 20, t = 5
+        let raw = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: t)
+        let plainURL = Self.tempURL(suffix: ".nii")
+        let gzURL = Self.tempURL(suffix: ".nii.gz")
+        let prefixURL = Self.tempURL(suffix: ".nii")
+        defer {
+            try? FileManager.default.removeItem(at: plainURL)
+            try? FileManager.default.removeItem(at: gzURL)
+            try? FileManager.default.removeItem(at: prefixURL)
+        }
+        try raw.write(to: plainURL)
+        try TestZlib.gzip(raw).write(to: gzURL)
+
+        let full = try MIQParser().parse(url: plainURL) // all t volumes
+        let bpv = MIQDatatype.int16.bytesPerVoxel
+        let volumeBytes = w * h * d * bpv
+
+        // Bypass the isLocalVolume gate (a temp file is local) by calling the
+        // bounded reader directly — same Data loadAndDecompress would feed the parser.
+        let prefix = try #require(try MIQParser().loadBoundedNiftiPrefix(url: gzURL, kind: .niiGz))
+        #expect(prefix.count < raw.count)          // read less than the whole payload
+        #expect(prefix.count >= volumeBytes)       // but enough for volume 0
+
+        try prefix.write(to: prefixURL)
+        let partial = MIQVolume(image: try MIQParser().parse(url: prefixURL))
+        let fullVol = MIQVolume(image: full)
+        for z in 0..<d {
+            for y in 0..<h {
+                for x in stride(from: 0, to: w, by: 7) { // sample, not all 320 k voxels
+                    #expect(partial.voxel(x: x, y: y, z: z, t: 0) == fullVol.voxel(x: x, y: y, z: z, t: 0))
+                }
+            }
+        }
+    }
+
+    /// Bounded-prefix read for an *uncompressed* 4D `.nii`: reads exactly the
+    /// volume-0 budget (no mmap fallback over a network volume), truncating the
+    /// trailing volumes while keeping volume 0 byte-identical.
+    @Test
+    func boundedPrefixReadMatchesFullForFourDNiftiPlain() throws {
+        let w = 8, h = 6, d = 4, t = 5
+        let raw = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: t)
+        let plainURL = Self.tempURL(suffix: ".nii")
+        let prefixURL = Self.tempURL(suffix: ".nii")
+        defer {
+            try? FileManager.default.removeItem(at: plainURL)
+            try? FileManager.default.removeItem(at: prefixURL)
+        }
+        try raw.write(to: plainURL)
+
+        let prefix = try #require(try MIQParser().loadBoundedNiftiPrefix(url: plainURL, kind: .nii))
+        #expect(prefix.count < raw.count) // trailing volumes skipped
+
+        try prefix.write(to: prefixURL)
+        let partialImage = try MIQParser().parse(url: prefixURL)
+        // Header is untouched (still 5 volumes); only the payload is truncated to
+        // volume 0 — reads past it return the zero backstop, exactly like the gz cap.
+        #expect(partialImage.payloadCount == w * h * d * MIQDatatype.int16.bytesPerVoxel)
+        let partial = MIQVolume(image: partialImage)
+        let fullVol = MIQVolume(image: try MIQParser().parse(url: plainURL))
+        for z in 0..<d {
+            for y in 0..<h {
+                for x in 0..<w {
+                    #expect(partial.voxel(x: x, y: y, z: z, t: 0) == fullVol.voxel(x: x, y: y, z: z, t: 0))
+                }
+            }
+        }
+    }
+
+    /// `containsAllVolumes` distinguishes a volume-0-capped buffer from a full
+    /// one — the signal the preview layer uses to decide a 4D buffer needs
+    /// expansion (covers the bounded uncompressed `.nii` case the old kind-based
+    /// check missed).
+    @Test
+    func containsAllVolumesReflectsBoundedPrefix() throws {
+        let w = 8, h = 6, d = 4, t = 5
+        let raw = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: t)
+        let url = Self.tempURL(suffix: ".nii")
+        let prefixURL = Self.tempURL(suffix: ".nii")
+        defer {
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: prefixURL)
+        }
+        try raw.write(to: url)
+
+        let full = MIQVolume(image: try MIQParser().parse(url: url))
+        #expect(full.volumes == t)
+        #expect(full.containsAllVolumes)
+
+        let prefix = try #require(try MIQParser().loadBoundedNiftiPrefix(url: url, kind: .nii))
+        try prefix.write(to: prefixURL)
+        let capped = MIQVolume(image: try MIQParser().parse(url: prefixURL))
+        #expect(capped.volumes == t)         // header still declares all volumes
+        #expect(!capped.containsAllVolumes)   // but the payload only holds volume 0
+    }
+
+    /// `VolumeLocation.isLocal` reports a temp file (always on a local volume) as
+    /// local, and defaults to local on a failed probe — the conservative fallback
+    /// that preserves the mmap fast path / generates thumbnails.
+    @Test
+    func volumeLocationReportsLocalForLocalFileAndOnFailure() throws {
+        let url = Self.tempURL(suffix: ".nii")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data([1, 2, 3]).write(to: url)
+        #expect(VolumeLocation.isLocal(url))
+        #expect(VolumeLocation.isLocal(URL(fileURLWithPath: "/no/such/path/file.nii")))
+    }
+
+    /// The bounded reader declines kinds whose volume 0 isn't a file prefix, so
+    /// the caller falls back to the full read (`.mgz` here).
+    @Test
+    func boundedPrefixReadDeclinesNonNiftiKinds() throws {
+        let mgh = TestMIQFactory.makeMgh(width: 5, height: 3, depth: 2, frames: 1, datatype: .int16)
+        let mgzURL = Self.tempURL(suffix: ".mgz")
+        defer { try? FileManager.default.removeItem(at: mgzURL) }
+        try TestZlib.gzip(mgh).write(to: mgzURL)
+        #expect(try MIQParser().loadBoundedNiftiPrefix(url: mgzURL, kind: .mgz) == nil)
+    }
+
     // MARK: - 4D navigation
 
     /// `t` must participate in equality/hash: a timepoint change has to

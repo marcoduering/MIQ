@@ -30,6 +30,14 @@ final class MIQThumbnailProvider: QLThumbnailProvider {
             return
         }
 
+        // Off by default: thumbnailing a network share means a parse per file
+        // while browsing, which can hammer a slow mount. Local files are unaffected.
+        if !MIQConfig.showThumbnailsOnNetworkVolumes, !VolumeLocation.isLocal(url) {
+            logger.notice("declining thumbnail on network volume (disabled in settings): \(url.lastPathComponent, privacy: .public)")
+            handler(nil, nil)
+            return
+        }
+
         do {
             let image = try Self.renderAxialCenter(url: url, request: request)
             let contextSize = Self.aspectFit(imageSize: image.size, within: request.maximumSize)

@@ -89,10 +89,12 @@ final class MIQPreviewModel {
         expansionTask?.cancel()
     }
 
-    /// Only a 4D `.nii.gz` carries a volume-0-capped buffer that hides volumes
-    /// > 0. Everything else already holds the full payload.
-    private static func needsExpansion(kind: MIQFileKind?, volumes: Int) -> Bool {
-        kind == .niiGz && volumes > 1
+    /// A 4D buffer that was loaded with the volume-0 cap (any `.nii.gz`, or a
+    /// `.nii`/`.nii.gz` on a network volume via the bounded-prefix read) hides
+    /// volumes > 0 until expanded. Detected from the actual payload rather than the
+    /// file kind, so the bounded uncompressed `.nii` case isn't missed.
+    private static func needsExpansion(volume: MIQVolume) -> Bool {
+        volume.volumes > 1 && !volume.containsAllVolumes
     }
 
     func load() async {
@@ -344,7 +346,7 @@ final class MIQPreviewModel {
     private func apply(raw: RawPreviewData) {
         interactiveState = raw.interactiveState
         lastAppliedAutoBounds = raw.interactiveState.windowBounds
-        expansionState = Self.needsExpansion(kind: fileKind, volumes: raw.interactiveState.volume.volumes) ? .pending : .notNeeded
+        expansionState = Self.needsExpansion(volume: raw.interactiveState.volume) ? .pending : .notNeeded
         currentCursor = raw.interactiveState.centerCursor
         displayedCursor = raw.interactiveState.centerCursor
         metadataEntries = raw.metadataEntries
@@ -393,7 +395,7 @@ final class MIQPreviewModel {
                 self.interactionPreparationTask = nil
                 self.interactiveState = interactiveState
                 self.lastAppliedAutoBounds = interactiveState.windowBounds
-                self.expansionState = Self.needsExpansion(kind: self.fileKind, volumes: interactiveState.volume.volumes) ? .pending : .notNeeded
+                self.expansionState = Self.needsExpansion(volume: interactiveState.volume) ? .pending : .notNeeded
                 self.currentCursor = interactiveState.centerCursor
                 self.displayedCursor = interactiveState.centerCursor
                 self.onChange?()
@@ -476,6 +478,7 @@ final class MIQPreviewModel {
         try withSecurityScopedAccess(to: fileURL) {
             let image = try MIQParser().parse(url: fileURL)
             let volume = MIQVolume(image: image)
+            MIQLogger.make(category: "model").notice("cold parse: \(volume.containsAllVolumes ? "full payload" : "volume-0 capped", privacy: .public), volumes=\(volume.volumes, privacy: .public), payload=\(image.payloadCount / 1024, privacy: .public)KB")
             // Single decode of the center slices: the pooled buffer that derives the
             // window is the same buffer finalized into the first-frame images. The
             // previous makeInteractiveState + renderSlices(centerCursor) path decoded

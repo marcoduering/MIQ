@@ -33,6 +33,7 @@ public enum MIQConfig {
         public static let metadataOrder           = "metadataOrder"
         public static let hideDisclaimerInPreview = "hideDisclaimerInPreview"
         public static let showThumbnails                 = "showThumbnails"
+        public static let showThumbnailsOnNetworkVolumes = "showThumbnailsOnNetworkVolumes"
         public static let thumbnailImageOrientation      = "thumbnailImageOrientation"
         public static let thumbnailWindowLowerPercentile = "thumbnailWindowLowerPercentile"
         public static let thumbnailWindowUpperPercentile = "thumbnailWindowUpperPercentile"
@@ -59,6 +60,7 @@ public enum MIQConfig {
         public static let metadataOrder           = "format,dimensions,spacing,orientation,datatype,volumes,scaling"
         public static let hideDisclaimerInPreview = false
         public static let showThumbnails                 = false
+        public static let showThumbnailsOnNetworkVolumes = false
         public static let thumbnailImageOrientation      = "stored"
         public static let thumbnailWindowLowerPercentile = 2.0
         public static let thumbnailWindowUpperPercentile = 98.0
@@ -149,6 +151,14 @@ public enum MIQConfig {
     public static var showThumbnails: Bool {
         let d = defaults
         return d.object(forKey: Keys.showThumbnails) as? Bool ?? Defaults.showThumbnails
+    }
+
+    /// When `false` (default), the thumbnail extension declines files on network
+    /// volumes, so browsing a remote share doesn't spawn a parse per file. Local
+    /// thumbnails are unaffected. Read by the thumbnail extension only.
+    public static var showThumbnailsOnNetworkVolumes: Bool {
+        let d = defaults
+        return d.object(forKey: Keys.showThumbnailsOnNetworkVolumes) as? Bool ?? Defaults.showThumbnailsOnNetworkVolumes
     }
 
     public static var thumbnailImageOrientation: ViewOrientation {

@@ -296,6 +296,8 @@ struct ContentView: View {
     private var hideDisclaimerInPreview: Bool = MIQConfig.Defaults.hideDisclaimerInPreview
     @AppStorage(MIQConfig.Keys.showThumbnails, store: Self.store)
     private var showThumbnails: Bool = MIQConfig.Defaults.showThumbnails
+    @AppStorage(MIQConfig.Keys.showThumbnailsOnNetworkVolumes, store: Self.store)
+    private var showThumbnailsOnNetworkVolumes: Bool = MIQConfig.Defaults.showThumbnailsOnNetworkVolumes
     @AppStorage(MIQConfig.Keys.thumbnailImageOrientation, store: Self.store)
     private var thumbnailImageOrientation: ViewOrientation = ViewOrientation.defaultValue
     @AppStorage(MIQConfig.Keys.thumbnailWindowLowerPercentile, store: Self.store)
@@ -736,9 +738,23 @@ struct ContentView: View {
                     }
                     .padding(.top, 2)
                 }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Include network volumes")
+                        Spacer()
+                        Toggle("", isOn: $showThumbnailsOnNetworkVolumes)
+                            .labelsHidden()
+                    }
+                    Text("Off by default: thumbnailing files on a network share reads each one while browsing, which can be slow on a remote mount.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .disabled(!showThumbnails)
             }
 
-            Section {
+            Section("Thumbnail display options") {
                 VStack(alignment: .leading, spacing: 6) {
                     Picker("Orientation", selection: $thumbnailImageOrientation) {
                         ForEach(ViewOrientation.allCases, id: \.rawValue) { orientation in
@@ -947,6 +963,7 @@ struct ContentView: View {
         metadataOrder           = StoredMetadataOrder.defaultValue
         hideDisclaimerInPreview = MIQConfig.Defaults.hideDisclaimerInPreview
         showThumbnails            = MIQConfig.Defaults.showThumbnails
+        showThumbnailsOnNetworkVolumes = MIQConfig.Defaults.showThumbnailsOnNetworkVolumes
         thumbnailImageOrientation = ViewOrientation.defaultValue
         thumbnailLowerPercentile  = MIQConfig.Defaults.thumbnailWindowLowerPercentile
         thumbnailUpperPercentile  = MIQConfig.Defaults.thumbnailWindowUpperPercentile

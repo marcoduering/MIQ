@@ -101,6 +101,20 @@ public struct MIQVolume: Sendable {
     public var depth: Int { image.header.depth }
     public var volumes: Int { image.header.volumes }
 
+    /// `false` when the backing payload holds fewer volumes than the header
+    /// declares — i.e. it was loaded with the volume-0 cap (a 4D `.nii.gz` cold
+    /// load, or *any* 4D NIfTI on a network volume via the bounded-prefix read).
+    /// The preview layer uses this to decide whether stepping into 4D needs a full
+    /// re-parse, instead of keying off the file kind (which misses the bounded
+    /// uncompressed `.nii` case). Only meaningful for canonical x-fastest layouts;
+    /// strided kinds (MIF/NRRD) are never capped, so they always report `true`.
+    public var containsAllVolumes: Bool {
+        guard image.payloadElementStrides == nil else { return true }
+        let bytesPerVolume = width * height * depth * image.header.datatype.bytesPerVoxel
+        guard bytesPerVolume > 0 else { return true }
+        return image.payloadCount / bytesPerVolume >= volumes
+    }
+
     public func centerCursor() -> MIQVolumeCursor {
         MIQVolumeCursor(x: max(0, width / 2), y: max(0, height / 2), z: max(0, depth / 2))
     }
