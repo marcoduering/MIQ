@@ -63,6 +63,27 @@
   h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); }
   p { margin: 0 0 1rem; }
 
+  /* ---- announcement bar (MIQ-Win accent) ---- */
+  .announce {
+    background: #0f9e8e; color: #fff;
+    font-size: .9rem; font-weight: 550; text-align: center;
+  }
+  @media (prefers-color-scheme: dark) {
+    .announce { background: #34b3a3; }
+  }
+  .announce a {
+    display: block; color: #fff; padding: 6px 24px;
+    text-decoration: none;
+  }
+  .announce a:hover { text-decoration: none; filter: brightness(1.05); }
+  .announce .tag {
+    display: inline-block; font-weight: 700; letter-spacing: .04em;
+    text-transform: uppercase; font-size: .72rem;
+    background: rgba(255,255,255,.22); border-radius: 999px;
+    padding: 2px 9px; margin-right: 9px; vertical-align: 1px;
+  }
+  .announce .arrow { font-weight: 700; margin-left: 4px; }
+
   /* ---- nav ---- */
   header {
     position: sticky; top: 0; z-index: 50;
@@ -241,6 +262,12 @@
 </style>
 </head>
 <body>
+
+<div class="announce">
+  <a href="https://miq-win.marco-duering.net">
+    <span class="tag">New</span>On Windows? <strong>MIQ-Win</strong> brings the same instant medical image preview to File Explorer<span class="arrow"> →</span>
+  </a>
+</div>
 
 <header>
   <div class="wrap">
