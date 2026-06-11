@@ -8,7 +8,7 @@ final class MIQPreviewModel {
     private let logger = MIQLogger.make(category: "model")
 
     private struct RawPreviewData: Sendable {
-        let slices: [SlicePlane: SliceImage]
+        let slices: [SlicePlane: RGBABitmap]
         let orientations: [SlicePlane: SliceOrientationLabels]
         let metadataEntries: [MetadataEntry]
         let interactiveState: InteractivePreviewState
@@ -357,17 +357,20 @@ final class MIQPreviewModel {
         coronalOrientation = raw.orientations[.coronal] ?? .placeholderCoronal
         sagittalOrientation = raw.orientations[.sagittal] ?? .placeholderSagittal
         axialOrientation = raw.orientations[.axial] ?? .placeholderAxial
-        apply(sliceImages: raw.slices)
+        apply(bitmaps: raw.slices)
     }
 
-    private func apply(sliceImages: [SlicePlane: SliceImage]) {
-        if let coronalImage = sliceImages[.coronal].flatMap(MIQImageBridge.makeNSImage) {
+    /// MainActor side of the render handoff: the bitmaps arrive pre-expanded
+    /// from the detached task, so this only wraps them in CGImage/NSImage —
+    /// no per-pixel work on the main thread.
+    private func apply(bitmaps: [SlicePlane: RGBABitmap]) {
+        if let coronalImage = bitmaps[.coronal].flatMap(MIQImageBridge.makeNSImage) {
             coronal = coronalImage
         }
-        if let sagittalImage = sliceImages[.sagittal].flatMap(MIQImageBridge.makeNSImage) {
+        if let sagittalImage = bitmaps[.sagittal].flatMap(MIQImageBridge.makeNSImage) {
             sagittal = sagittalImage
         }
-        if let axialImage = sliceImages[.axial].flatMap(MIQImageBridge.makeNSImage) {
+        if let axialImage = bitmaps[.axial].flatMap(MIQImageBridge.makeNSImage) {
             axial = axialImage
         }
     }
@@ -375,7 +378,7 @@ final class MIQPreviewModel {
     private func makeBundle(from raw: RawPreviewData) -> MIQPreviewBundle {
         var nsSlices: [SlicePlane: NSImage] = [:]
         for plane in SlicePlane.allCases {
-            if let sliceImage = raw.slices[plane], let image = MIQImageBridge.makeNSImage(from: sliceImage) {
+            if let bitmap = raw.slices[plane], let image = MIQImageBridge.makeNSImage(from: bitmap) {
                 nsSlices[plane] = image
             }
         }
@@ -453,7 +456,7 @@ final class MIQPreviewModel {
 
         renderTask = Task { [weak self] in
             guard let self else { return }
-            let result = await Task.detached(priority: .userInitiated) { () -> (bounds: MIQIntensityWindowBounds?, slices: [SlicePlane: SliceImage]) in
+            let result = await Task.detached(priority: .userInitiated) { () -> (bounds: MIQIntensityWindowBounds?, bitmaps: [SlicePlane: RGBABitmap]) in
                 let bounds = Self.resolveWindowBounds(
                     cursor: cursor,
                     interactiveState: interactiveState,
@@ -461,10 +464,12 @@ final class MIQPreviewModel {
                     perVolume: perVolume
                 )
                 let slices = Self.renderSlices(for: cursor, planes: planesToRender, interactiveState: interactiveState, windowBounds: bounds)
-                return (bounds, slices)
+                // RGBA expansion stays off the MainActor with the rest of the
+                // pixel work; only CGImage/NSImage wrapping happens in apply.
+                return (bounds, slices.compactMapValues { $0.rgbaBitmap() })
             }.value
             guard !Task.isCancelled else { return }
-            self.apply(sliceImages: result.slices)
+            self.apply(bitmaps: result.bitmaps)
             // Remember the auto window so a subsequent W/L drag starts from it.
             if manualBounds == nil { self.lastAppliedAutoBounds = result.bounds }
             self.displayedCursor = cursor
@@ -496,7 +501,9 @@ final class MIQPreviewModel {
                 segmentationLut: preview.segmentationLut,
                 centerCursor: volume.centerCursor()
             )
-            let slices = preview.slices
+            // Expand to RGBA here, inside the detached task — the MainActor
+            // then only wraps the buffers in CGImage/NSImage.
+            let slices = preview.slices.compactMapValues { $0.rgbaBitmap() }
 
             var orientations: [SlicePlane: SliceOrientationLabels] = [:]
             for plane in SlicePlane.allCases {

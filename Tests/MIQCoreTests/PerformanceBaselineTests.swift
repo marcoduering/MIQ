@@ -216,6 +216,52 @@ struct PerformanceBaselineTests {
         return written == Int(isize) ? out : nil
     }
 
+    // MARK: - RGBA bridge expansion A/B
+
+    /// Times the SliceImage→RGBA expansion that runs on every interactive
+    /// render. The optimization replaced the legacy bridge path (RGBA `[UInt8]`
+    /// array build + a second full copy via `Data(array)` for the
+    /// CGDataProvider, both on the MainActor) with the single-pass
+    /// `rgbaBitmap()` that runs inside the detached render task. Byte-identical
+    /// output is asserted before timing — the printed speedup is the per-plane
+    /// conversion cost; the structural win (none of it on the main thread
+    /// anymore) comes on top.
+    @Test(.enabled(if: PerformanceBaselineTests.perfEnabled))
+    func rgbaBridgeExpansion() throws {
+        let side = Self.maxDimension
+        var seed: UInt64 = 0x2545F4914F6CDD1D
+        func next() -> UInt8 {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return UInt8(truncatingIfNeeded: seed >> 33)
+        }
+        let gray = SliceImage.grayscale(GrayscaleImage(
+            width: side, height: side, pixels: (0..<(side * side)).map { _ in next() }
+        ))
+        let rgb = SliceImage.rgb(RGBImage(
+            width: side, height: side, pixels: (0..<(side * side * 3)).map { _ in next() }
+        ))
+
+        // Correctness gate — timings are meaningless if the bytes differ.
+        #expect(try #require(gray.rgbaBitmap()).pixels == RGBABitmapTests.legacyExpansion(gray))
+        #expect(try #require(rgb.rgbaBitmap()).pixels == RGBABitmapTests.legacyExpansion(rgb))
+
+        let grayNew = Self.measure(iterations: 50) { _ = gray.rgbaBitmap() }
+        let grayOld = Self.measure(iterations: 50) { _ = RGBABitmapTests.legacyExpansion(gray) }
+        let rgbNew = Self.measure(iterations: 50) { _ = rgb.rgbaBitmap() }
+        let rgbOld = Self.measure(iterations: 50) { _ = RGBABitmapTests.legacyExpansion(rgb) }
+
+        print("")
+        print("=== RGBA bridge expansion A/B (\(side)x\(side), per plane) ===")
+        print(Self.row2("path", "median ms (min)", ""))
+        print(Self.row2("gray legacy (2-copy)", Self.fmt(grayOld), ""))
+        print(Self.row2("gray rgbaBitmap()", Self.fmt(grayNew),
+                        String(format: "%.2fx", grayOld.medianMs / max(grayNew.medianMs, 0.0001))))
+        print(Self.row2("rgb  legacy (2-copy)", Self.fmt(rgbOld), ""))
+        print(Self.row2("rgb  rgbaBitmap()", Self.fmt(rgbNew),
+                        String(format: "%.2fx", rgbOld.medianMs / max(rgbNew.medianMs, 0.0001))))
+        print("")
+    }
+
     // MARK: - Real corpus cold-load profile
 
     /// One stage's median ms. `nil` = not applicable (e.g. gunzip for an
