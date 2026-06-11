@@ -35,14 +35,47 @@ func nearestNeighborResample(
     targetHeight: Int
 ) -> [UInt8] {
     var out = [UInt8](repeating: 0, count: targetWidth * targetHeight * channels)
-    for ny in 0..<targetHeight {
-        for nx in 0..<targetWidth {
-            let sxIdx = min(width - 1, Int(Float(nx) * Float(width) / Float(targetWidth)))
-            let syIdx = min(height - 1, Int(Float(ny) * Float(height) / Float(targetHeight)))
-            let srcBase = (syIdx * width + sxIdx) * channels
-            let dstBase = (ny * targetWidth + nx) * channels
-            for c in 0..<channels {
-                out[dstBase + c] = pixels[srcBase + c]
+
+    // Source-column index per output column, computed once instead of per pixel.
+    // The float expression is identical to the previous scalar path, so the
+    // chosen source index — and the output bytes — are bit-identical.
+    var sxLUT = [Int](repeating: 0, count: targetWidth)
+    for nx in 0..<targetWidth {
+        sxLUT[nx] = min(width - 1, Int(Float(nx) * Float(width) / Float(targetWidth)))
+    }
+
+    pixels.withUnsafeBufferPointer { src in
+        out.withUnsafeMutableBufferPointer { dst in
+            sxLUT.withUnsafeBufferPointer { sx in
+                var dstBase = 0
+                for ny in 0..<targetHeight {
+                    // syIdx depends only on the row — hoisted out of the column loop.
+                    let syIdx = min(height - 1, Int(Float(ny) * Float(height) / Float(targetHeight)))
+                    let rowBase = syIdx * width
+                    switch channels {
+                    case 1:
+                        for nx in 0..<targetWidth {
+                            dst[dstBase] = src[rowBase + sx[nx]]
+                            dstBase += 1
+                        }
+                    case 3:
+                        for nx in 0..<targetWidth {
+                            let s = (rowBase + sx[nx]) * 3
+                            dst[dstBase] = src[s]
+                            dst[dstBase + 1] = src[s + 1]
+                            dst[dstBase + 2] = src[s + 2]
+                            dstBase += 3
+                        }
+                    default:
+                        for nx in 0..<targetWidth {
+                            let s = (rowBase + sx[nx]) * channels
+                            for c in 0..<channels {
+                                dst[dstBase + c] = src[s + c]
+                            }
+                            dstBase += channels
+                        }
+                    }
+                }
             }
         }
     }

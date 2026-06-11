@@ -74,6 +74,14 @@ final class MIQPreviewModel {
     /// per-volume mode this is the displayed volume's own window, so a W/L drag
     /// starts from what's on screen instead of snapping back to volume 0.
     private var lastAppliedAutoBounds: MIQIntensityWindowBounds?
+    /// Per-timepoint auto window, memoized so revisiting a volume in per-volume
+    /// mode doesn't re-decode its 3 center slices each time (`fixedCenterWindow`
+    /// is the dominant per-step cost while scrubbing a 4D series). Keyed by `t`;
+    /// only populated/consulted when `perVolumeWindow` is on and no manual W/L
+    /// override is active. Cleared whenever the backing volume changes (fresh
+    /// parse, cache-hit interactive prep, 4D expansion swap) since the bounds
+    /// depend on the volume's pixels.
+    private var perVolumeWindowCache: [Int: MIQIntensityWindowBounds] = [:]
     private var pendingForceRender = false
     private var interactionPreparationTask: Task<Void, Never>?
     private var renderTask: Task<Void, Never>?
@@ -134,6 +142,9 @@ final class MIQPreviewModel {
             expansionTask?.cancel()
             expansionTask = nil
             expansionState = .notNeeded
+            // New volume ⇒ stale per-timepoint windows. (The reuse path keeps
+            // them: same volume, same options.)
+            perVolumeWindowCache = [:]
         }
         currentCursor = interactiveState?.centerCursor
         displayedCursor = interactiveState?.centerCursor
@@ -274,6 +285,9 @@ final class MIQPreviewModel {
                 self.expansionTask = nil
                 self.interactiveState = expanded
                 self.lastAppliedAutoBounds = expanded.segmentationLut == nil ? expanded.windowBounds : nil
+                // t>0 windows memoized against the capped buffer (zero backstop)
+                // are stale now that the real volumes are present.
+                self.perVolumeWindowCache = [:]
                 self.expansionState = .expanded
                 self.logger.notice("4D expansion complete — full decompression swapped in")
                 // The cursor is unchanged but the underlying volume is not, so
@@ -350,6 +364,10 @@ final class MIQPreviewModel {
     private func apply(raw: RawPreviewData) {
         interactiveState = raw.interactiveState
         lastAppliedAutoBounds = raw.interactiveState.segmentationLut == nil ? raw.interactiveState.windowBounds : nil
+        // Fresh parse installs a new volume — drop any per-timepoint windows
+        // memoized against the previous one (the reuse+cache-miss path reaches
+        // here without load()'s clear having run).
+        perVolumeWindowCache = [:]
         expansionState = Self.needsExpansion(volume: raw.interactiveState.volume) ? .pending : .notNeeded
         currentCursor = raw.interactiveState.centerCursor
         displayedCursor = raw.interactiveState.centerCursor
@@ -402,6 +420,7 @@ final class MIQPreviewModel {
                 self.interactionPreparationTask = nil
                 self.interactiveState = interactiveState
                 self.lastAppliedAutoBounds = interactiveState.segmentationLut == nil ? interactiveState.windowBounds : nil
+                self.perVolumeWindowCache = [:]
                 self.expansionState = Self.needsExpansion(volume: interactiveState.volume) ? .pending : .notNeeded
                 self.currentCursor = interactiveState.centerCursor
                 self.displayedCursor = interactiveState.centerCursor
@@ -453,6 +472,9 @@ final class MIQPreviewModel {
         // volume off the MainActor inside the detached task below.
         let manualBounds = windowAdjustment
         let perVolume = perVolumeWindow
+        // Memoized per-volume window: when we've already derived this timepoint's
+        // auto window, hand it to the task so it skips the 3-center-slice decode.
+        let cachedAutoBounds = (manualBounds == nil && perVolume) ? perVolumeWindowCache[cursor.t] : nil
 
         renderTask = Task { [weak self] in
             guard let self else { return }
@@ -461,7 +483,8 @@ final class MIQPreviewModel {
                     cursor: cursor,
                     interactiveState: interactiveState,
                     manual: manualBounds,
-                    perVolume: perVolume
+                    perVolume: perVolume,
+                    cached: cachedAutoBounds
                 )
                 let slices = Self.renderSlices(for: cursor, planes: planesToRender, interactiveState: interactiveState, windowBounds: bounds)
                 // RGBA expansion stays off the MainActor with the rest of the
@@ -470,8 +493,14 @@ final class MIQPreviewModel {
             }.value
             guard !Task.isCancelled else { return }
             self.apply(bitmaps: result.bitmaps)
-            // Remember the auto window so a subsequent W/L drag starts from it.
-            if manualBounds == nil { self.lastAppliedAutoBounds = result.bounds }
+            // Remember the auto window so a subsequent W/L drag starts from it,
+            // and memoize it per timepoint for per-volume mode.
+            if manualBounds == nil {
+                self.lastAppliedAutoBounds = result.bounds
+                if perVolume, let bounds = result.bounds {
+                    self.perVolumeWindowCache[cursor.t] = bounds
+                }
+            }
             self.displayedCursor = cursor
             self.onChange?()
             self.renderTask = nil
@@ -587,12 +616,15 @@ final class MIQPreviewModel {
         cursor: MIQVolumeCursor,
         interactiveState: InteractivePreviewState,
         manual: MIQIntensityWindowBounds?,
-        perVolume: Bool
+        perVolume: Bool,
+        cached: MIQIntensityWindowBounds?
     ) -> MIQIntensityWindowBounds? {
         if let manual { return manual }
         guard perVolume, interactiveState.volume.volumes > 1 else {
             return interactiveState.windowBounds
         }
+        // A memoized window for this timepoint skips the 3-center-slice decode.
+        if let cached { return cached }
         return interactiveState.volume.fixedCenterWindow(volumeIndex: cursor.t, options: interactiveState.options)
             ?? interactiveState.windowBounds
     }

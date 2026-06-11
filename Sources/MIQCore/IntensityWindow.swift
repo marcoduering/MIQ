@@ -1,3 +1,4 @@
+import Accelerate
 import Foundation
 
 /// Percentile windowing for volumetric intensity data.
@@ -14,12 +15,13 @@ enum IntensityWindow {
     static func bounds(for values: [Float], lowerPercentile: Double, upperPercentile: Double) -> Bounds? {
         // One fused pass replaces the previous filter + filter + min + max chain:
         // collect finite values and the non-zero subset, tracking finite min/max
-        // inline. The chosen window source is then sorted *in place* (we own both
-        // buffers), avoiding the extra copy `.sorted()` made. Output is bit-identical
-        // to the old sort-based path — the rendered preview must not change.
+        // inline. Both buffers reserve `values.count` up front — the non-zero
+        // subset is usually the bulk of a slice, so without it the array reallocs
+        // and copies repeatedly as it grows into the hundreds of thousands.
         var finiteValues = [Float]()
         finiteValues.reserveCapacity(values.count)
         var nonZeroValues = [Float]()
+        nonZeroValues.reserveCapacity(values.count)
         var minV = Float.greatestFiniteMagnitude
         var maxV = -Float.greatestFiniteMagnitude
 
@@ -39,10 +41,16 @@ enum IntensityWindow {
         // Prefer a non-zero subset for windowing if it's substantial; otherwise fall back to all finite values.
         // The /20 ratio guards against rejecting legitimate dim regions when most voxels are background.
         let useNonZero = nonZeroValues.count >= max(64, finiteValues.count / 20)
+        // Sort in place via Accelerate's `vDSP_vsort` (ascending). The buffer is
+        // already filtered to finite values, so there are no NaNs to order; for a
+        // total sort of the same finite multiset the resulting sequence is
+        // element-for-element identical to `Array.sort()`. The only values that
+        // compare equal yet differ in bits are ±0.0, and reading either at a
+        // percentile index yields 0.0 — so the windowed preview stays bit-identical.
         if useNonZero {
-            nonZeroValues.sort()
+            Self.sortAscending(&nonZeroValues)
         } else {
-            finiteValues.sort()
+            Self.sortAscending(&finiteValues)
         }
         let sorted = useNonZero ? nonZeroValues : finiteValues
 
@@ -64,6 +72,15 @@ enum IntensityWindow {
             let clipped = max(bounds.low, min(bounds.high, value))
             let unit = max(0, min(1, (clipped - bounds.low) / range))
             return UInt8((unit * 255).rounded())
+        }
+    }
+
+    /// In-place ascending sort via Accelerate. Empty buffers are a no-op
+    /// (`vDSP_vsort`'s count must be ≥ 1).
+    private static func sortAscending(_ values: inout [Float]) {
+        guard !values.isEmpty else { return }
+        values.withUnsafeMutableBufferPointer { buf in
+            vDSP_vsort(buf.baseAddress!, vDSP_Length(buf.count), 1)
         }
     }
 

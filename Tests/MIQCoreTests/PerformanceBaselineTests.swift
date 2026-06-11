@@ -1,3 +1,4 @@
+import Accelerate
 import Compression
 import Foundation
 import Testing
@@ -260,6 +261,115 @@ struct PerformanceBaselineTests {
         print(Self.row2("rgb  rgbaBitmap()", Self.fmt(rgbNew),
                         String(format: "%.2fx", rgbOld.medianMs / max(rgbNew.medianMs, 0.0001))))
         print("")
+    }
+
+    // MARK: - Window percentile sort A/B
+
+    /// Times the in-place sort `IntensityWindow.bounds` runs to find percentile
+    /// window bounds — the dominant CPU stage of cold load after gunzip, and the
+    /// per-step cost in per-volume windowing mode. The optimization swapped
+    /// `Array.sort()` for Accelerate's `vDSP_vsort`; both sort the same finite
+    /// multiset, so `bounds` output is bit-identical (asserted in
+    /// `IntensityWindowSortTests`). Reports the speedup at slice scale.
+    @Test(.enabled(if: PerformanceBaselineTests.perfEnabled))
+    func windowPercentileSort() {
+        // One in-plane slice's worth of voxels (the pooled center-slice buffer is
+        // ~3× this; the per-slice reslice window is exactly this).
+        let count = Self.maxDimension * Self.maxDimension
+        var seed: UInt64 = 0x123456789ABCDEF
+        func nextFloat() -> Float {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Float(seed >> 40) / Float(1 << 24) * 4000 - 2000
+        }
+        let source = (0..<count).map { _ in nextFloat() }
+
+        let vdspMs = Self.measure(iterations: 30) {
+            var buf = source
+            buf.withUnsafeMutableBufferPointer { p in
+                vDSP_vsort(p.baseAddress!, vDSP_Length(p.count), 1)
+            }
+            Self.blackHole(buf)
+        }
+        let swiftMs = Self.measure(iterations: 30) {
+            var buf = source
+            buf.sort()
+            Self.blackHole(buf)
+        }
+
+        print("")
+        print("=== Window percentile sort A/B (\(count) floats = \(Self.maxDimension)² slice) ===")
+        print(Self.row2("path", "median ms (min)", ""))
+        print(Self.row2("Array.sort() (old)", Self.fmt(swiftMs), ""))
+        print(Self.row2("vDSP_vsort (new)", Self.fmt(vdspMs),
+                        String(format: "%.2fx", swiftMs.medianMs / max(vdspMs.medianMs, 0.0001))))
+        print("")
+    }
+
+    @inline(never)
+    private static func blackHole(_ buf: [Float]) {
+        // Prevent the optimizer from eliding the sort: touch one element.
+        if buf.isEmpty { fatalError("unreachable") }
+    }
+
+    // MARK: - Nearest-neighbor resample A/B
+
+    /// Times `nearestNeighborResample` (the FOV-aware preview resample that runs
+    /// on every cold slice and every scroll-step reslice) against the previous
+    /// per-pixel scalar implementation. The rewrite hoists a source-column LUT,
+    /// lifts the row index out of the inner loop, drops bounds checks, and
+    /// special-cases 1/3 channels; output is byte-identical (asserted in
+    /// `NearestNeighborResampleTests`).
+    @Test(.enabled(if: PerformanceBaselineTests.perfEnabled))
+    func resampleDownscale() {
+        // A 600² source downscaled to 512² — representative of a hi-res slice
+        // resampled into the preview's max dimension.
+        let w = 600, h = 600, tw = 512, th = 512
+        var seed: UInt64 = 0xFEEDFACECAFEF00D
+        func nextByte() -> UInt8 {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return UInt8(truncatingIfNeeded: seed >> 33)
+        }
+
+        for (channels, label) in [(1, "gray"), (3, "rgb ")] {
+            let pixels = (0..<(w * h * channels)).map { _ in nextByte() }
+            let newMs = Self.measure(iterations: 30) {
+                _ = nearestNeighborResample(pixels: pixels, width: w, height: h,
+                                            channels: channels, targetWidth: tw, targetHeight: th)
+            }
+            let oldMs = Self.measure(iterations: 30) {
+                _ = Self.scalarResample(pixels: pixels, width: w, height: h,
+                                        channels: channels, targetWidth: tw, targetHeight: th)
+            }
+            if channels == 1 {
+                print("")
+                print("=== Nearest-neighbor resample A/B (\(w)²→\(tw)², per plane) ===")
+                print(Self.row2("path", "median ms (min)", ""))
+            }
+            print(Self.row2("\(label) scalar (old)", Self.fmt(oldMs), ""))
+            print(Self.row2("\(label) hoisted (new)", Self.fmt(newMs),
+                            String(format: "%.2fx", oldMs.medianMs / max(newMs.medianMs, 0.0001))))
+        }
+        print("")
+    }
+
+    /// The pre-optimization scalar resample, verbatim — the A/B reference.
+    private static func scalarResample(
+        pixels: [UInt8], width: Int, height: Int, channels: Int,
+        targetWidth: Int, targetHeight: Int
+    ) -> [UInt8] {
+        var out = [UInt8](repeating: 0, count: targetWidth * targetHeight * channels)
+        for ny in 0..<targetHeight {
+            for nx in 0..<targetWidth {
+                let sxIdx = min(width - 1, Int(Float(nx) * Float(width) / Float(targetWidth)))
+                let syIdx = min(height - 1, Int(Float(ny) * Float(height) / Float(targetHeight)))
+                let srcBase = (syIdx * width + sxIdx) * channels
+                let dstBase = (ny * targetWidth + nx) * channels
+                for c in 0..<channels {
+                    out[dstBase + c] = pixels[srcBase + c]
+                }
+            }
+        }
+        return out
     }
 
     // MARK: - Real corpus cold-load profile
