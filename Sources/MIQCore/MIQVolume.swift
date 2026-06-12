@@ -194,6 +194,22 @@ public struct MIQVolume: Sendable {
         return bounds.map { MIQIntensityWindowBounds(low: $0.low, high: $0.high) }
     }
 
+    /// The interactive-state inputs — segmentation LUT (if any) and the shared
+    /// window bounds — derived from a *single* decode of volume 0's three center
+    /// slices. Equivalent to `buildSegmentationLut(options:)` followed by
+    /// `fixedCenterWindow(volumeIndex: 0, options:)`, but without the second
+    /// decode those two would each perform. When a LUT is active, windowing is
+    /// replaced, so `windowBounds` is `nil` (matching `centerPreview`).
+    public func centerInteractiveState(
+        options: RenderingOptions
+    ) -> (windowBounds: MIQIntensityWindowBounds?, segmentationLut: SegmentationLut?) {
+        let (prepared, bounds) = prepareCenterSlices(planes: SlicePlane.allCases, volumeIndex: 0, options: options)
+        if let lut = buildSegmentationLut(options: options, preparedCenterSlices: prepared) {
+            return (nil, lut)
+        }
+        return (bounds.map { MIQIntensityWindowBounds(low: $0.low, high: $0.high) }, nil)
+    }
+
     public func voxel(x: Int, y: Int, z: Int, t: Int = 0) -> Float {
         guard x >= 0, x < width,
               y >= 0, y < height,
@@ -252,12 +268,17 @@ public struct MIQVolume: Sendable {
         maxDimension: Int = 512,
         options: RenderingOptions
     ) -> MIQCenterPreview {
-        // Build the segmentation LUT first (samples center slices internally).
-        // When a LUT is active it replaces percentile windowing entirely; the
-        // bounds path is still computed for callers that need the window
-        // independently (e.g. the interactive state in non-label mode).
-        let lut = buildSegmentationLut(options: options)
+        // Decode the center slices once, then detect segmentation from the very
+        // same decoded buffers instead of decoding a second time. Detection is
+        // defined over volume 0's three center planes, so reuse only when this
+        // preview is exactly that (the production cold-load call); any other
+        // shape falls back to the self-decoding path. When a LUT is active it
+        // replaces percentile windowing entirely; the bounds are still computed
+        // for callers that need the window independently (non-label mode).
         let (prepared, bounds) = prepareCenterSlices(planes: planes, volumeIndex: volumeIndex, options: options)
+        let lut = (volumeIndex == 0 && planes == SlicePlane.allCases)
+            ? buildSegmentationLut(options: options, preparedCenterSlices: prepared)
+            : buildSegmentationLut(options: options)
         var slices: [SlicePlane: SliceImage] = [:]
         slices.reserveCapacity(prepared.count)
         for entry in prepared {
@@ -570,29 +591,73 @@ public struct MIQVolume: Sendable {
     /// `maxLabels` is exposed for testing with small fixtures; production callers
     /// use the default.
     public func buildSegmentationLut(options: RenderingOptions, maxLabels: Int = 160) -> SegmentationLut? {
-        guard options.segmentationColoring != .off else { return nil }
-        let datatype = image.header.datatype
-        guard datatype != .rgb24, datatype != .rgba32 else { return nil }
-        let slope = image.header.sclSlope
-        let inter = image.header.sclInter
-        guard (slope == 0 || slope == 1) && inter == 0 else { return nil }
+        guard segmentationDetectionEligible(options: options) else { return nil }
 
         var labelSet = Set<Int>()
         let dims = [width, height, depth]
         for plane in SlicePlane.allCases {
             let plan = orientation.plan(for: plane, mode: options.orientation)
             let center = max(0, dims[plan.sliceAxis] / 2)
-            let prepared = prepareSlice(plan: plan, index: center, volumeIndex: 0)
-            guard case .grayscale(let values, _, _) = prepared else { return nil }
-            for v in values {
-                guard v.isFinite else { continue }
-                let rounded = Int(v.rounded())
-                guard abs(v - Float(rounded)) <= 1e-3 else { return nil }
-                labelSet.insert(rounded)
-                if labelSet.count > maxLabels { return nil }
+            guard case .grayscale(let values, _, _) = prepareSlice(plan: plan, index: center, volumeIndex: 0) else {
+                return nil
             }
+            guard collectLabels(values, into: &labelSet, maxLabels: maxLabels) else { return nil }
         }
+        return finishSegmentationLut(labelSet: labelSet, options: options)
+    }
 
+    /// Same detection as `buildSegmentationLut(options:)`, but reading the label
+    /// values from center slices the caller already decoded instead of decoding
+    /// them a second time. The caller (`centerPreview`) must pass volume 0's
+    /// three center planes — the only configuration detection is defined over —
+    /// so the result is identical to the self-decoding path.
+    private func buildSegmentationLut(
+        options: RenderingOptions,
+        preparedCenterSlices prepared: [(plane: SlicePlane, slice: PreparedSlice)],
+        maxLabels: Int = 160
+    ) -> SegmentationLut? {
+        guard segmentationDetectionEligible(options: options) else { return nil }
+
+        var labelSet = Set<Int>()
+        for entry in prepared {
+            guard case .grayscale(let values, _, _) = entry.slice else { return nil }
+            guard collectLabels(values, into: &labelSet, maxLabels: maxLabels) else { return nil }
+        }
+        return finishSegmentationLut(labelSet: labelSet, options: options)
+    }
+
+    /// Cheap pre-decode gate: colouring enabled, datatype not already RGB, and
+    /// identity intensity scaling. Lets callers skip the center-slice decode
+    /// entirely when this volume can't be a label segmentation.
+    private func segmentationDetectionEligible(options: RenderingOptions) -> Bool {
+        guard options.segmentationColoring != .off else { return false }
+        let datatype = image.header.datatype
+        guard datatype != .rgb24, datatype != .rgba32 else { return false }
+        let slope = image.header.sclSlope
+        let inter = image.header.sclInter
+        return (slope == 0 || slope == 1) && inter == 0
+    }
+
+    /// Folds one center slice's voxels into the running label set. Returns
+    /// `false` (→ not a label volume) the instant a value is non-integral or the
+    /// distinct-label count exceeds `maxLabels`. Order-independent, so pooling
+    /// across planes in any order yields the same set.
+    private func collectLabels(_ values: [Float], into labelSet: inout Set<Int>, maxLabels: Int) -> Bool {
+        for v in values {
+            guard v.isFinite else { continue }
+            let rounded = Int(v.rounded())
+            guard abs(v - Float(rounded)) <= 1e-3 else { return false }
+            labelSet.insert(rounded)
+            if labelSet.count > maxLabels { return false }
+        }
+        return true
+    }
+
+    /// Final LUT selection from a collected label set (background removed here):
+    /// empty ⇒ nil; a lone label confirmed against the full volume ⇒ binary mask
+    /// (or `nil`/multi-label per the scan); otherwise FreeSurfer or random.
+    private func finishSegmentationLut(labelSet: Set<Int>, options: RenderingOptions) -> SegmentationLut? {
+        var labelSet = labelSet
         labelSet.remove(0)
         guard !labelSet.isEmpty else { return nil }
 
@@ -797,11 +862,19 @@ private struct SliceConfig {
 
     /// `row` is the buffer row (0 = top of image), `col` is the buffer column
     /// (0 = left of image). Maps those to storage (x, y, z) coordinates.
+    ///
+    /// Called once per voxel in the hot decode loop, so it must not allocate: the
+    /// previous `var c = [0, 0, 0]` heap array is replaced with three stack
+    /// locals placed by axis. Output is identical — `sliceAxis`/`hAxis`/`vAxis`
+    /// are a permutation of {0,1,2}, so exactly one assignment lands in each of
+    /// x/y/z, exactly as the array form did.
     func coordinate(slice: Int, row: Int, col: Int) -> (x: Int, y: Int, z: Int) {
-        var c = [0, 0, 0]
-        c[sliceAxis] = slice
-        c[hAxis] = hReversed ? (hDim - 1 - col) : col
-        c[vAxis] = vReversed ? (vDim - 1 - row) : row
-        return (c[0], c[1], c[2])
+        let hVal = hReversed ? (hDim - 1 - col) : col
+        let vVal = vReversed ? (vDim - 1 - row) : row
+        var x = 0, y = 0, z = 0
+        switch sliceAxis { case 0: x = slice; case 1: y = slice; default: z = slice }
+        switch hAxis { case 0: x = hVal; case 1: y = hVal; default: z = hVal }
+        switch vAxis { case 0: x = vVal; case 1: y = vVal; default: z = vVal }
+        return (x, y, z)
     }
 }

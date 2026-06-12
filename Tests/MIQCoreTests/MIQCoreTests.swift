@@ -1596,7 +1596,7 @@ struct MIQCoreTests {
     }
 }
 
-private enum TestMIQFactory {
+enum TestMIQFactory {
     static func makeNii(
         width: Int,
         height: Int,

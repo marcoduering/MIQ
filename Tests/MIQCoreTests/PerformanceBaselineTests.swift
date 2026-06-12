@@ -311,6 +311,50 @@ struct PerformanceBaselineTests {
         if buf.isEmpty { fatalError("unreachable") }
     }
 
+    // MARK: - Segmentation center-decode reuse A/B
+
+    /// When segmentation colouring is enabled, the cold preview used to decode
+    /// the three center slices twice — once for label detection, once to render.
+    /// `centerPreview` now detects from the slices it already decoded. This A/Bs
+    /// the new single-decode path against a faithful reconstruction of the old
+    /// double-decode (separate `buildSegmentationLut` + `centerPreview`). Only
+    /// pays when colouring is on (off by default), so it's a focused micro-A/B.
+    @Test(.enabled(if: PerformanceBaselineTests.perfEnabled))
+    func segmentationCenterDecodeReuse() throws {
+        // 256³ int16 label volume with ~31 distinct labels (< maxLabels, so it's
+        // detected as a multi-label segmentation — center-slice decode only, no
+        // full-volume binary scan).
+        let raw = TestMIQFactory.makeNiiLabels(
+            width: 256, height: 256, depth: 256, datatype: .int16, labels: Array(0...30)
+        )
+        let image = try MIQParser().parseNifti(raw)
+        let volume = MIQVolume(image: image)
+        let auto = RenderingOptions(
+            lowerPercentile: MIQConfig.Defaults.windowLowerPercentile,
+            upperPercentile: MIQConfig.Defaults.windowUpperPercentile,
+            orientation: .stored,
+            segmentationColoring: .auto
+        )
+        // The A/B is meaningless unless a LUT is actually built.
+        #expect(volume.buildSegmentationLut(options: auto) != nil)
+
+        let newMs = Self.measure(iterations: 5) {
+            _ = volume.centerPreview(volumeIndex: 0, maxDimension: Self.maxDimension, options: auto)
+        }
+        let oldMs = Self.measure(iterations: 5) {
+            _ = volume.buildSegmentationLut(options: auto)   // old: detection decode
+            _ = volume.centerPreview(volumeIndex: 0, maxDimension: Self.maxDimension, options: auto) // + render decode
+        }
+
+        print("")
+        print("=== Segmentation center-decode reuse A/B (256³ int16, colouring on) ===")
+        print(Self.row2("path", "median ms (min)", ""))
+        print(Self.row2("detect + preview (old)", Self.fmt(oldMs), ""))
+        print(Self.row2("preview (new, reused)", Self.fmt(newMs),
+                        String(format: "%.2fx", oldMs.medianMs / max(newMs.medianMs, 0.0001))))
+        print("")
+    }
+
     // MARK: - Nearest-neighbor resample A/B
 
     /// Times `nearestNeighborResample` (the FOV-aware preview resample that runs

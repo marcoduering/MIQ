@@ -571,13 +571,16 @@ final class MIQPreviewModel {
         options: RenderingOptions,
         maxDimension: Int
     ) -> InteractivePreviewState {
-        let lut = volume.buildSegmentationLut(options: options)
+        // Single decode of the 3 center slices yields both the LUT and the
+        // window, instead of `buildSegmentationLut` + `fixedCenterWindow` each
+        // decoding them. Shaves time-to-first-scroll on the cache-hit path.
+        let center = volume.centerInteractiveState(options: options)
         return InteractivePreviewState(
             volume: volume,
             options: options,
             maxDimension: maxDimension,
-            windowBounds: lut == nil ? volume.fixedCenterWindow(volumeIndex: 0, options: options) : nil,
-            segmentationLut: lut,
+            windowBounds: center.windowBounds,
+            segmentationLut: center.segmentationLut,
             centerCursor: volume.centerCursor()
         )
     }
