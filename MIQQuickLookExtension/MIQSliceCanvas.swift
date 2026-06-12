@@ -15,6 +15,15 @@ extension ScrollStepInput {
     }
 }
 
+/// Cross-view coordination for the full-screen orphaned-event rescue: while
+/// the volume scrubber owns a left-drag gesture, the slice canvases must not
+/// claim window-less drag events that wander over an image (the responder
+/// chain's mouse capture would have kept them at the scrubber).
+@MainActor
+enum FullScreenEventRescue {
+    static var scrubInProgress = false
+}
+
 final class MIQSliceCanvas: NSView {
     enum HorizontalImageAlignment {
         case leading
@@ -96,11 +105,58 @@ final class MIQSliceCanvas: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard window != nil else { return }
-        earlyClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+        // Two jobs: handle clicks immediately (bypassing the QuickLook host's
+        // gesture-recognizer delay), and rescue the window-less events the
+        // full-screen host produces (see handleOrphanedEvent).
+        let observed: NSEvent.EventTypeMask = [
+            .leftMouseDown, .leftMouseDragged, .rightMouseDragged, .scrollWheel
+        ]
+        earlyClickMonitor = NSEvent.addLocalMonitorForEvents(matching: observed) { [weak self] event in
             MainActor.assumeIsolated {
-                self?.handleEarlyMouseDown(event)
+                guard let self else { return }
+                if event.type == .leftMouseDown {
+                    self.handleEarlyMouseDown(event)
+                } else if event.window == nil {
+                    self.handleOrphanedEvent(event)
+                }
             }
             return event
+        }
+    }
+
+    /// Rescue path for full-screen Quick Look. The full-screen host forwards
+    /// drag sequences (and most scroll events) into this process with
+    /// `event.window == nil`; AppKit drops window-less events before responder
+    /// dispatch, so without this the crosshair drag is dead and scrolling
+    /// stutters on the ~10% of events that are properly addressed. Per AppKit's
+    /// contract, a window-less event's `locationInWindow` is in *screen*
+    /// coordinates, and the full-screen service window has a real screen-space
+    /// frame, so the position converts cleanly. Only the visible instance may
+    /// act (the Finder-column preview lives in the same process, occluded), and
+    /// only window-less events are handled here — properly addressed events
+    /// keep the normal responder path, so windowed behavior is unchanged.
+    private func handleOrphanedEvent(_ event: NSEvent) {
+        guard let window, window.occlusionState.contains(.visible) else { return }
+        let windowPoint = window.convertPoint(fromScreen: event.locationInWindow)
+        let location = convert(windowPoint, from: nil)
+        guard imageRect().contains(location) else { return }
+
+        switch event.type {
+        case .leftMouseDragged:
+            guard !FullScreenEventRescue.scrubInProgress else { return }
+            notifyCursorPosition(at: location)
+        case .rightMouseDragged:
+            onWindowAdjust?(event.deltaX, event.deltaY)
+        case .scrollWheel:
+            guard let outcome = scrollResolver.resolve(ScrollStepInput(event), onBegan: { [weak self] in
+                self?.onScrollGestureBegan?()
+            }) else { return }
+            switch outcome.axis {
+            case .slice:  onScroll?(plane, outcome.step)
+            case .volume: onVolumeScroll?(outcome.step)
+            }
+        default:
+            break
         }
     }
 

@@ -621,10 +621,47 @@ private final class MetadataView: NSView {
     var onVolumeScroll: (@MainActor (Int) -> Void)?
     var onScrollGestureBegan: (@MainActor () -> Void)?
     private var scrollResolver = ScrollStepResolver()
+    private var orphanScrollMonitor: Any?
 
     private let scrubber = MIQVolumeScrubber()
 
     override var isFlipped: Bool { true }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if let orphanScrollMonitor {
+            NSEvent.removeMonitor(orphanScrollMonitor)
+            self.orphanScrollMonitor = nil
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        orphanScrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            MainActor.assumeIsolated {
+                self?.handleOrphanedScroll(event)
+            }
+            return event
+        }
+    }
+
+    /// Full-screen rescue for ⌥-scroll over the metadata panel. The full-screen
+    /// Quick Look host forwards most scroll events with `event.window == nil`,
+    /// which AppKit drops before responder dispatch (see
+    /// `MIQSliceCanvas.handleOrphanedEvent` for the full story). Window-less
+    /// events carry screen coordinates; recover the position and feed the same
+    /// resolver as the responder path. Addressed events keep the normal path.
+    private func handleOrphanedScroll(_ event: NSEvent) {
+        guard event.window == nil else { return }
+        guard let window, window.occlusionState.contains(.visible) else { return }
+        let location = convert(window.convertPoint(fromScreen: event.locationInWindow), from: nil)
+        guard bounds.contains(location) else { return }
+        guard let outcome = scrollResolver.resolve(ScrollStepInput(event), onBegan: { [weak self] in
+            self?.onScrollGestureBegan?()
+        }), outcome.axis == .volume else { return }
+        onVolumeScroll?(outcome.step)
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -875,14 +912,63 @@ private final class MIQVolumeScrubber: NSView {
     }
 
     private var isScrubbing = false
+    private var orphanDragMonitor: Any?
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if let orphanDragMonitor {
+            NSEvent.removeMonitor(orphanDragMonitor)
+            self.orphanDragMonitor = nil
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        orphanDragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            MainActor.assumeIsolated {
+                self?.handleOrphanedEvent(event)
+            }
+            return event
+        }
+    }
+
+    /// Full-screen rescue for the scrub drag. The initiating mouseDown is
+    /// always properly addressed (so `isScrubbing` is reliable), but the host
+    /// forwards the subsequent drag/up events with `event.window == nil` in
+    /// full screen and AppKit drops them — the knob would seek once and
+    /// freeze. Gating on `isScrubbing` instead of containment reproduces the
+    /// responder chain's mouse capture: drags clamp to the track ends even
+    /// when the pointer leaves the view, exactly like `mouseDragged`. The
+    /// canvases yield via `FullScreenEventRescue.scrubInProgress`.
+    private func handleOrphanedEvent(_ event: NSEvent) {
+        guard event.window == nil, isScrubbing else { return }
+        guard let window, window.occlusionState.contains(.visible) else { return }
+        switch event.type {
+        case .leftMouseDragged:
+            guard count > 1, let track = trackRange() else { return }
+            let x = convert(window.convertPoint(fromScreen: event.locationInWindow), from: nil).x
+            applySeek(x: x, track: track)
+        case .leftMouseUp:
+            endScrub()
+        default:
+            break
+        }
+    }
+
+    private func endScrub() {
+        isScrubbing = false
+        FullScreenEventRescue.scrubInProgress = false
+    }
 
     override func mouseDown(with event: NSEvent) {
         guard count > 1, let track = trackRange() else { return }
         let x = convert(event.locationInWindow, from: nil).x
         // The minX guard belongs ONLY here: a click on the "Volumes: n / N"
         // text must not seek. Once a scrub starts, drags are clamped instead.
-        guard x >= track.minX - Self.seekHitSlop else { isScrubbing = false; return }
+        guard x >= track.minX - Self.seekHitSlop else { endScrub(); return }
         isScrubbing = true
+        FullScreenEventRescue.scrubInProgress = true
         applySeek(x: x, track: track)
     }
 
@@ -895,7 +981,7 @@ private final class MIQVolumeScrubber: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        isScrubbing = false
+        endScrub()
     }
 
     private func applySeek(x: CGFloat, track: (minX: CGFloat, maxX: CGFloat)) {

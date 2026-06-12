@@ -19,6 +19,7 @@ final class MIQPreviewModel {
         let options: RenderingOptions
         let maxDimension: Int
         let windowBounds: MIQIntensityWindowBounds?
+        let segmentationLut: SegmentationLut?
         let centerCursor: MIQVolumeCursor
     }
 
@@ -104,7 +105,8 @@ final class MIQPreviewModel {
         let options = RenderingOptions(
             lowerPercentile: MIQConfig.windowLowerPercentile,
             upperPercentile: MIQConfig.windowUpperPercentile,
-            orientation: MIQConfig.imageOrientation
+            orientation: MIQConfig.imageOrientation,
+            segmentationColoring: MIQConfig.segmentationColoring
         )
         let maxDimension = self.maxDimension
         // Read before the cache short-circuit so the interactive path honours it
@@ -254,6 +256,7 @@ final class MIQPreviewModel {
         let options = interactiveState.options
         let maxDimension = interactiveState.maxDimension
         let windowBounds = interactiveState.windowBounds
+        let segmentationLut = interactiveState.segmentationLut
 
         expansionTask = Task { [weak self] in
             guard let self else { return }
@@ -263,13 +266,14 @@ final class MIQPreviewModel {
                         fileURL: fileURL,
                         options: options,
                         maxDimension: maxDimension,
-                        windowBounds: windowBounds
+                        windowBounds: windowBounds,
+                        segmentationLut: segmentationLut
                     )
                 }.value
                 guard !Task.isCancelled else { return }
                 self.expansionTask = nil
                 self.interactiveState = expanded
-                self.lastAppliedAutoBounds = expanded.windowBounds
+                self.lastAppliedAutoBounds = expanded.segmentationLut == nil ? expanded.windowBounds : nil
                 self.expansionState = .expanded
                 self.logger.notice("4D expansion complete — full decompression swapped in")
                 // The cursor is unchanged but the underlying volume is not, so
@@ -345,7 +349,7 @@ final class MIQPreviewModel {
 
     private func apply(raw: RawPreviewData) {
         interactiveState = raw.interactiveState
-        lastAppliedAutoBounds = raw.interactiveState.windowBounds
+        lastAppliedAutoBounds = raw.interactiveState.segmentationLut == nil ? raw.interactiveState.windowBounds : nil
         expansionState = Self.needsExpansion(volume: raw.interactiveState.volume) ? .pending : .notNeeded
         currentCursor = raw.interactiveState.centerCursor
         displayedCursor = raw.interactiveState.centerCursor
@@ -394,7 +398,7 @@ final class MIQPreviewModel {
                 guard !Task.isCancelled else { return }
                 self.interactionPreparationTask = nil
                 self.interactiveState = interactiveState
-                self.lastAppliedAutoBounds = interactiveState.windowBounds
+                self.lastAppliedAutoBounds = interactiveState.segmentationLut == nil ? interactiveState.windowBounds : nil
                 self.expansionState = Self.needsExpansion(volume: interactiveState.volume) ? .pending : .notNeeded
                 self.currentCursor = interactiveState.centerCursor
                 self.displayedCursor = interactiveState.centerCursor
@@ -489,6 +493,7 @@ final class MIQPreviewModel {
                 options: options,
                 maxDimension: maxDimension,
                 windowBounds: preview.windowBounds,
+                segmentationLut: preview.segmentationLut,
                 centerCursor: volume.centerCursor()
             )
             let slices = preview.slices
@@ -530,24 +535,26 @@ final class MIQPreviewModel {
         options: RenderingOptions,
         maxDimension: Int
     ) -> InteractivePreviewState {
-        InteractivePreviewState(
+        let lut = volume.buildSegmentationLut(options: options)
+        return InteractivePreviewState(
             volume: volume,
             options: options,
             maxDimension: maxDimension,
-            windowBounds: volume.fixedCenterWindow(volumeIndex: 0, options: options),
+            windowBounds: lut == nil ? volume.fixedCenterWindow(volumeIndex: 0, options: options) : nil,
+            segmentationLut: lut,
             centerCursor: volume.centerCursor()
         )
     }
 
     /// Fully decompressed re-parse for 4D navigation. Reuses the volume-0
-    /// `windowBounds` from the capped state so intensity windowing stays
-    /// constant across the timeseries (comparable frames, no per-volume
-    /// percentile recompute).
+    /// `windowBounds` and `segmentationLut` from the capped state so rendering
+    /// stays constant across the timeseries.
     private nonisolated static func loadExpandedInteractiveState(
         fileURL: URL,
         options: RenderingOptions,
         maxDimension: Int,
-        windowBounds: MIQIntensityWindowBounds?
+        windowBounds: MIQIntensityWindowBounds?,
+        segmentationLut: SegmentationLut?
     ) throws -> InteractivePreviewState {
         try withSecurityScopedAccess(to: fileURL) {
             let image = try MIQParser().parse(url: fileURL, fullyDecompress: true)
@@ -557,6 +564,7 @@ final class MIQPreviewModel {
                 options: options,
                 maxDimension: maxDimension,
                 windowBounds: windowBounds,
+                segmentationLut: segmentationLut,
                 centerCursor: volume.centerCursor()
             )
         }
@@ -597,7 +605,8 @@ final class MIQPreviewModel {
                 volumeIndex: cursor.t,
                 maxDimension: interactiveState.maxDimension,
                 options: interactiveState.options,
-                windowBounds: windowBounds
+                windowBounds: windowBounds,
+                lut: interactiveState.segmentationLut
             )
         }
         return slices

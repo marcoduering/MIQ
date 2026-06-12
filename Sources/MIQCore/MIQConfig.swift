@@ -31,6 +31,7 @@ public enum MIQConfig {
         public static let showMetadataVolumes     = "showMetadataVolumes"
         public static let showMetadataScaling     = "showMetadataScaling"
         public static let metadataOrder           = "metadataOrder"
+        public static let segmentationColoring           = "segmentationColoring"
         public static let hideDisclaimerInPreview = "hideDisclaimerInPreview"
         public static let showThumbnails                 = "showThumbnails"
         public static let showThumbnailsOnNetworkVolumes = "showThumbnailsOnNetworkVolumes"
@@ -58,6 +59,7 @@ public enum MIQConfig {
         public static let showMetadataVolumes     = true
         public static let showMetadataScaling     = true
         public static let metadataOrder           = "format,dimensions,spacing,orientation,datatype,volumes,scaling"
+        public static let segmentationColoring           = "off"
         public static let hideDisclaimerInPreview = false
         public static let showThumbnails                 = false
         public static let showThumbnailsOnNetworkVolumes = false
@@ -136,6 +138,11 @@ public enum MIQConfig {
             ordered.append(field)
         }
         return ordered
+    }
+
+    public static var segmentationColoring: SegmentationColoring {
+        let raw = defaults.string(forKey: Keys.segmentationColoring) ?? Defaults.segmentationColoring
+        return SegmentationColoring(rawValue: raw) ?? .off
     }
 
     public static var hideDisclaimerInPreview: Bool {
