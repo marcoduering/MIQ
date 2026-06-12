@@ -1594,6 +1594,82 @@ struct MIQCoreTests {
         // With maxLabels: 5, it should succeed
         #expect(volume.buildSegmentationLut(options: autoOptions, maxLabels: 5) != nil)
     }
+
+    // MARK: - Rank-based random palette
+
+    /// Hue of a packed RGB, in degrees, or nil for an achromatic colour.
+    private func hueDegrees(_ rgb: (r: UInt8, g: UInt8, b: UInt8)) -> Double? {
+        let r = Double(rgb.r) / 255, g = Double(rgb.g) / 255, b = Double(rgb.b) / 255
+        let mx = max(r, g, b), mn = min(r, g, b), d = mx - mn
+        guard d > 1e-9 else { return nil }
+        let h: Double
+        if mx == r { h = (g - b) / d }
+        else if mx == g { h = (b - r) / d + 2 }
+        else { h = (r - g) / d + 4 }
+        return (h * 60).truncatingRemainder(dividingBy: 360) + (h < 0 ? 360 : 0)
+    }
+
+    /// Minimum pairwise angular gap (deg) over a set of hues on the wheel.
+    private func minHueGap(_ degs: [Double]) -> Double {
+        let s = degs.sorted()
+        var m = 360.0
+        for i in 0..<s.count {
+            let d = (i + 1 < s.count) ? s[i + 1] - s[i] : s[0] + 360 - s[i]
+            m = min(m, d)
+        }
+        return m
+    }
+
+    @Test
+    func rankedPaletteSpreadsFewLabelsEvenly() {
+        // The exact case the old per-label hash clustered: labels ~14 apart used to
+        // collapse to near-identical hues. Rank-based spacing must fan n labels out
+        // to ~360/n apart regardless of their values.
+        for labels in [Set([1, 15, 29]), Set([1, 5]), Set([10, 20, 30, 40])] {
+            let lut = SegmentationLut.random(labels: labels)
+            let hues = labels.compactMap { hueDegrees(lut.lookup($0)) }
+            #expect(hues.count == labels.count) // every label is vivid (has a hue)
+            let expected = 360.0 / Double(labels.count)
+            // Allow slack for the value-tier alternation perturbing measured hue.
+            #expect(minHueGap(hues) >= expected - 12)
+        }
+    }
+
+    @Test
+    func rankedPaletteIsDeterministicPerLabelSet() {
+        let labels = Set([3, 8, 17, 42])
+        let a = SegmentationLut.random(labels: labels)
+        let b = SegmentationLut.random(labels: labels)
+        for l in labels {
+            #expect(a.lookup(l) == b.lookup(l))
+        }
+    }
+
+    @Test
+    func rankedPaletteFallsBackToHashForUnknownLabel() {
+        // A label not present in the set (e.g. only on an off-center slice) is not
+        // in the rank map and falls back to the stable per-label hash — never black,
+        // and the same regardless of which set it happens to be absent from.
+        let unknownInA = SegmentationLut.random(labels: Set([1, 2, 3])).lookup(99)
+        let unknownInB = SegmentationLut.random(labels: Set([4, 5, 6])).lookup(99)
+        #expect(unknownInA != (0, 0, 0))
+        #expect(unknownInA == unknownInB)
+    }
+
+    @Test
+    func rankedPaletteAssignsUniqueColorsNoCollision() {
+        // The coprime-stride permutation must remain a bijection (no two labels
+        // share a slot) across a range of label counts.
+        for n in 2...40 {
+            let labels = Set(1...n)
+            let lut = SegmentationLut.random(labels: labels)
+            let colors = Set(labels.map { l -> UInt32 in
+                let c = lut.lookup(l)
+                return (UInt32(c.r) << 16) | (UInt32(c.g) << 8) | UInt32(c.b)
+            })
+            #expect(colors.count == n)
+        }
+    }
 }
 
 enum TestMIQFactory {

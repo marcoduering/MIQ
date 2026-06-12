@@ -667,7 +667,7 @@ public struct MIQVolume: Sendable {
             case .intensity:
                 return nil
             case .binary:
-                return SegmentationLut(kind: .monochromeWhite)
+                return .monochromeWhite
             case .multiLabel:
                 break // fall through: colour as normal label volume
             }
@@ -675,7 +675,7 @@ public struct MIQVolume: Sendable {
 
         let useFreeSurfer = options.segmentationColoring == .auto
             && SegmentationLut.looksLikeFreeSurfer(labelSet)
-        return SegmentationLut(kind: useFreeSurfer ? .freeSurfer : .random)
+        return useFreeSurfer ? .freeSurfer : .random(labels: labelSet)
     }
 
     private enum BinaryCheckResult { case binary, multiLabel, intensity }

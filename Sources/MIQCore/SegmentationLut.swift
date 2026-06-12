@@ -1,13 +1,20 @@
 import Foundation
 
 /// Maps integer segmentation labels to display RGB. Two colour schemes:
-/// a deterministic hash-based *random* palette (categorical, distinct per label,
-/// stable across every plane/slice/timepoint without a pre-scan), and a curated
-/// *FreeSurfer* palette — the canonical colours for the common aseg + aparc
-/// (Desikan-Killiany) structures, with any label not in the table falling back
-/// to the random palette. Label 0 is background (black). A monochrome-white
-/// mode renders every non-zero label white — used for a detected binary mask
-/// where a coloured palette adds nothing.
+/// a deterministic *random* (categorical) palette and a curated *FreeSurfer*
+/// palette — the canonical colours for the common aseg + aparc (Desikan-Killiany)
+/// structures, with any label not in the table falling back to the random hash.
+/// Label 0 is background (black). A monochrome-white mode renders every non-zero
+/// label white — used for a detected binary mask where a coloured palette adds
+/// nothing.
+///
+/// The random palette is *rank-based*: given the set of labels present (collected
+/// once from the center slices), it spreads them evenly around the hue wheel so a
+/// handful of labels are maximally separated (n labels ⇒ 360/n° apart) instead of
+/// landing wherever an independent per-label hash happens to fall. Labels absent
+/// from that set — e.g. ones that appear only on off-center slices — fall back to
+/// the per-label hash (`randomColor`), which is stable but unspread. The whole map
+/// is a pure function of the label set, so colours are deterministic per file.
 ///
 /// Port of MIQ-Win's `SegmentationLut.cs`.
 public struct SegmentationLut: Sendable {
@@ -18,6 +25,23 @@ public struct SegmentationLut: Sendable {
     }
 
     let kind: Kind
+
+    /// Rank-based label→packed-RGB map for the `.random` kind (empty otherwise).
+    /// Built once from the present labels by `random(labels:)`.
+    private let rankedPalette: [Int: UInt32]
+
+    private init(kind: Kind, rankedPalette: [Int: UInt32] = [:]) {
+        self.kind = kind
+        self.rankedPalette = rankedPalette
+    }
+
+    /// Rank-based categorical palette over the labels present in the volume.
+    static func random(labels: Set<Int>) -> SegmentationLut {
+        SegmentationLut(kind: .random, rankedPalette: buildRankedPalette(labels))
+    }
+
+    static let freeSurfer = SegmentationLut(kind: .freeSurfer)
+    static let monochromeWhite = SegmentationLut(kind: .monochromeWhite)
 
     /// Returns the display RGB triple for a voxel label. Label 0 is always black.
     func lookup(_ label: Int) -> (r: UInt8, g: UInt8, b: UInt8) {
@@ -31,6 +55,9 @@ public struct SegmentationLut: Sendable {
             }
             return Self.randomColor(for: label)
         case .random:
+            if let packed = rankedPalette[label] {
+                return Self.unpack(packed)
+            }
             return Self.randomColor(for: label)
         }
     }
@@ -70,6 +97,52 @@ public struct SegmentationLut: Sendable {
             if isFreeSurferSignature(l) { hasSignature = true }
         }
         return nonZero >= 3 && known * 2 >= nonZero && hasSignature
+    }
+
+    // MARK: - Rank-based palette
+
+    // Spreads the present labels evenly around the hue wheel: sort them, then
+    // assign hue slot k/n. Assignment order is permuted by a stride coprime to n
+    // (near the golden ratio of n) so that labels adjacent in *value* — often
+    // adjacent regions — don't land on adjacent *hues*, while the permutation
+    // being a bijection keeps the even 360/n spacing intact. For larger n, where
+    // the hue gap narrows, a two-tier value alternation adds a lightness contrast
+    // so neighbours stay distinguishable. Pure function of the label set.
+    static func buildRankedPalette(_ labels: Set<Int>) -> [Int: UInt32] {
+        let sorted = labels.filter { $0 != 0 }.sorted()
+        let n = sorted.count
+        guard n > 0 else { return [:] }
+
+        let stride = coprimeStride(n)
+        var palette = [Int: UInt32](minimumCapacity: n)
+        for (i, label) in sorted.enumerated() {
+            let slot = (i &* stride) % n
+            let hue = Float(slot) / Float(n)
+            // Vivid throughout (sat/val stay well above the grey/near-white range
+            // reserved for binary masks). The value tier only matters once n is
+            // large enough that hue alone gets crowded.
+            let val: Float = (i & 1) == 0 ? 0.97 : 0.78
+            let rgb = hsvToRgb(hue, 0.85, val)
+            palette[label] = pack(rgb.r, rgb.g, rgb.b)
+        }
+        return palette
+    }
+
+    // Largest stride ≤ round(0.618·n) that is coprime to n (≥ 1). Walking down
+    // from a golden-ratio step keeps consecutive ranks far apart on the wheel;
+    // coprimality guarantees the slot assignment is a bijection (no two labels
+    // share a hue). Trivially 1 for n ≤ 2.
+    private static func coprimeStride(_ n: Int) -> Int {
+        guard n > 2 else { return 1 }
+        var s = max(1, Int((Float(n) * 0.6180339887).rounded()))
+        while s > 1 && gcd(s, n) != 1 { s -= 1 }
+        return s
+    }
+
+    private static func gcd(_ a: Int, _ b: Int) -> Int {
+        var (a, b) = (a, b)
+        while b != 0 { (a, b) = (b, a % b) }
+        return a
     }
 
     // MARK: - Random palette
