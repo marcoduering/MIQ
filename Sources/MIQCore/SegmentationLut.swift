@@ -43,6 +43,7 @@ public struct SegmentationLut: Sendable {
     static let freeSurfer = SegmentationLut(kind: .freeSurfer)
     static let monochromeWhite = SegmentationLut(kind: .monochromeWhite)
 
+
     /// Returns the display RGB triple for a voxel label. Label 0 is always black.
     func lookup(_ label: Int) -> (r: UInt8, g: UInt8, b: UInt8) {
         if label == 0 { return (0, 0, 0) }
@@ -144,6 +145,7 @@ public struct SegmentationLut: Sendable {
         while b != 0 { (a, b) = (b, a % b) }
         return a
     }
+
 
     // MARK: - Random palette
 
