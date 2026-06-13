@@ -76,6 +76,7 @@ private func metadataLabel(_ field: MetadataField) -> String {
     case .datatype:    return "Datatype"
     case .volumes:     return "Volumes"
     case .scaling:     return "Scaling"
+    case .value:       return "Value"
     }
 }
 
@@ -83,6 +84,8 @@ private func metadataHelpText(_ field: MetadataField) -> String? {
     switch field {
     case .scaling:
         return "Shows the intensity scaling from the file header as x slope +/- intercept. Hidden when the scaling is identity (x 1 + 0, meaning voxel values are used as stored) or unavailable."
+    case .value:
+        return "Shows the image intensity at the crosshair voxel, updating live as you move the crosshair. Appears only while interacting (when the crosshair is visible), not on the initial preview."
     default:
         return nil
     }
@@ -304,6 +307,8 @@ struct ContentView: View {
     private var showMetadataVolumes: Bool = MIQConfig.Defaults.showMetadataVolumes
     @AppStorage(MIQConfig.Keys.showMetadataScaling, store: Self.store)
     private var showMetadataScaling: Bool = MIQConfig.Defaults.showMetadataScaling
+    @AppStorage(MIQConfig.Keys.showMetadataValue, store: Self.store)
+    private var showMetadataValue: Bool = MIQConfig.Defaults.showMetadataValue
     @AppStorage(MIQConfig.Keys.metadataOrder, store: Self.store)
     private var metadataOrder: StoredMetadataOrder = StoredMetadataOrder.defaultValue
     @AppStorage(MIQConfig.Keys.hideDisclaimerInPreview, store: Self.store)
@@ -861,6 +866,7 @@ struct ContentView: View {
         case .datatype:    return $showMetadataDatatype
         case .volumes:     return $showMetadataVolumes
         case .scaling:     return $showMetadataScaling
+        case .value:       return $showMetadataValue
         }
     }
 

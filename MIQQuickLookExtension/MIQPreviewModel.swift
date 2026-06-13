@@ -351,6 +351,37 @@ final class MIQPreviewModel {
         return interactiveState.volume.normalizedPoint(for: plane, cursor: currentCursor, options: interactiveState.options)
     }
 
+    /// Whether the live voxel-value line should occupy a slot in the metadata
+    /// panel. Tracks crosshair visibility exactly (`crosshairPoint` is gated the
+    /// same way): absent on the cold/first-frame preview, present once the user
+    /// has interacted. Used by the view to insert/remove the value line — a
+    /// one-time structural change, not a per-frame one.
+    var showsVoxelValue: Bool { hasInteracted && interactiveState != nil }
+
+    /// Formatted image intensity at the current crosshair voxel, for the live
+    /// readout. Only meaningful while `showsVoxelValue`. Returns "—" when the
+    /// value is unavailable — notably timepoints > 0 of a 4D `.nii.gz` whose
+    /// full decompression hasn't landed yet (those read the zero backstop, which
+    /// must not be shown as a real 0).
+    var crosshairVoxelText: String? {
+        guard showsVoxelValue, let interactiveState, let cursor = currentCursor else { return nil }
+        if cursor.t > 0, !interactiveState.volume.containsAllVolumes { return "—" }
+        let value = interactiveState.volume.voxel(x: cursor.x, y: cursor.y, z: cursor.z, t: cursor.t)
+        return Self.formatVoxelValue(value)
+    }
+
+    /// Whole numbers (integer datatypes, identity-scaled data) render as plain
+    /// integers; anything fractional (float data, or scl-scaled integers) uses a
+    /// compact significant-digit form. Datatype-agnostic on purpose: the scaled
+    /// value alone determines the most natural presentation.
+    private static func formatVoxelValue(_ value: Float) -> String {
+        guard value.isFinite else { return "—" }
+        if value == value.rounded(), abs(value) < 1e7 {
+            return String(Int(value))
+        }
+        return String(format: "%.4g", Double(value))
+    }
+
     private func apply(bundle: MIQPreviewBundle) {
         coronal = bundle.slices[.coronal]
         sagittal = bundle.slices[.sagittal]
