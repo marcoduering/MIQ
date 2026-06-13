@@ -44,7 +44,6 @@ xcodebuild \
   -allowProvisioningUpdates \
   build
 
-PRODUCTS_DIR="$(dirname "$BUILT_PRODUCTS_DIR")"
 BUILT_APP="$BUILT_PRODUCTS_DIR/MIQ.app"
 APPEX="$BUILT_APP/Contents/PlugIns/MIQQuickLookExtension.appex"
 THUMB_APPEX="$BUILT_APP/Contents/PlugIns/MIQThumbnailExtension.appex"
@@ -67,17 +66,17 @@ if [[ -d "$APPEX" ]]; then
 
   "$LSREGISTER" -f -R -trusted "$BUILT_APP" || true
 
-  # Sibling-config appexes (Debug<->Release) explicitly out, this build's in.
-  # Both the preview and thumbnail extensions are activated: lsregister discovers
-  # them, but `pluginkit -a` is what actually ENABLES them — a fresh build leaves
-  # the thumbnail extension dormant (Finder shows no thumbnails) otherwise.
-  if [[ "$CONFIG" == "Release" ]]; then
-    OTHER_PLUGINS="$PRODUCTS_DIR/Debug/MIQ.app/Contents/PlugIns"
-  else
-    OTHER_PLUGINS="$PRODUCTS_DIR/Release/MIQ.app/Contents/PlugIns"
-  fi
-  pluginkit -r "$OTHER_PLUGINS/MIQQuickLookExtension.appex" 2>/dev/null || true
-  pluginkit -r "$OTHER_PLUGINS/MIQThumbnailExtension.appex" 2>/dev/null || true
+  # Remove ALL stale MIQ extension registrations — sibling configs, archive
+  # intermediates, old exports — any path that isn't this build. Both the preview
+  # and thumbnail extensions are then activated: lsregister discovers them, but
+  # `pluginkit -a` is what actually ENABLES them — a fresh build leaves the
+  # thumbnail extension dormant (Finder shows no thumbnails) otherwise.
+  while IFS= read -r stale; do
+    [[ "$stale" == "$APPEX" || "$stale" == "$THUMB_APPEX" ]] && continue
+    pluginkit -r "$stale" 2>/dev/null || true
+  done < <(pluginkit -m -v 2>/dev/null \
+    | grep -E "net\.marco-duering\.miq\.(extension|thumbnail)" \
+    | awk -F'\t' '{print $NF}')
   # ORDER MATTERS. `.nii.gz`/`.mif.gz` resolve to the generic, heavily-contested
   # `org.gnu.gnu-zip-archive` UTI, which third-party archive Quick Look extensions
   # (e.g. ArchiveQuickLook) also claim. LaunchServices breaks the tie largely by

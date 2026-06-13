@@ -26,9 +26,11 @@ OUT_DIR="$ROOT_DIR/build/release-$TIMESTAMP"
 ARCHIVE_PATH="$OUT_DIR/MIQ.xcarchive"
 EXPORT_DIR="$OUT_DIR/export"
 ZIP_PATH="$OUT_DIR/MIQ.zip"
+DIST_ZIP="$OUT_DIR/MIQ.app.zip"
 EXPORT_PLIST="$OUT_DIR/ExportOptions.plist"
 APP_PATH="$EXPORT_DIR/MIQ.app"
 LOG_DIR="$OUT_DIR/logs"
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
 ARCHIVE_LOG="$LOG_DIR/archive.log"
 EXPORT_LOG="$LOG_DIR/export.log"
 NOTARY_LOG="$LOG_DIR/notary.log"
@@ -104,6 +106,15 @@ if ! grep -q "Developer ID Application" <<< "$SIGNING_IDENTITIES"; then
   exit 1
 fi
 
+BUILD_DIR=$(xcodebuild \
+  -project "$PROJECT" \
+  -scheme "$SCHEME" \
+  -configuration "$CONFIGURATION" \
+  -destination "generic/platform=macOS" \
+  -showBuildSettings 2>/dev/null \
+  | awk '/[[:space:]]BUILD_DIR = / { print $3 }')
+DERIVED_DATA_DIR="${BUILD_DIR%/Build/Products}"
+
 echo "Build output: $OUT_DIR"
 echo "Logs:         $LOG_DIR"
 
@@ -155,6 +166,14 @@ if [[ ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
+# Delete intermediate build products — ArchiveIntermediates and regular build
+# products in DerivedData — so they don't compete with the exported app for
+# lsregister/pluginkit registration on this machine.
+echo "==> Removing intermediate build products"
+rm -rf "$DERIVED_DATA_DIR/Build/Intermediates.noindex/ArchiveIntermediates/MIQ"
+rm -rf "$DERIVED_DATA_DIR/Build/Products/Release-macosx"
+rm -rf "$DERIVED_DATA_DIR/Build/Products/Debug-macosx"
+
 echo "==> Packaging app for notarization"
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
 
@@ -170,9 +189,51 @@ run_logged "Gatekeeper assessment" "$GATEKEEPER_LOG" spctl --assess --type execu
 
 run_logged "Code signature verification" "$CODESIGN_VERIFY_LOG" codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
+# The ZIP submitted for notarization was created before stapling, so it lacks
+# the embedded ticket. Create the distribution zip from the stapled app now.
+echo "==> Creating distribution zip (stapled)"
+ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$DIST_ZIP"
+
+# Register the exported extensions on this machine. The lsregister/pluginkit
+# steps mirror build.sh: unregister every competing MIQ.app copy, register this
+# one, then activate both extensions (thumbnail first — preview last, so the
+# preview extension wins the contested .gz UTI binding).
+APPEX="$APP_PATH/Contents/PlugIns/MIQQuickLookExtension.appex"
+THUMB_APPEX="$APP_PATH/Contents/PlugIns/MIQThumbnailExtension.appex"
+
+while IFS= read -r other; do
+  [[ -z "$other" || "$other" == "$APP_PATH" ]] && continue
+  "$LSREGISTER" -u "$other" 2>/dev/null || true
+done < <("$LSREGISTER" -dump 2>/dev/null \
+  | grep -oE 'path: +/[^ ]*MIQ\.app' \
+  | sed 's/path: *//' \
+  | sort -u)
+
+"$LSREGISTER" -f -R -trusted "$APP_PATH" || true
+
+while IFS= read -r stale; do
+  [[ "$stale" == "$APPEX" || "$stale" == "$THUMB_APPEX" ]] && continue
+  pluginkit -r "$stale" 2>/dev/null || true
+done < <(pluginkit -m -v 2>/dev/null \
+  | grep -E "net\.marco-duering\.miq\.(extension|thumbnail)" \
+  | awk -F'\t' '{print $NF}')
+
+if [[ -d "$THUMB_APPEX" ]]; then
+  pluginkit -a "$THUMB_APPEX"
+fi
+pluginkit -a "$APPEX"
+
+qlmanage -r
+qlmanage -r cache
+
+for proc in QuickLookUIService QuickLookSatellite quicklookd com.apple.quicklook.ThumbnailsAgent; do
+  killall "$proc" >/dev/null 2>&1 || true
+done
+
 echo
 
 echo "SUCCESS"
-echo "Notarized app: $APP_PATH"
-echo "Build folder:   $OUT_DIR"
-echo "Logs folder:    $LOG_DIR"
+echo "Notarized app:    $APP_PATH"
+echo "Distribution zip: $DIST_ZIP"
+echo "Build folder:     $OUT_DIR"
+echo "Logs folder:      $LOG_DIR"
