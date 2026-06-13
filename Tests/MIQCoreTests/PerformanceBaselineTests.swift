@@ -1,3 +1,4 @@
+import Accelerate
 import Compression
 import Foundation
 import Testing
@@ -214,6 +215,205 @@ struct PerformanceBaselineTests {
             }
         }
         return written == Int(isize) ? out : nil
+    }
+
+    // MARK: - RGBA bridge expansion A/B
+
+    /// Times the SliceImage→RGBA expansion that runs on every interactive
+    /// render. The optimization replaced the legacy bridge path (RGBA `[UInt8]`
+    /// array build + a second full copy via `Data(array)` for the
+    /// CGDataProvider, both on the MainActor) with the single-pass
+    /// `rgbaBitmap()` that runs inside the detached render task. Byte-identical
+    /// output is asserted before timing — the printed speedup is the per-plane
+    /// conversion cost; the structural win (none of it on the main thread
+    /// anymore) comes on top.
+    @Test(.enabled(if: PerformanceBaselineTests.perfEnabled))
+    func rgbaBridgeExpansion() throws {
+        let side = Self.maxDimension
+        var seed: UInt64 = 0x2545F4914F6CDD1D
+        func next() -> UInt8 {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return UInt8(truncatingIfNeeded: seed >> 33)
+        }
+        let gray = SliceImage.grayscale(GrayscaleImage(
+            width: side, height: side, pixels: (0..<(side * side)).map { _ in next() }
+        ))
+        let rgb = SliceImage.rgb(RGBImage(
+            width: side, height: side, pixels: (0..<(side * side * 3)).map { _ in next() }
+        ))
+
+        // Correctness gate — timings are meaningless if the bytes differ.
+        #expect(try #require(gray.rgbaBitmap()).pixels == RGBABitmapTests.legacyExpansion(gray))
+        #expect(try #require(rgb.rgbaBitmap()).pixels == RGBABitmapTests.legacyExpansion(rgb))
+
+        let grayNew = Self.measure(iterations: 50) { _ = gray.rgbaBitmap() }
+        let grayOld = Self.measure(iterations: 50) { _ = RGBABitmapTests.legacyExpansion(gray) }
+        let rgbNew = Self.measure(iterations: 50) { _ = rgb.rgbaBitmap() }
+        let rgbOld = Self.measure(iterations: 50) { _ = RGBABitmapTests.legacyExpansion(rgb) }
+
+        print("")
+        print("=== RGBA bridge expansion A/B (\(side)x\(side), per plane) ===")
+        print(Self.row2("path", "median ms (min)", ""))
+        print(Self.row2("gray legacy (2-copy)", Self.fmt(grayOld), ""))
+        print(Self.row2("gray rgbaBitmap()", Self.fmt(grayNew),
+                        String(format: "%.2fx", grayOld.medianMs / max(grayNew.medianMs, 0.0001))))
+        print(Self.row2("rgb  legacy (2-copy)", Self.fmt(rgbOld), ""))
+        print(Self.row2("rgb  rgbaBitmap()", Self.fmt(rgbNew),
+                        String(format: "%.2fx", rgbOld.medianMs / max(rgbNew.medianMs, 0.0001))))
+        print("")
+    }
+
+    // MARK: - Window percentile sort A/B
+
+    /// Times the in-place sort `IntensityWindow.bounds` runs to find percentile
+    /// window bounds — the dominant CPU stage of cold load after gunzip, and the
+    /// per-step cost in per-volume windowing mode. The optimization swapped
+    /// `Array.sort()` for Accelerate's `vDSP_vsort`; both sort the same finite
+    /// multiset, so `bounds` output is bit-identical (asserted in
+    /// `IntensityWindowSortTests`). Reports the speedup at slice scale.
+    @Test(.enabled(if: PerformanceBaselineTests.perfEnabled))
+    func windowPercentileSort() {
+        // One in-plane slice's worth of voxels (the pooled center-slice buffer is
+        // ~3× this; the per-slice reslice window is exactly this).
+        let count = Self.maxDimension * Self.maxDimension
+        var seed: UInt64 = 0x123456789ABCDEF
+        func nextFloat() -> Float {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Float(seed >> 40) / Float(1 << 24) * 4000 - 2000
+        }
+        let source = (0..<count).map { _ in nextFloat() }
+
+        let vdspMs = Self.measure(iterations: 30) {
+            var buf = source
+            buf.withUnsafeMutableBufferPointer { p in
+                vDSP_vsort(p.baseAddress!, vDSP_Length(p.count), 1)
+            }
+            Self.blackHole(buf)
+        }
+        let swiftMs = Self.measure(iterations: 30) {
+            var buf = source
+            buf.sort()
+            Self.blackHole(buf)
+        }
+
+        print("")
+        print("=== Window percentile sort A/B (\(count) floats = \(Self.maxDimension)² slice) ===")
+        print(Self.row2("path", "median ms (min)", ""))
+        print(Self.row2("Array.sort() (old)", Self.fmt(swiftMs), ""))
+        print(Self.row2("vDSP_vsort (new)", Self.fmt(vdspMs),
+                        String(format: "%.2fx", swiftMs.medianMs / max(vdspMs.medianMs, 0.0001))))
+        print("")
+    }
+
+    @inline(never)
+    private static func blackHole(_ buf: [Float]) {
+        // Prevent the optimizer from eliding the sort: touch one element.
+        if buf.isEmpty { fatalError("unreachable") }
+    }
+
+    // MARK: - Segmentation center-decode reuse A/B
+
+    /// When segmentation colouring is enabled, the cold preview used to decode
+    /// the three center slices twice — once for label detection, once to render.
+    /// `centerPreview` now detects from the slices it already decoded. This A/Bs
+    /// the new single-decode path against a faithful reconstruction of the old
+    /// double-decode (separate `buildSegmentationLut` + `centerPreview`). Only
+    /// pays when colouring is on (off by default), so it's a focused micro-A/B.
+    @Test(.enabled(if: PerformanceBaselineTests.perfEnabled))
+    func segmentationCenterDecodeReuse() throws {
+        // 256³ int16 label volume with ~31 distinct labels (< maxLabels, so it's
+        // detected as a multi-label segmentation — center-slice decode only, no
+        // full-volume binary scan).
+        let raw = TestMIQFactory.makeNiiLabels(
+            width: 256, height: 256, depth: 256, datatype: .int16, labels: Array(0...30)
+        )
+        let image = try MIQParser().parseNifti(raw)
+        let volume = MIQVolume(image: image)
+        let auto = RenderingOptions(
+            lowerPercentile: MIQConfig.Defaults.windowLowerPercentile,
+            upperPercentile: MIQConfig.Defaults.windowUpperPercentile,
+            orientation: .stored,
+            segmentationColoring: .auto
+        )
+        // The A/B is meaningless unless a LUT is actually built.
+        #expect(volume.buildSegmentationLut(options: auto) != nil)
+
+        let newMs = Self.measure(iterations: 5) {
+            _ = volume.centerPreview(volumeIndex: 0, maxDimension: Self.maxDimension, options: auto)
+        }
+        let oldMs = Self.measure(iterations: 5) {
+            _ = volume.buildSegmentationLut(options: auto)   // old: detection decode
+            _ = volume.centerPreview(volumeIndex: 0, maxDimension: Self.maxDimension, options: auto) // + render decode
+        }
+
+        print("")
+        print("=== Segmentation center-decode reuse A/B (256³ int16, colouring on) ===")
+        print(Self.row2("path", "median ms (min)", ""))
+        print(Self.row2("detect + preview (old)", Self.fmt(oldMs), ""))
+        print(Self.row2("preview (new, reused)", Self.fmt(newMs),
+                        String(format: "%.2fx", oldMs.medianMs / max(newMs.medianMs, 0.0001))))
+        print("")
+    }
+
+    // MARK: - Nearest-neighbor resample A/B
+
+    /// Times `nearestNeighborResample` (the FOV-aware preview resample that runs
+    /// on every cold slice and every scroll-step reslice) against the previous
+    /// per-pixel scalar implementation. The rewrite hoists a source-column LUT,
+    /// lifts the row index out of the inner loop, drops bounds checks, and
+    /// special-cases 1/3 channels; output is byte-identical (asserted in
+    /// `NearestNeighborResampleTests`).
+    @Test(.enabled(if: PerformanceBaselineTests.perfEnabled))
+    func resampleDownscale() {
+        // A 600² source downscaled to 512² — representative of a hi-res slice
+        // resampled into the preview's max dimension.
+        let w = 600, h = 600, tw = 512, th = 512
+        var seed: UInt64 = 0xFEEDFACECAFEF00D
+        func nextByte() -> UInt8 {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return UInt8(truncatingIfNeeded: seed >> 33)
+        }
+
+        for (channels, label) in [(1, "gray"), (3, "rgb ")] {
+            let pixels = (0..<(w * h * channels)).map { _ in nextByte() }
+            let newMs = Self.measure(iterations: 30) {
+                _ = nearestNeighborResample(pixels: pixels, width: w, height: h,
+                                            channels: channels, targetWidth: tw, targetHeight: th)
+            }
+            let oldMs = Self.measure(iterations: 30) {
+                _ = Self.scalarResample(pixels: pixels, width: w, height: h,
+                                        channels: channels, targetWidth: tw, targetHeight: th)
+            }
+            if channels == 1 {
+                print("")
+                print("=== Nearest-neighbor resample A/B (\(w)²→\(tw)², per plane) ===")
+                print(Self.row2("path", "median ms (min)", ""))
+            }
+            print(Self.row2("\(label) scalar (old)", Self.fmt(oldMs), ""))
+            print(Self.row2("\(label) hoisted (new)", Self.fmt(newMs),
+                            String(format: "%.2fx", oldMs.medianMs / max(newMs.medianMs, 0.0001))))
+        }
+        print("")
+    }
+
+    /// The pre-optimization scalar resample, verbatim — the A/B reference.
+    private static func scalarResample(
+        pixels: [UInt8], width: Int, height: Int, channels: Int,
+        targetWidth: Int, targetHeight: Int
+    ) -> [UInt8] {
+        var out = [UInt8](repeating: 0, count: targetWidth * targetHeight * channels)
+        for ny in 0..<targetHeight {
+            for nx in 0..<targetWidth {
+                let sxIdx = min(width - 1, Int(Float(nx) * Float(width) / Float(targetWidth)))
+                let syIdx = min(height - 1, Int(Float(ny) * Float(height) / Float(targetHeight)))
+                let srcBase = (syIdx * width + sxIdx) * channels
+                let dstBase = (ny * targetWidth + nx) * channels
+                for c in 0..<channels {
+                    out[dstBase + c] = pixels[srcBase + c]
+                }
+            }
+        }
+        return out
     }
 
     // MARK: - Real corpus cold-load profile

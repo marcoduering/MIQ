@@ -13,13 +13,24 @@ public struct MIQIntensityWindowBounds: Sendable, Hashable {
 /// Center slices for each plane plus the shared intensity window they were
 /// rendered with. Returned by `MIQVolume.centerPreview` so the cold preview path
 /// can derive the window and the first-frame images from a single decode.
+/// When a segmentation LUT was detected, `windowBounds` is `nil` (LUT replaces
+/// windowing) and `segmentationLut` carries the shared label→RGB table.
 public struct MIQCenterPreview: Sendable {
     public let slices: [SlicePlane: SliceImage]
     public let windowBounds: MIQIntensityWindowBounds?
+    /// Non-nil when the volume was detected as a label segmentation. Build once
+    /// and pass to every subsequent `MIQVolume.slice(…lut:)` call so label colours
+    /// stay consistent across planes, slices, and timepoints.
+    public let segmentationLut: SegmentationLut?
 
-    public init(slices: [SlicePlane: SliceImage], windowBounds: MIQIntensityWindowBounds?) {
+    public init(
+        slices: [SlicePlane: SliceImage],
+        windowBounds: MIQIntensityWindowBounds?,
+        segmentationLut: SegmentationLut? = nil
+    ) {
         self.slices = slices
         self.windowBounds = windowBounds
+        self.segmentationLut = segmentationLut
     }
 }
 
@@ -183,6 +194,22 @@ public struct MIQVolume: Sendable {
         return bounds.map { MIQIntensityWindowBounds(low: $0.low, high: $0.high) }
     }
 
+    /// The interactive-state inputs — segmentation LUT (if any) and the shared
+    /// window bounds — derived from a *single* decode of volume 0's three center
+    /// slices. Equivalent to `buildSegmentationLut(options:)` followed by
+    /// `fixedCenterWindow(volumeIndex: 0, options:)`, but without the second
+    /// decode those two would each perform. When a LUT is active, windowing is
+    /// replaced, so `windowBounds` is `nil` (matching `centerPreview`).
+    public func centerInteractiveState(
+        options: RenderingOptions
+    ) -> (windowBounds: MIQIntensityWindowBounds?, segmentationLut: SegmentationLut?) {
+        let (prepared, bounds) = prepareCenterSlices(planes: SlicePlane.allCases, volumeIndex: 0, options: options)
+        if let lut = buildSegmentationLut(options: options, preparedCenterSlices: prepared) {
+            return (nil, lut)
+        }
+        return (bounds.map { MIQIntensityWindowBounds(low: $0.low, high: $0.high) }, nil)
+    }
+
     public func voxel(x: Int, y: Int, z: Int, t: Int = 0) -> Float {
         guard x >= 0, x < width,
               y >= 0, y < height,
@@ -210,7 +237,7 @@ public struct MIQVolume: Sendable {
     }
 
     public func centerSlice(plane: SlicePlane, volumeIndex: Int = 0, maxDimension: Int = 512, options: RenderingOptions) -> SliceImage {
-        centerSlice(plane: plane, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options, windowBounds: nil)
+        centerSlice(plane: plane, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options, windowBounds: nil, lut: nil)
     }
 
     public func centerSlice(
@@ -218,12 +245,13 @@ public struct MIQVolume: Sendable {
         volumeIndex: Int = 0,
         maxDimension: Int = 512,
         options: RenderingOptions,
-        windowBounds: MIQIntensityWindowBounds?
+        windowBounds: MIQIntensityWindowBounds?,
+        lut: SegmentationLut? = nil
     ) -> SliceImage {
         let plan = orientation.plan(for: plane, mode: options.orientation)
         let dims = [width, height, depth]
         let center = max(0, dims[plan.sliceAxis] / 2)
-        return slice(plan: plan, index: center, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options, windowBounds: windowBounds)
+        return slice(plan: plan, index: center, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options, windowBounds: windowBounds, lut: lut)
     }
 
     /// Renders the center slice for each requested plane using a *shared* intensity
@@ -240,15 +268,26 @@ public struct MIQVolume: Sendable {
         maxDimension: Int = 512,
         options: RenderingOptions
     ) -> MIQCenterPreview {
+        // Decode the center slices once, then detect segmentation from the very
+        // same decoded buffers instead of decoding a second time. Detection is
+        // defined over volume 0's three center planes, so reuse only when this
+        // preview is exactly that (the production cold-load call); any other
+        // shape falls back to the self-decoding path. When a LUT is active it
+        // replaces percentile windowing entirely; the bounds are still computed
+        // for callers that need the window independently (non-label mode).
         let (prepared, bounds) = prepareCenterSlices(planes: planes, volumeIndex: volumeIndex, options: options)
+        let lut = (volumeIndex == 0 && planes == SlicePlane.allCases)
+            ? buildSegmentationLut(options: options, preparedCenterSlices: prepared)
+            : buildSegmentationLut(options: options)
         var slices: [SlicePlane: SliceImage] = [:]
         slices.reserveCapacity(prepared.count)
         for entry in prepared {
-            slices[entry.plane] = finalize(prepared: entry.slice, bounds: bounds, maxDimension: maxDimension)
+            slices[entry.plane] = finalize(prepared: entry.slice, bounds: bounds, maxDimension: maxDimension, lut: lut)
         }
         return MIQCenterPreview(
             slices: slices,
-            windowBounds: bounds.map { MIQIntensityWindowBounds(low: $0.low, high: $0.high) }
+            windowBounds: lut == nil ? bounds.map { MIQIntensityWindowBounds(low: $0.low, high: $0.high) } : nil,
+            segmentationLut: lut
         )
     }
 
@@ -314,7 +353,7 @@ public struct MIQVolume: Sendable {
     }
 
     public func slice(plane: SlicePlane, index: Int, volumeIndex: Int = 0, maxDimension: Int = 512, options: RenderingOptions) -> SliceImage {
-        slice(plane: plane, index: index, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options, windowBounds: nil)
+        slice(plane: plane, index: index, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options, windowBounds: nil, lut: nil)
     }
 
     public func slice(
@@ -323,10 +362,11 @@ public struct MIQVolume: Sendable {
         volumeIndex: Int = 0,
         maxDimension: Int = 512,
         options: RenderingOptions,
-        windowBounds: MIQIntensityWindowBounds?
+        windowBounds: MIQIntensityWindowBounds?,
+        lut: SegmentationLut? = nil
     ) -> SliceImage {
         let plan = orientation.plan(for: plane, mode: options.orientation)
-        return slice(plan: plan, index: index, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options, windowBounds: windowBounds)
+        return slice(plan: plan, index: index, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options, windowBounds: windowBounds, lut: lut)
     }
 
     private func slice(
@@ -335,13 +375,16 @@ public struct MIQVolume: Sendable {
         volumeIndex: Int,
         maxDimension: Int,
         options: RenderingOptions,
-        windowBounds: MIQIntensityWindowBounds?
+        windowBounds: MIQIntensityWindowBounds?,
+        lut: SegmentationLut? = nil
     ) -> SliceImage {
         let dims = [width, height, depth]
         let safeIndex = Self.clamp(index, min: 0, max: max(0, dims[plan.sliceAxis] - 1))
         let prepared = prepareSlice(plan: plan, index: safeIndex, volumeIndex: volumeIndex)
         let bounds: IntensityWindow.Bounds?
-        if let windowBounds {
+        if lut != nil {
+            bounds = nil
+        } else if let windowBounds {
             bounds = IntensityWindow.Bounds(low: windowBounds.low, high: windowBounds.high)
         } else if case .grayscale(let values, _, _) = prepared {
             bounds = IntensityWindow.bounds(
@@ -352,7 +395,7 @@ public struct MIQVolume: Sendable {
         } else {
             bounds = nil
         }
-        return finalize(prepared: prepared, bounds: bounds, maxDimension: maxDimension)
+        return finalize(prepared: prepared, bounds: bounds, maxDimension: maxDimension, lut: lut)
     }
 
     /// Reads voxel data for a single slice. For grayscale datatypes the buffer is raw
@@ -483,7 +526,7 @@ public struct MIQVolume: Sendable {
         }
     }
 
-    private func finalize(prepared: PreparedSlice, bounds: IntensityWindow.Bounds?, maxDimension: Int) -> SliceImage {
+    private func finalize(prepared: PreparedSlice, bounds: IntensityWindow.Bounds?, maxDimension: Int, lut: SegmentationLut? = nil) -> SliceImage {
         switch prepared {
         case .rgb(let pixels, let config, let maxPhysicalExtent):
             let rgbSource = RGBImage(width: config.sliceWidth, height: config.sliceHeight, pixels: pixels)
@@ -495,6 +538,28 @@ public struct MIQVolume: Sendable {
             ))
 
         case .grayscale(let values, let config, let maxPhysicalExtent):
+            if let lut {
+                // Label path: map each rounded voxel value through the LUT → RGB.
+                // Nearest-neighbour resampling (labels must never be interpolated).
+                let pixelCount = values.count
+                let rgb = [UInt8](unsafeUninitializedCapacity: pixelCount * 3) { buf, initialized in
+                    var w = 0
+                    for v in values {
+                        let label = v.isFinite ? Int(v.rounded()) : 0
+                        let c = lut.lookup(label)
+                        buf[w] = c.r; buf[w + 1] = c.g; buf[w + 2] = c.b
+                        w += 3
+                    }
+                    initialized = pixelCount * 3
+                }
+                let rgbSource = RGBImage(width: config.sliceWidth, height: config.sliceHeight, pixels: rgb)
+                return .rgb(rgbSource.resampledForPixelSpacing(
+                    pixelSpacingX: config.pixelSpacingX,
+                    pixelSpacingY: config.pixelSpacingY,
+                    maxPhysicalExtent: maxPhysicalExtent,
+                    maxDimension: maxDimension
+                ))
+            }
             let normalized: [UInt8]
             if let bounds {
                 normalized = IntensityWindow.apply(values, bounds: bounds)
@@ -509,6 +574,203 @@ public struct MIQVolume: Sendable {
                 maxDimension: maxDimension
             ))
         }
+    }
+
+    // MARK: - Segmentation LUT
+
+    /// Decides whether this volume should be rendered as a coloured segmentation
+    /// and builds the shared label→RGB LUT. Returns `nil` (→ percentile windowing)
+    /// when colouring is `.off`, the datatype/scaling is intensity-like, or the
+    /// sampled center slices don't look like integer labels.
+    ///
+    /// Detection is conservative: integer/float datatypes with identity scaling
+    /// only; every sampled center-slice value must be integral (|v - round(v)| ≤
+    /// 1e-3); distinct-label count must stay < `maxLabels` (default 160). A genuine
+    /// float intensity image has continuous values and fails the integrality check.
+    ///
+    /// `maxLabels` is exposed for testing with small fixtures; production callers
+    /// use the default.
+    public func buildSegmentationLut(options: RenderingOptions, maxLabels: Int = 160) -> SegmentationLut? {
+        guard segmentationDetectionEligible(options: options) else { return nil }
+
+        var labelSet = Set<Int>()
+        let dims = [width, height, depth]
+        for plane in SlicePlane.allCases {
+            let plan = orientation.plan(for: plane, mode: options.orientation)
+            let center = max(0, dims[plan.sliceAxis] / 2)
+            guard case .grayscale(let values, _, _) = prepareSlice(plan: plan, index: center, volumeIndex: 0) else {
+                return nil
+            }
+            guard collectLabels(values, into: &labelSet, maxLabels: maxLabels) else { return nil }
+        }
+        return finishSegmentationLut(labelSet: labelSet, options: options)
+    }
+
+    /// Same detection as `buildSegmentationLut(options:)`, but reading the label
+    /// values from center slices the caller already decoded instead of decoding
+    /// them a second time. The caller (`centerPreview`) must pass volume 0's
+    /// three center planes — the only configuration detection is defined over —
+    /// so the result is identical to the self-decoding path.
+    private func buildSegmentationLut(
+        options: RenderingOptions,
+        preparedCenterSlices prepared: [(plane: SlicePlane, slice: PreparedSlice)],
+        maxLabels: Int = 160
+    ) -> SegmentationLut? {
+        guard segmentationDetectionEligible(options: options) else { return nil }
+
+        var labelSet = Set<Int>()
+        for entry in prepared {
+            guard case .grayscale(let values, _, _) = entry.slice else { return nil }
+            guard collectLabels(values, into: &labelSet, maxLabels: maxLabels) else { return nil }
+        }
+        return finishSegmentationLut(labelSet: labelSet, options: options)
+    }
+
+    /// Cheap pre-decode gate: colouring enabled, datatype not already RGB, and
+    /// identity intensity scaling. Lets callers skip the center-slice decode
+    /// entirely when this volume can't be a label segmentation.
+    private func segmentationDetectionEligible(options: RenderingOptions) -> Bool {
+        guard options.segmentationColoring != .off else { return false }
+        let datatype = image.header.datatype
+        guard datatype != .rgb24, datatype != .rgba32 else { return false }
+        let slope = image.header.sclSlope
+        let inter = image.header.sclInter
+        return (slope == 0 || slope == 1) && inter == 0
+    }
+
+    /// Folds one center slice's voxels into the running label set. Returns
+    /// `false` (→ not a label volume) the instant a value is non-integral or the
+    /// distinct-label count exceeds `maxLabels`. Order-independent, so pooling
+    /// across planes in any order yields the same set.
+    private func collectLabels(_ values: [Float], into labelSet: inout Set<Int>, maxLabels: Int) -> Bool {
+        for v in values {
+            guard v.isFinite else { continue }
+            let rounded = Int(v.rounded())
+            guard abs(v - Float(rounded)) <= 1e-3 else { return false }
+            labelSet.insert(rounded)
+            if labelSet.count > maxLabels { return false }
+        }
+        return true
+    }
+
+    /// Final LUT selection from a collected label set (background removed here):
+    /// empty ⇒ nil; a lone label confirmed against the full volume ⇒ binary mask
+    /// (or `nil`/multi-label per the scan); otherwise FreeSurfer or random.
+    private func finishSegmentationLut(labelSet: Set<Int>, options: RenderingOptions) -> SegmentationLut? {
+        var labelSet = labelSet
+        labelSet.remove(0)
+        guard !labelSet.isEmpty else { return nil }
+
+        if labelSet.count == 1 {
+            let centerLabel = labelSet.first!
+            switch confirmBinaryMask(centerLabel: centerLabel) {
+            case .intensity:
+                return nil
+            case .binary:
+                return .monochromeWhite
+            case .multiLabel:
+                break // fall through: colour as normal label volume
+            }
+        }
+
+        let useFreeSurfer = options.segmentationColoring == .auto
+            && SegmentationLut.looksLikeFreeSurfer(labelSet)
+        return useFreeSurfer ? .freeSurfer : .random(labels: labelSet)
+    }
+
+    private enum BinaryCheckResult { case binary, multiLabel, intensity }
+
+    /// Confirms whether a volume with exactly one foreground label in the center
+    /// slices is truly binary by scanning volume 0 in full.
+    /// Returns `.multiLabel` or `.intensity` the instant a disqualifying voxel
+    /// appears; only a true binary mask completes the scan.
+    ///
+    /// For row-major layouts (nil `payloadElementStrides`) volume 0 is the first N
+    /// contiguous elements — scanned with the datatype switch hoisted out of the
+    /// loop, integers compared directly (no per-voxel index math, no float convert
+    /// for integer data). MIF custom strides fall back to the correct per-voxel walk.
+    private func confirmBinaryMask(centerLabel: Int) -> BinaryCheckResult {
+        if image.payloadElementStrides != nil {
+            return confirmBinaryMaskPerVoxel(centerLabel: centerLabel)
+        }
+
+        let datatype = image.header.datatype
+        let bpv = datatype.bytesPerVoxel
+        let voxelCount = width * height * depth
+        guard voxelCount > 0 else { return .binary }
+        let elemCount = min(voxelCount, image.payloadCount / max(bpv, 1))
+        let le = image.header.littleEndian
+        let base = image.payloadOffset
+
+        return image.storage.withUnsafeBytes { rawBuf -> BinaryCheckResult in
+            switch datatype {
+            case .int8:
+                for i in 0..<elemCount {
+                    let v = Int(Int8(bitPattern: rawBuf.loadUnaligned(fromByteOffset: base + i, as: UInt8.self)))
+                    if v != 0 && v != centerLabel { return .multiLabel }
+                }
+            case .uint8:
+                for i in 0..<elemCount {
+                    let v = Int(rawBuf.loadUnaligned(fromByteOffset: base + i, as: UInt8.self))
+                    if v != 0 && v != centerLabel { return .multiLabel }
+                }
+            case .int16:
+                for i in 0..<elemCount {
+                    let raw = rawBuf.loadUnaligned(fromByteOffset: base + i * 2, as: UInt16.self)
+                    let v = Int(Int16(bitPattern: le ? raw : raw.byteSwapped))
+                    if v != 0 && v != centerLabel { return .multiLabel }
+                }
+            case .uint16:
+                for i in 0..<elemCount {
+                    let raw = rawBuf.loadUnaligned(fromByteOffset: base + i * 2, as: UInt16.self)
+                    let v = Int(le ? raw : raw.byteSwapped)
+                    if v != 0 && v != centerLabel { return .multiLabel }
+                }
+            case .int32, .uint32:
+                // Label values are small; Int32 signed compare is exact.
+                for i in 0..<elemCount {
+                    let raw = rawBuf.loadUnaligned(fromByteOffset: base + i * 4, as: UInt32.self)
+                    let v = Int(Int32(bitPattern: le ? raw : raw.byteSwapped))
+                    if v != 0 && v != centerLabel { return .multiLabel }
+                }
+            case .float32:
+                for i in 0..<elemCount {
+                    let raw = rawBuf.loadUnaligned(fromByteOffset: base + i * 4, as: UInt32.self)
+                    let fv = Float(bitPattern: le ? raw : raw.byteSwapped)
+                    guard fv.isFinite else { continue }
+                    let r = Int(fv.rounded())
+                    guard abs(fv - Float(r)) <= 1e-3 else { return .intensity }
+                    if r != 0 && r != centerLabel { return .multiLabel }
+                }
+            case .float64:
+                for i in 0..<elemCount {
+                    let raw = rawBuf.loadUnaligned(fromByteOffset: base + i * 8, as: UInt64.self)
+                    let dv = Double(bitPattern: le ? raw : raw.byteSwapped)
+                    guard dv.isFinite else { continue }
+                    let r = Int(dv.rounded())
+                    guard abs(dv - Double(r)) <= 1e-3 else { return .intensity }
+                    if r != 0 && r != centerLabel { return .multiLabel }
+                }
+            case .rgb24, .rgba32:
+                return confirmBinaryMaskPerVoxel(centerLabel: centerLabel)
+            }
+            return .binary
+        }
+    }
+
+    private func confirmBinaryMaskPerVoxel(centerLabel: Int) -> BinaryCheckResult {
+        for z in 0..<depth {
+            for y in 0..<height {
+                for x in 0..<width {
+                    let fv = voxel(x: x, y: y, z: z, t: 0)
+                    guard fv.isFinite else { continue }
+                    let r = Int(fv.rounded())
+                    guard abs(fv - Float(r)) <= 1e-3 else { return .intensity }
+                    if r != 0 && r != centerLabel { return .multiLabel }
+                }
+            }
+        }
+        return .binary
     }
 
     private func rawVoxelValue(byteOffset: Int) -> Float {
@@ -600,11 +862,19 @@ private struct SliceConfig {
 
     /// `row` is the buffer row (0 = top of image), `col` is the buffer column
     /// (0 = left of image). Maps those to storage (x, y, z) coordinates.
+    ///
+    /// Called once per voxel in the hot decode loop, so it must not allocate: the
+    /// previous `var c = [0, 0, 0]` heap array is replaced with three stack
+    /// locals placed by axis. Output is identical — `sliceAxis`/`hAxis`/`vAxis`
+    /// are a permutation of {0,1,2}, so exactly one assignment lands in each of
+    /// x/y/z, exactly as the array form did.
     func coordinate(slice: Int, row: Int, col: Int) -> (x: Int, y: Int, z: Int) {
-        var c = [0, 0, 0]
-        c[sliceAxis] = slice
-        c[hAxis] = hReversed ? (hDim - 1 - col) : col
-        c[vAxis] = vReversed ? (vDim - 1 - row) : row
-        return (c[0], c[1], c[2])
+        let hVal = hReversed ? (hDim - 1 - col) : col
+        let vVal = vReversed ? (vDim - 1 - row) : row
+        var x = 0, y = 0, z = 0
+        switch sliceAxis { case 0: x = slice; case 1: y = slice; default: z = slice }
+        switch hAxis { case 0: x = hVal; case 1: y = hVal; default: z = hVal }
+        switch vAxis { case 0: x = vVal; case 1: y = vVal; default: z = vVal }
+        return (x, y, z)
     }
 }

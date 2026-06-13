@@ -8,6 +8,12 @@ public enum MetadataField: String, Sendable, CaseIterable {
     case datatype
     case volumes
     case scaling
+    /// Live intensity at the crosshair voxel. Unlike every other field this is
+    /// not derived from the header at parse time — it is injected by the preview
+    /// only while the user is interacting (the crosshair is visible) and its
+    /// value updates per cursor move. It therefore never appears in
+    /// `asDisplayLines()`; the preview reserves its slot and draws the value.
+    case value
 }
 
 public struct MetadataEntry: Sendable {
@@ -71,6 +77,6 @@ public struct MIQMetadata: Sendable {
         guard !(abs(slope - 1) <= epsilon && abs(intercept) <= epsilon) else { return nil }
 
         let sign = intercept < 0 ? "-" : "+"
-        return String(format: "x %.3f %@ %.3f", slope, sign, abs(intercept))
+        return String(format: "x %.6g %@ %.6g", slope, sign, abs(intercept))
     }
 }

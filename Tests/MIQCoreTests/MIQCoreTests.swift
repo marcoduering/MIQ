@@ -164,11 +164,15 @@ struct MIQCoreTests {
     }
 
     @Test
-    func parseMetadataOrderAppendsScalingForOlderSettings() {
+    func parseMetadataOrderAppendsMissingFieldsForOlderSettings() {
         let parsed = MIQConfig.parseMetadataOrder("format,dimensions,spacing,orientation,datatype,volumes")
 
+        // Older stored orders predate the Scaling and Value fields; both are
+        // appended in canonical order so the result always covers every case.
         #expect(parsed.contains(.scaling))
-        #expect(parsed.last == .scaling)
+        #expect(parsed.contains(.value))
+        #expect(Array(parsed.suffix(2)) == [.scaling, .value])
+        #expect(parsed.last == .value)
     }
 
     @Test
@@ -1431,9 +1435,248 @@ struct MIQCoreTests {
             StorageAxisOrientation(axis: .superiorInferior, positive: true)
         ])
     }
+
+    // MARK: - Segmentation colouring
+
+    @Test
+    func segmentationOffModeReturnsNilLut() throws {
+        let data = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .int16, labels: [0, 1, 2, 3])
+        let image = try MIQParser().parseNifti(data)
+        let volume = MIQVolume(image: image)
+        let offOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .off)
+        #expect(volume.buildSegmentationLut(options: offOptions) == nil)
+    }
+
+    @Test
+    func segmentationFreeSurferAsegColorIsCanonical() throws {
+        // White matter (label 2) must render (245,245,245) in auto mode
+        let labels: [Int] = [0, 2, 3, 41, 42, 10, 11, 17, 251]  // enough FS labels + signature
+        let data = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .int16, labels: labels)
+        let image = try MIQParser().parseNifti(data)
+        let volume = MIQVolume(image: image)
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        let lut = try #require(volume.buildSegmentationLut(options: autoOptions))
+        let color = lut.lookup(2)
+        #expect(color == (245, 245, 245))
+    }
+
+    @Test
+    func segmentationGenericTissueMappingGetsRandomNotFreeSurfer() throws {
+        // {1, 2, 3} has no FreeSurfer signature labels → random palette
+        let data = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .int16, labels: [0, 1, 2, 3])
+        let image = try MIQParser().parseNifti(data)
+        let volume = MIQVolume(image: image)
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        let lut = try #require(volume.buildSegmentationLut(options: autoOptions))
+        // In random mode, label 2 should NOT be the FreeSurfer white-matter color (245,245,245)
+        // (since the file has no FreeSurfer signature labels, it gets random colours)
+        #expect(lut.kind == .random)
+    }
+
+    @Test
+    func segmentationBinaryMaskRendersWhite() throws {
+        // Single non-zero label across the whole volume → monochromeWhite
+        let data = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .uint8, labels: [0, 5])
+        let image = try MIQParser().parseNifti(data)
+        let volume = MIQVolume(image: image)
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        let lut = try #require(volume.buildSegmentationLut(options: autoOptions))
+        #expect(lut.kind == .monochromeWhite)
+        let color = lut.lookup(5)
+        #expect(color == (255, 255, 255))
+    }
+
+    @Test
+    func segmentationMultiLabelWhereCenterShowsOneLabel() throws {
+        // Center slice shows only 1 label, but the full volume has 2 → coloured, not white
+        let data = TestMIQFactory.makeNiiLabelsWithOffCenterSecondLabel(
+            width: 8, height: 8, depth: 8, primaryLabel: 5, secondLabel: 7
+        )
+        let image = try MIQParser().parseNifti(data)
+        let volume = MIQVolume(image: image)
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        let lut = try #require(volume.buildSegmentationLut(options: autoOptions))
+        // Must be random (not white), since it's multi-label
+        #expect(lut.kind == .random)
+    }
+
+    @Test
+    func segmentationFloatLabelMapDetectedSameAsIntegerEquivalent() throws {
+        // A label map stored as float32 with integral values must be detected and
+        // coloured identically to the int16 equivalent.
+        let labelsFS: [Int] = [0, 2, 3, 41, 42, 10, 11, 17, 251]
+        let intData = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .int16, labels: labelsFS)
+        let floatData = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .float32, labels: labelsFS)
+        let intImage = try MIQParser().parseNifti(intData)
+        let floatImage = try MIQParser().parseNifti(floatData)
+        let intLut = MIQVolume(image: intImage).buildSegmentationLut(
+            options: RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto))
+        let floatLut = MIQVolume(image: floatImage).buildSegmentationLut(
+            options: RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto))
+        #expect(intLut != nil)
+        #expect(floatLut != nil)
+        #expect(intLut!.kind == floatLut!.kind)
+    }
+
+    @Test
+    func segmentationIntensityImageUnaffected() throws {
+        // Dense uint8 anatomical spans 0..254 → more than 160 distinct → nil LUT
+        let data = TestMIQFactory.makeNii(width: 16, height: 16, depth: 16, datatype: .uint8)
+        let image = try MIQParser().parseNifti(data)
+        let volume = MIQVolume(image: image)
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        #expect(volume.buildSegmentationLut(options: autoOptions) == nil)
+    }
+
+    @Test
+    func segmentationInt16CTIntensityImageUnaffected() throws {
+        // int16 CT values span a wide range of signed integers → not label-like
+        let data = TestMIQFactory.makeNii(width: 8, height: 8, depth: 8, datatype: .int16)
+        let image = try MIQParser().parseNifti(data)
+        let volume = MIQVolume(image: image)
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        // The factory voxel values are i % 1024 which spans 0..1023 → 161+ distinct
+        #expect(volume.buildSegmentationLut(options: autoOptions) == nil)
+    }
+
+    @Test
+    func segmentationRandomModeSkipsFreeSurferDetection() throws {
+        // Even with FreeSurfer labels, .random forces random palette
+        let labels: [Int] = [0, 2, 3, 41, 42, 10, 11, 17, 251]
+        let data = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .int16, labels: labels)
+        let image = try MIQParser().parseNifti(data)
+        let volume = MIQVolume(image: image)
+        let randomOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .random)
+        let lut = try #require(volume.buildSegmentationLut(options: randomOptions))
+        #expect(lut.kind == .random)
+    }
+
+    @Test
+    func segmentationNonIdentityScalingIsGrayscale() throws {
+        // scl_slope != 0 or != 1 → intensity, not labels
+        let data = TestMIQFactory.makeNiiLabels(
+            width: 8, height: 8, depth: 8, datatype: .int16,
+            labels: [0, 1, 2, 3], sclSlope: 2.0
+        )
+        let image = try MIQParser().parseNifti(data)
+        let volume = MIQVolume(image: image)
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        #expect(volume.buildSegmentationLut(options: autoOptions) == nil)
+    }
+
+    @Test
+    func segmentationSliceIsRGBWhenLutActive() throws {
+        let labels: [Int] = [0, 2, 3, 41, 42, 10, 11, 17, 251]
+        let data = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .int16, labels: labels)
+        let image = try MIQParser().parseNifti(data)
+        let volume = MIQVolume(image: image)
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        let preview = volume.centerPreview(options: autoOptions)
+        // All planes should be RGB (not grayscale) when LUT is active
+        #expect(preview.segmentationLut != nil)
+        for plane in SlicePlane.allCases {
+            if case .rgb = preview.slices[plane]! {
+                // expected
+            } else {
+                Issue.record("Expected RGB slice for plane \(plane) when segmentation LUT is active")
+            }
+        }
+        // windowBounds is nil when LUT is active
+        #expect(preview.windowBounds == nil)
+    }
+
+    @Test
+    func segmentationMaxLabelsThresholdIsRespected() throws {
+        // Use a tiny maxLabels so a fixture with just 3 foreground labels exceeds it
+        let labels: [Int] = [0, 1, 2, 3]
+        let data = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .int16, labels: labels)
+        let image = try MIQParser().parseNifti(data)
+        let volume = MIQVolume(image: image)
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        // With maxLabels: 2 (background+1 foreground allowed), 3 foreground labels → nil
+        #expect(volume.buildSegmentationLut(options: autoOptions, maxLabels: 2) == nil)
+        // With maxLabels: 5, it should succeed
+        #expect(volume.buildSegmentationLut(options: autoOptions, maxLabels: 5) != nil)
+    }
+
+    // MARK: - Rank-based random palette
+
+    /// Hue of a packed RGB, in degrees, or nil for an achromatic colour.
+    private func hueDegrees(_ rgb: (r: UInt8, g: UInt8, b: UInt8)) -> Double? {
+        let r = Double(rgb.r) / 255, g = Double(rgb.g) / 255, b = Double(rgb.b) / 255
+        let mx = max(r, g, b), mn = min(r, g, b), d = mx - mn
+        guard d > 1e-9 else { return nil }
+        let h: Double
+        if mx == r { h = (g - b) / d }
+        else if mx == g { h = (b - r) / d + 2 }
+        else { h = (r - g) / d + 4 }
+        return (h * 60).truncatingRemainder(dividingBy: 360) + (h < 0 ? 360 : 0)
+    }
+
+    /// Minimum pairwise angular gap (deg) over a set of hues on the wheel.
+    private func minHueGap(_ degs: [Double]) -> Double {
+        let s = degs.sorted()
+        var m = 360.0
+        for i in 0..<s.count {
+            let d = (i + 1 < s.count) ? s[i + 1] - s[i] : s[0] + 360 - s[i]
+            m = min(m, d)
+        }
+        return m
+    }
+
+    @Test
+    func rankedPaletteSpreadsFewLabelsEvenly() {
+        // The exact case the old per-label hash clustered: labels ~14 apart used to
+        // collapse to near-identical hues. Rank-based spacing must fan n labels out
+        // to ~360/n apart regardless of their values.
+        for labels in [Set([1, 15, 29]), Set([1, 5]), Set([10, 20, 30, 40])] {
+            let lut = SegmentationLut.random(labels: labels)
+            let hues = labels.compactMap { hueDegrees(lut.lookup($0)) }
+            #expect(hues.count == labels.count) // every label is vivid (has a hue)
+            let expected = 360.0 / Double(labels.count)
+            // Allow slack for the value-tier alternation perturbing measured hue.
+            #expect(minHueGap(hues) >= expected - 12)
+        }
+    }
+
+    @Test
+    func rankedPaletteIsDeterministicPerLabelSet() {
+        let labels = Set([3, 8, 17, 42])
+        let a = SegmentationLut.random(labels: labels)
+        let b = SegmentationLut.random(labels: labels)
+        for l in labels {
+            #expect(a.lookup(l) == b.lookup(l))
+        }
+    }
+
+    @Test
+    func rankedPaletteFallsBackToHashForUnknownLabel() {
+        // A label not present in the set (e.g. only on an off-center slice) is not
+        // in the rank map and falls back to the stable per-label hash — never black,
+        // and the same regardless of which set it happens to be absent from.
+        let unknownInA = SegmentationLut.random(labels: Set([1, 2, 3])).lookup(99)
+        let unknownInB = SegmentationLut.random(labels: Set([4, 5, 6])).lookup(99)
+        #expect(unknownInA != (0, 0, 0))
+        #expect(unknownInA == unknownInB)
+    }
+
+    @Test
+    func rankedPaletteAssignsUniqueColorsNoCollision() {
+        // The coprime-stride permutation must remain a bijection (no two labels
+        // share a slot) across a range of label counts.
+        for n in 2...40 {
+            let labels = Set(1...n)
+            let lut = SegmentationLut.random(labels: labels)
+            let colors = Set(labels.map { l -> UInt32 in
+                let c = lut.lookup(l)
+                return (UInt32(c.r) << 16) | (UInt32(c.g) << 8) | UInt32(c.b)
+            })
+            #expect(colors.count == n)
+        }
+    }
 }
 
-private enum TestMIQFactory {
+enum TestMIQFactory {
     static func makeNii(
         width: Int,
         height: Int,
@@ -1878,6 +2121,121 @@ END
         }
 
         return Data(header.utf8) + Data(payload)
+    }
+
+    /// NIfTI fixture whose voxels cycle through `labels`, so every label value
+    /// appears uniformly across the volume (including all three center slices).
+    /// `sclSlope` defaults to 1 (identity); pass a non-identity value to test
+    /// that the scl-slope guard prevents segmentation detection.
+    static func makeNiiLabels(
+        width: Int,
+        height: Int,
+        depth: Int,
+        datatype: MIQDatatype,
+        labels: [Int],
+        sclSlope: Float = 1.0
+    ) -> Data {
+        let headerSize = 348
+        let voxOffset = 352
+        var bytes = [UInt8](repeating: 0, count: voxOffset)
+
+        write(Int32(headerSize), to: &bytes, at: 0)
+        write(Int16(3), to: &bytes, at: 40)
+        write(Int16(width), to: &bytes, at: 42)
+        write(Int16(height), to: &bytes, at: 44)
+        write(Int16(depth), to: &bytes, at: 46)
+        write(Int16(1), to: &bytes, at: 48)
+        write(datatype.rawValue, to: &bytes, at: 70)
+        write(Int16(datatype.bytesPerVoxel * 8), to: &bytes, at: 72)
+        for idx in 0..<4 {
+            write(Float32(1), to: &bytes, at: 76 + idx * 4)
+        }
+        write(Float32(voxOffset), to: &bytes, at: 108)
+        write(sclSlope, to: &bytes, at: 112)
+        write(Float32(0), to: &bytes, at: 116)
+        write(Int16(1), to: &bytes, at: 252)
+        write(Int16(1), to: &bytes, at: 254)
+
+        let voxelCount = width * height * depth
+        var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
+        for i in 0..<voxelCount {
+            let label = labels.isEmpty ? 0 : labels[i % labels.count]
+            switch datatype {
+            case .uint8:
+                payload[i] = UInt8(clamping: label)
+            case .int16:
+                var v = Int16(clamping: label).littleEndian
+                withUnsafeBytes(of: &v) { src in
+                    payload.replaceSubrange(i * 2..<(i * 2 + 2), with: src)
+                }
+            case .float32:
+                var raw = Float32(label).bitPattern.littleEndian
+                withUnsafeBytes(of: &raw) { src in
+                    payload.replaceSubrange(i * 4..<(i * 4 + 4), with: src)
+                }
+            case .int32:
+                var v = Int32(clamping: label).littleEndian
+                withUnsafeBytes(of: &v) { src in
+                    payload.replaceSubrange(i * 4..<(i * 4 + 4), with: src)
+                }
+            default:
+                payload[i * datatype.bytesPerVoxel] = UInt8(clamping: abs(label))
+            }
+        }
+        return Data(bytes + payload)
+    }
+
+    /// NIfTI fixture where center slices contain only `primaryLabel`, but one
+    /// off-center corner voxel carries `secondLabel`. Used to verify that a
+    /// single-label center sample triggers the full-volume binary confirm and
+    /// correctly detects multi-label rather than committing to white.
+    ///
+    /// For an 8×8×8 volume: center indices are (4,4,4). Voxel (0,0,0) is not on
+    /// any center slice, so placing `secondLabel` there makes the center sample
+    /// look binary while the full scan reveals two labels.
+    static func makeNiiLabelsWithOffCenterSecondLabel(
+        width: Int,
+        height: Int,
+        depth: Int,
+        primaryLabel: Int,
+        secondLabel: Int
+    ) -> Data {
+        let headerSize = 348
+        let voxOffset = 352
+        var bytes = [UInt8](repeating: 0, count: voxOffset)
+
+        write(Int32(headerSize), to: &bytes, at: 0)
+        write(Int16(3), to: &bytes, at: 40)
+        write(Int16(width), to: &bytes, at: 42)
+        write(Int16(height), to: &bytes, at: 44)
+        write(Int16(depth), to: &bytes, at: 46)
+        write(Int16(1), to: &bytes, at: 48)
+        write(Int16(MIQDatatype.int16.rawValue), to: &bytes, at: 70)
+        write(Int16(16), to: &bytes, at: 72)
+        for idx in 0..<4 {
+            write(Float32(1), to: &bytes, at: 76 + idx * 4)
+        }
+        write(Float32(voxOffset), to: &bytes, at: 108)
+        write(Float32(1), to: &bytes, at: 112)
+        write(Float32(0), to: &bytes, at: 116)
+        write(Int16(1), to: &bytes, at: 252)
+        write(Int16(1), to: &bytes, at: 254)
+
+        let voxelCount = width * height * depth
+        // Fill all voxels with primaryLabel
+        var payload = [UInt8](repeating: 0, count: voxelCount * 2)
+        for i in 0..<voxelCount {
+            var v = Int16(clamping: primaryLabel).littleEndian
+            withUnsafeBytes(of: &v) { src in
+                payload.replaceSubrange(i * 2..<(i * 2 + 2), with: src)
+            }
+        }
+        // Place secondLabel at (0,0,0) — not on any center slice for an 8x8x8 volume
+        var v2 = Int16(clamping: secondLabel).littleEndian
+        withUnsafeBytes(of: &v2) { src in
+            payload.replaceSubrange(0..<2, with: src)
+        }
+        return Data(bytes + payload)
     }
 
     private static func nrrdTypeLabel(for datatype: MIQDatatype) -> String {

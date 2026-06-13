@@ -15,6 +15,18 @@ extension ViewOrientation {
     }
 }
 
+extension SegmentationColoring {
+    static let defaultValue = SegmentationColoring(rawValue: MIQConfig.Defaults.segmentationColoring)!
+
+    var label: String {
+        switch self {
+        case .off:    return "Off (default)"
+        case .auto:   return "Auto (FreeSurfer or random)"
+        case .random: return "Random colours"
+        }
+    }
+}
+
 // Persists a Color as a comma-separated sRGB string for @AppStorage.
 struct StoredColor: RawRepresentable, Equatable {
     var color: Color
@@ -64,6 +76,7 @@ private func metadataLabel(_ field: MetadataField) -> String {
     case .datatype:    return "Datatype"
     case .volumes:     return "Volumes"
     case .scaling:     return "Scaling"
+    case .value:       return "Voxel value"
     }
 }
 
@@ -71,6 +84,8 @@ private func metadataHelpText(_ field: MetadataField) -> String? {
     switch field {
     case .scaling:
         return "Shows the intensity scaling from the file header as x slope +/- intercept. Hidden when the scaling is identity (x 1 + 0, meaning voxel values are used as stored) or unavailable."
+    case .value:
+        return "Shows the image intensity at the crosshair voxel, updating live as you move the crosshair. Appears only while interacting (when the crosshair is visible), not on the initial preview."
     default:
         return nil
     }
@@ -266,6 +281,8 @@ struct ContentView: View {
 
     @AppStorage(MIQConfig.Keys.imageOrientation, store: Self.store)
     private var imageOrientation: ViewOrientation = ViewOrientation.defaultValue
+    @AppStorage(MIQConfig.Keys.segmentationColoring, store: Self.store)
+    private var segmentationColoring: SegmentationColoring = SegmentationColoring.defaultValue
     @AppStorage(MIQConfig.Keys.windowLowerPercentile, store: Self.store)
     private var lowerPercentile: Double = MIQConfig.Defaults.windowLowerPercentile
     @AppStorage(MIQConfig.Keys.windowUpperPercentile, store: Self.store)
@@ -290,6 +307,8 @@ struct ContentView: View {
     private var showMetadataVolumes: Bool = MIQConfig.Defaults.showMetadataVolumes
     @AppStorage(MIQConfig.Keys.showMetadataScaling, store: Self.store)
     private var showMetadataScaling: Bool = MIQConfig.Defaults.showMetadataScaling
+    @AppStorage(MIQConfig.Keys.showMetadataValue, store: Self.store)
+    private var showMetadataValue: Bool = MIQConfig.Defaults.showMetadataValue
     @AppStorage(MIQConfig.Keys.metadataOrder, store: Self.store)
     private var metadataOrder: StoredMetadataOrder = StoredMetadataOrder.defaultValue
     @AppStorage(MIQConfig.Keys.hideDisclaimerInPreview, store: Self.store)
@@ -387,7 +406,7 @@ struct ContentView: View {
         } message: { result in
             Text("MIQ \(result.version) is available.\nYou are running \(Self.currentVersion).\n\nDownload the latest release from GitHub.\n\nOr if you installed via Homebrew, run in Terminal:\n\(Self.homebrewCommand)")
         }
-        .frame(minWidth: 550, idealWidth: 550, maxWidth: 550, minHeight: 560, idealHeight: 560, maxHeight: 560)
+        .frame(minWidth: 550, idealWidth: 550, maxWidth: 550, minHeight: 614, idealHeight: 614, maxHeight: 614)
         .onAppear {
             focusedTarget = .resetButton
             #if DEBUG
@@ -560,6 +579,29 @@ struct ContentView: View {
                         }
                     }
                     Text("By default, the image is rendered as stored (best for checking your raw data). Depending on its orientation, it may appear rotated or flipped. If you prefer a standardized view, the preview can be rendered in the neurological convention (patient right on viewer's right) or the radiological convention (patient right on viewer's left).")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Picker(selection: $segmentationColoring) {
+                        ForEach(SegmentationColoring.allCases, id: \.rawValue) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("Segmentation colouring")
+                            Text("NEW in v1.1.0")
+                                .font(.caption2)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(.tint))
+                        }
+                    }
+                    Text("When a file is detected as an integer label volume (e.g. FreeSurfer aseg/aparc, binary mask), colour each label instead of applying a grayscale intensity window. Auto uses canonical FreeSurfer colours when the file looks like a FreeSurfer parcellation, otherwise assigns random colours. Off (default) always uses grayscale windowing.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -824,6 +866,7 @@ struct ContentView: View {
         case .datatype:    return $showMetadataDatatype
         case .volumes:     return $showMetadataVolumes
         case .scaling:     return $showMetadataScaling
+        case .value:       return $showMetadataValue
         }
     }
 
@@ -948,6 +991,7 @@ struct ContentView: View {
 
     private func restoreDefaults() {
         imageOrientation  = ViewOrientation.defaultValue
+        segmentationColoring = SegmentationColoring.defaultValue
         lowerPercentile   = MIQConfig.Defaults.windowLowerPercentile
         upperPercentile   = MIQConfig.Defaults.windowUpperPercentile
         perVolumeIntensityWindow = MIQConfig.Defaults.perVolumeIntensityWindow

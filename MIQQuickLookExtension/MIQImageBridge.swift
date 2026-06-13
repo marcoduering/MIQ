@@ -2,58 +2,28 @@ import AppKit
 import MIQCore
 
 enum MIQImageBridge {
+    /// Convenience for callers without a pre-expanded bitmap (the thumbnail
+    /// provider's one-shot render). The preview model instead expands via
+    /// `SliceImage.rgbaBitmap()` inside its detached render task and hands the
+    /// MainActor only the bitmap overload below.
     static func makeNSImage(from slice: SliceImage) -> NSImage? {
-        switch slice {
-        case .grayscale(let img): return makeNSImage(from: img)
-        case .rgb(let img): return makeNSImage(from: img)
-        }
+        slice.rgbaBitmap().flatMap(makeNSImage(from:))
     }
 
-    private static func makeNSImage(from gray: GrayscaleImage) -> NSImage? {
-        guard gray.width > 0, gray.height > 0, gray.pixels.count == gray.width * gray.height else {
-            return nil
-        }
-
-        let bytesPerRow = gray.width * 4
-        var rgba = [UInt8](repeating: 255, count: gray.width * gray.height * 4)
-        for i in 0..<(gray.width * gray.height) {
-            let g = gray.pixels[i]
-            let j = i * 4
-            rgba[j] = g
-            rgba[j + 1] = g
-            rgba[j + 2] = g
-        }
-
-        return makeCGImage(rgba: rgba, width: gray.width, height: gray.height, bytesPerRow: bytesPerRow)
-    }
-
-    private static func makeNSImage(from rgb: RGBImage) -> NSImage? {
-        guard rgb.width > 0, rgb.height > 0, rgb.pixels.count == rgb.width * rgb.height * 3 else {
-            return nil
-        }
-
-        let bytesPerRow = rgb.width * 4
-        var rgba = [UInt8](repeating: 255, count: rgb.width * rgb.height * 4)
-        for i in 0..<(rgb.width * rgb.height) {
-            let src = i * 3
-            let dst = i * 4
-            rgba[dst]     = rgb.pixels[src]
-            rgba[dst + 1] = rgb.pixels[src + 1]
-            rgba[dst + 2] = rgb.pixels[src + 2]
-        }
-
-        return makeCGImage(rgba: rgba, width: rgb.width, height: rgb.height, bytesPerRow: bytesPerRow)
-    }
-
-    private static func makeCGImage(rgba: [UInt8], width: Int, height: Int, bytesPerRow: Int) -> NSImage? {
-        let provider = CGDataProvider(data: Data(rgba) as CFData)
-        guard let provider,
+    /// Cheap by design — this is the only part that must run on the MainActor.
+    /// The per-pixel expansion already happened in `rgbaBitmap()`, and
+    /// `bitmap.pixels as CFData` bridges without copying (the CGImage retains
+    /// the buffer through the provider), so no pixel pass happens here.
+    static func makeNSImage(from bitmap: RGBABitmap) -> NSImage? {
+        guard bitmap.width > 0, bitmap.height > 0,
+              bitmap.pixels.count == bitmap.width * bitmap.height * 4,
+              let provider = CGDataProvider(data: bitmap.pixels as CFData),
               let cgImage = CGImage(
-                width: width,
-                height: height,
+                width: bitmap.width,
+                height: bitmap.height,
                 bitsPerComponent: 8,
                 bitsPerPixel: 32,
-                bytesPerRow: bytesPerRow,
+                bytesPerRow: bitmap.width * 4,
                 space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
                 provider: provider,
@@ -64,6 +34,6 @@ enum MIQImageBridge {
             return nil
         }
 
-        return NSImage(cgImage: cgImage, size: NSSize(width: width, height: height))
+        return NSImage(cgImage: cgImage, size: NSSize(width: bitmap.width, height: bitmap.height))
     }
 }

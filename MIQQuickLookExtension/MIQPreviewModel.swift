@@ -8,7 +8,7 @@ final class MIQPreviewModel {
     private let logger = MIQLogger.make(category: "model")
 
     private struct RawPreviewData: Sendable {
-        let slices: [SlicePlane: SliceImage]
+        let slices: [SlicePlane: RGBABitmap]
         let orientations: [SlicePlane: SliceOrientationLabels]
         let metadataEntries: [MetadataEntry]
         let interactiveState: InteractivePreviewState
@@ -19,6 +19,7 @@ final class MIQPreviewModel {
         let options: RenderingOptions
         let maxDimension: Int
         let windowBounds: MIQIntensityWindowBounds?
+        let segmentationLut: SegmentationLut?
         let centerCursor: MIQVolumeCursor
     }
 
@@ -73,6 +74,14 @@ final class MIQPreviewModel {
     /// per-volume mode this is the displayed volume's own window, so a W/L drag
     /// starts from what's on screen instead of snapping back to volume 0.
     private var lastAppliedAutoBounds: MIQIntensityWindowBounds?
+    /// Per-timepoint auto window, memoized so revisiting a volume in per-volume
+    /// mode doesn't re-decode its 3 center slices each time (`fixedCenterWindow`
+    /// is the dominant per-step cost while scrubbing a 4D series). Keyed by `t`;
+    /// only populated/consulted when `perVolumeWindow` is on and no manual W/L
+    /// override is active. Cleared whenever the backing volume changes (fresh
+    /// parse, cache-hit interactive prep, 4D expansion swap) since the bounds
+    /// depend on the volume's pixels.
+    private var perVolumeWindowCache: [Int: MIQIntensityWindowBounds] = [:]
     private var pendingForceRender = false
     private var interactionPreparationTask: Task<Void, Never>?
     private var renderTask: Task<Void, Never>?
@@ -104,7 +113,8 @@ final class MIQPreviewModel {
         let options = RenderingOptions(
             lowerPercentile: MIQConfig.windowLowerPercentile,
             upperPercentile: MIQConfig.windowUpperPercentile,
-            orientation: MIQConfig.imageOrientation
+            orientation: MIQConfig.imageOrientation,
+            segmentationColoring: MIQConfig.segmentationColoring
         )
         let maxDimension = self.maxDimension
         // Read before the cache short-circuit so the interactive path honours it
@@ -132,6 +142,9 @@ final class MIQPreviewModel {
             expansionTask?.cancel()
             expansionTask = nil
             expansionState = .notNeeded
+            // New volume ⇒ stale per-timepoint windows. (The reuse path keeps
+            // them: same volume, same options.)
+            perVolumeWindowCache = [:]
         }
         currentCursor = interactiveState?.centerCursor
         displayedCursor = interactiveState?.centerCursor
@@ -254,6 +267,7 @@ final class MIQPreviewModel {
         let options = interactiveState.options
         let maxDimension = interactiveState.maxDimension
         let windowBounds = interactiveState.windowBounds
+        let segmentationLut = interactiveState.segmentationLut
 
         expansionTask = Task { [weak self] in
             guard let self else { return }
@@ -263,13 +277,17 @@ final class MIQPreviewModel {
                         fileURL: fileURL,
                         options: options,
                         maxDimension: maxDimension,
-                        windowBounds: windowBounds
+                        windowBounds: windowBounds,
+                        segmentationLut: segmentationLut
                     )
                 }.value
                 guard !Task.isCancelled else { return }
                 self.expansionTask = nil
                 self.interactiveState = expanded
-                self.lastAppliedAutoBounds = expanded.windowBounds
+                self.lastAppliedAutoBounds = expanded.segmentationLut == nil ? expanded.windowBounds : nil
+                // t>0 windows memoized against the capped buffer (zero backstop)
+                // are stale now that the real volumes are present.
+                self.perVolumeWindowCache = [:]
                 self.expansionState = .expanded
                 self.logger.notice("4D expansion complete — full decompression swapped in")
                 // The cursor is unchanged but the underlying volume is not, so
@@ -333,6 +351,41 @@ final class MIQPreviewModel {
         return interactiveState.volume.normalizedPoint(for: plane, cursor: currentCursor, options: interactiveState.options)
     }
 
+    /// Whether the live voxel-value line should occupy a slot in the metadata
+    /// panel. Tracks crosshair visibility exactly (`crosshairPoint` is gated the
+    /// same way): absent on the cold/first-frame preview, present once the user
+    /// has interacted. Used by the view to insert/remove the value line — a
+    /// one-time structural change, not a per-frame one.
+    var showsVoxelValue: Bool {
+        guard hasInteracted, let interactiveState else { return false }
+        let dt = interactiveState.volume.image.header.datatype
+        return dt != .rgb24 && dt != .rgba32
+    }
+
+    /// Formatted image intensity at the current crosshair voxel, for the live
+    /// readout. Only meaningful while `showsVoxelValue`. Returns "—" when the
+    /// value is unavailable — notably timepoints > 0 of a 4D `.nii.gz` whose
+    /// full decompression hasn't landed yet (those read the zero backstop, which
+    /// must not be shown as a real 0).
+    var crosshairVoxelText: String? {
+        guard showsVoxelValue, let interactiveState, let cursor = currentCursor else { return nil }
+        if cursor.t > 0, !interactiveState.volume.containsAllVolumes { return "—" }
+        let value = interactiveState.volume.voxel(x: cursor.x, y: cursor.y, z: cursor.z, t: cursor.t)
+        return Self.formatVoxelValue(value)
+    }
+
+    /// Whole numbers (integer datatypes, identity-scaled data) render as plain
+    /// integers; anything fractional (float data, or scl-scaled integers) uses a
+    /// compact significant-digit form. Datatype-agnostic on purpose: the scaled
+    /// value alone determines the most natural presentation.
+    private static func formatVoxelValue(_ value: Float) -> String {
+        guard value.isFinite else { return "—" }
+        if value == value.rounded(), abs(value) < 1e7 {
+            return String(Int(value))
+        }
+        return String(format: "%.6g", Double(value))
+    }
+
     private func apply(bundle: MIQPreviewBundle) {
         coronal = bundle.slices[.coronal]
         sagittal = bundle.slices[.sagittal]
@@ -345,7 +398,11 @@ final class MIQPreviewModel {
 
     private func apply(raw: RawPreviewData) {
         interactiveState = raw.interactiveState
-        lastAppliedAutoBounds = raw.interactiveState.windowBounds
+        lastAppliedAutoBounds = raw.interactiveState.segmentationLut == nil ? raw.interactiveState.windowBounds : nil
+        // Fresh parse installs a new volume — drop any per-timepoint windows
+        // memoized against the previous one (the reuse+cache-miss path reaches
+        // here without load()'s clear having run).
+        perVolumeWindowCache = [:]
         expansionState = Self.needsExpansion(volume: raw.interactiveState.volume) ? .pending : .notNeeded
         currentCursor = raw.interactiveState.centerCursor
         displayedCursor = raw.interactiveState.centerCursor
@@ -353,17 +410,20 @@ final class MIQPreviewModel {
         coronalOrientation = raw.orientations[.coronal] ?? .placeholderCoronal
         sagittalOrientation = raw.orientations[.sagittal] ?? .placeholderSagittal
         axialOrientation = raw.orientations[.axial] ?? .placeholderAxial
-        apply(sliceImages: raw.slices)
+        apply(bitmaps: raw.slices)
     }
 
-    private func apply(sliceImages: [SlicePlane: SliceImage]) {
-        if let coronalImage = sliceImages[.coronal].flatMap(MIQImageBridge.makeNSImage) {
+    /// MainActor side of the render handoff: the bitmaps arrive pre-expanded
+    /// from the detached task, so this only wraps them in CGImage/NSImage —
+    /// no per-pixel work on the main thread.
+    private func apply(bitmaps: [SlicePlane: RGBABitmap]) {
+        if let coronalImage = bitmaps[.coronal].flatMap(MIQImageBridge.makeNSImage) {
             coronal = coronalImage
         }
-        if let sagittalImage = sliceImages[.sagittal].flatMap(MIQImageBridge.makeNSImage) {
+        if let sagittalImage = bitmaps[.sagittal].flatMap(MIQImageBridge.makeNSImage) {
             sagittal = sagittalImage
         }
-        if let axialImage = sliceImages[.axial].flatMap(MIQImageBridge.makeNSImage) {
+        if let axialImage = bitmaps[.axial].flatMap(MIQImageBridge.makeNSImage) {
             axial = axialImage
         }
     }
@@ -371,7 +431,7 @@ final class MIQPreviewModel {
     private func makeBundle(from raw: RawPreviewData) -> MIQPreviewBundle {
         var nsSlices: [SlicePlane: NSImage] = [:]
         for plane in SlicePlane.allCases {
-            if let sliceImage = raw.slices[plane], let image = MIQImageBridge.makeNSImage(from: sliceImage) {
+            if let bitmap = raw.slices[plane], let image = MIQImageBridge.makeNSImage(from: bitmap) {
                 nsSlices[plane] = image
             }
         }
@@ -394,7 +454,8 @@ final class MIQPreviewModel {
                 guard !Task.isCancelled else { return }
                 self.interactionPreparationTask = nil
                 self.interactiveState = interactiveState
-                self.lastAppliedAutoBounds = interactiveState.windowBounds
+                self.lastAppliedAutoBounds = interactiveState.segmentationLut == nil ? interactiveState.windowBounds : nil
+                self.perVolumeWindowCache = [:]
                 self.expansionState = Self.needsExpansion(volume: interactiveState.volume) ? .pending : .notNeeded
                 self.currentCursor = interactiveState.centerCursor
                 self.displayedCursor = interactiveState.centerCursor
@@ -446,23 +507,35 @@ final class MIQPreviewModel {
         // volume off the MainActor inside the detached task below.
         let manualBounds = windowAdjustment
         let perVolume = perVolumeWindow
+        // Memoized per-volume window: when we've already derived this timepoint's
+        // auto window, hand it to the task so it skips the 3-center-slice decode.
+        let cachedAutoBounds = (manualBounds == nil && perVolume) ? perVolumeWindowCache[cursor.t] : nil
 
         renderTask = Task { [weak self] in
             guard let self else { return }
-            let result = await Task.detached(priority: .userInitiated) { () -> (bounds: MIQIntensityWindowBounds?, slices: [SlicePlane: SliceImage]) in
+            let result = await Task.detached(priority: .userInitiated) { () -> (bounds: MIQIntensityWindowBounds?, bitmaps: [SlicePlane: RGBABitmap]) in
                 let bounds = Self.resolveWindowBounds(
                     cursor: cursor,
                     interactiveState: interactiveState,
                     manual: manualBounds,
-                    perVolume: perVolume
+                    perVolume: perVolume,
+                    cached: cachedAutoBounds
                 )
                 let slices = Self.renderSlices(for: cursor, planes: planesToRender, interactiveState: interactiveState, windowBounds: bounds)
-                return (bounds, slices)
+                // RGBA expansion stays off the MainActor with the rest of the
+                // pixel work; only CGImage/NSImage wrapping happens in apply.
+                return (bounds, slices.compactMapValues { $0.rgbaBitmap() })
             }.value
             guard !Task.isCancelled else { return }
-            self.apply(sliceImages: result.slices)
-            // Remember the auto window so a subsequent W/L drag starts from it.
-            if manualBounds == nil { self.lastAppliedAutoBounds = result.bounds }
+            self.apply(bitmaps: result.bitmaps)
+            // Remember the auto window so a subsequent W/L drag starts from it,
+            // and memoize it per timepoint for per-volume mode.
+            if manualBounds == nil {
+                self.lastAppliedAutoBounds = result.bounds
+                if perVolume, let bounds = result.bounds {
+                    self.perVolumeWindowCache[cursor.t] = bounds
+                }
+            }
             self.displayedCursor = cursor
             self.onChange?()
             self.renderTask = nil
@@ -489,9 +562,12 @@ final class MIQPreviewModel {
                 options: options,
                 maxDimension: maxDimension,
                 windowBounds: preview.windowBounds,
+                segmentationLut: preview.segmentationLut,
                 centerCursor: volume.centerCursor()
             )
-            let slices = preview.slices
+            // Expand to RGBA here, inside the detached task — the MainActor
+            // then only wraps the buffers in CGImage/NSImage.
+            let slices = preview.slices.compactMapValues { $0.rgbaBitmap() }
 
             var orientations: [SlicePlane: SliceOrientationLabels] = [:]
             for plane in SlicePlane.allCases {
@@ -530,24 +606,29 @@ final class MIQPreviewModel {
         options: RenderingOptions,
         maxDimension: Int
     ) -> InteractivePreviewState {
-        InteractivePreviewState(
+        // Single decode of the 3 center slices yields both the LUT and the
+        // window, instead of `buildSegmentationLut` + `fixedCenterWindow` each
+        // decoding them. Shaves time-to-first-scroll on the cache-hit path.
+        let center = volume.centerInteractiveState(options: options)
+        return InteractivePreviewState(
             volume: volume,
             options: options,
             maxDimension: maxDimension,
-            windowBounds: volume.fixedCenterWindow(volumeIndex: 0, options: options),
+            windowBounds: center.windowBounds,
+            segmentationLut: center.segmentationLut,
             centerCursor: volume.centerCursor()
         )
     }
 
     /// Fully decompressed re-parse for 4D navigation. Reuses the volume-0
-    /// `windowBounds` from the capped state so intensity windowing stays
-    /// constant across the timeseries (comparable frames, no per-volume
-    /// percentile recompute).
+    /// `windowBounds` and `segmentationLut` from the capped state so rendering
+    /// stays constant across the timeseries.
     private nonisolated static func loadExpandedInteractiveState(
         fileURL: URL,
         options: RenderingOptions,
         maxDimension: Int,
-        windowBounds: MIQIntensityWindowBounds?
+        windowBounds: MIQIntensityWindowBounds?,
+        segmentationLut: SegmentationLut?
     ) throws -> InteractivePreviewState {
         try withSecurityScopedAccess(to: fileURL) {
             let image = try MIQParser().parse(url: fileURL, fullyDecompress: true)
@@ -557,6 +638,7 @@ final class MIQPreviewModel {
                 options: options,
                 maxDimension: maxDimension,
                 windowBounds: windowBounds,
+                segmentationLut: segmentationLut,
                 centerCursor: volume.centerCursor()
             )
         }
@@ -572,12 +654,15 @@ final class MIQPreviewModel {
         cursor: MIQVolumeCursor,
         interactiveState: InteractivePreviewState,
         manual: MIQIntensityWindowBounds?,
-        perVolume: Bool
+        perVolume: Bool,
+        cached: MIQIntensityWindowBounds?
     ) -> MIQIntensityWindowBounds? {
         if let manual { return manual }
         guard perVolume, interactiveState.volume.volumes > 1 else {
             return interactiveState.windowBounds
         }
+        // A memoized window for this timepoint skips the 3-center-slice decode.
+        if let cached { return cached }
         return interactiveState.volume.fixedCenterWindow(volumeIndex: cursor.t, options: interactiveState.options)
             ?? interactiveState.windowBounds
     }
@@ -597,7 +682,8 @@ final class MIQPreviewModel {
                 volumeIndex: cursor.t,
                 maxDimension: interactiveState.maxDimension,
                 options: interactiveState.options,
-                windowBounds: windowBounds
+                windowBounds: windowBounds,
+                lut: interactiveState.segmentationLut
             )
         }
         return slices

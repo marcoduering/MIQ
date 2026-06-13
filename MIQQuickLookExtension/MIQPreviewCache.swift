@@ -45,6 +45,6 @@ enum MIQPreviewCache {
         } else {
             modDate = ""
         }
-        return "\(path)|\(modDate)|\(maxDimension)|\(options.lowerPercentile)|\(options.upperPercentile)|\(options.orientation.rawValue)"
+        return "\(path)|\(modDate)|\(maxDimension)|\(options.lowerPercentile)|\(options.upperPercentile)|\(options.orientation.rawValue)|\(options.segmentationColoring.rawValue)"
     }
 }

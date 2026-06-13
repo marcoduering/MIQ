@@ -39,6 +39,11 @@ final class MIQPreviewAppKitView: NSView {
         let fontSize: CGFloat
         let inset: CGFloat
         let isFourD: Bool
+        // Whether the live voxel-value line currently occupies a slot. A change
+        // here (the user's first interaction) is a structural rebuild, exactly
+        // like `isFourD` flipping — the value *text* itself is pushed separately
+        // and never participates in this gate.
+        let showsValue: Bool
     }
 
     var onSliceScrollGestureBegan: (@MainActor () -> Void)?
@@ -73,6 +78,12 @@ final class MIQPreviewAppKitView: NSView {
     private var currentVolumeIndex = 0
     private var volumesExpanding = false
     private var metadataOverlayColor: NSColor = .systemBlue
+    // Live voxel readout state. `showsVoxelValue` drives whether the value line
+    // occupies a metadata slot (a one-time structural change on first interaction);
+    // `voxelValueText` is the per-frame number, pushed straight to the overlay
+    // without touching the throttled metadata rebuild.
+    private var showsVoxelValue = false
+    private var voxelValueText: String?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -149,6 +160,19 @@ final class MIQPreviewAppKitView: NSView {
             overlayColor: metadataOverlayColor
         )
 
+        // The value line appears/disappears only on the first interaction, so a
+        // change here forces the (one-time) structural rebuild that inserts it at
+        // its configured order position — same mechanism as the 4D case above.
+        // The number itself is pushed every frame straight to the overlay, which
+        // is a cheap redraw and deliberately bypasses the metadata text rebuild.
+        if model.showsVoxelValue != showsVoxelValue {
+            showsVoxelValue = model.showsVoxelValue
+            lastMetadataRenderInputs = nil
+            needsLayout = true
+        }
+        voxelValueText = model.crosshairVoxelText
+        metadata.setVoxelValue(voxelValueText)
+
         switch model.state {
         case .failed(let message):
             status.stringValue = "Preview failed: \(message)"
@@ -177,6 +201,10 @@ final class MIQPreviewAppKitView: NSView {
         let fontSize = clamp(minPanelExtent * Metrics.metadataTextScale, min: Metrics.metadataTextMin, max: Metrics.metadataTextMax)
         let inset = clamp(minPanelExtent * Metrics.insetScale, min: Metrics.insetMin, max: Metrics.insetMax)
         let isFourD = volumeCount > 1
+        // The value line is reserved blank (like the 4D Volumes line) and drawn
+        // by the overlay; it participates in ordering only while the crosshair is
+        // visible and the field is enabled.
+        let showValueLine = showsVoxelValue && MIQConfig.showMetadataField(.value)
         let inputs = MetadataRenderInputs(
             entries: metadataEntries,
             order: order,
@@ -184,7 +212,8 @@ final class MIQPreviewAppKitView: NSView {
             hideDisclaimerInPreview: MIQConfig.hideDisclaimerInPreview,
             fontSize: fontSize,
             inset: inset,
-            isFourD: isFourD
+            isFourD: isFourD,
+            showsValue: showValueLine
         )
 
         // Skip metadata sort/rebuild unless metadata inputs or panel metrics changed.
@@ -205,22 +234,34 @@ final class MIQPreviewAppKitView: NSView {
         let orderIndex: [MetadataField: Int] = Dictionary(
             uniqueKeysWithValues: order.enumerated().map { ($1, $0) }
         )
-        let sorted = metadataEntries.sorted { a, b in
+        // The value field carries no header-derived text — inject a placeholder
+        // entry so it takes its configured order position. Its slot is reserved
+        // blank below and the live number is drawn by the overlay, so the
+        // placeholder text is never shown (and never churns this rebuild).
+        var entries = metadataEntries
+        if showValueLine {
+            entries.append(MetadataEntry(field: .value, text: ""))
+        }
+        let sorted = entries.sorted { a, b in
             let ai = a.field.flatMap { orderIndex[$0] } ?? Int.max
             let bi = b.field.flatMap { orderIndex[$0] } ?? Int.max
             return ai < bi
         }
 
-        // Build the drawn lines. For a 4D file the visible Volumes line is
-        // replaced by an empty line of identical height: the scrubber overlays
-        // exactly that slot, every other line keeps its position, and the value
-        // still renders (live, in overlay colour) inside the scrubber instead.
+        // Build the drawn lines. The 4D Volumes line and the live Value line are
+        // each reserved as an empty line of identical height: the matching overlay
+        // draws over exactly that slot, every other line keeps its position. For
+        // the Volumes case the live value renders inside the scrubber instead.
         var lines: [String] = []
         var volumesLineIndex: Int?
+        var valueLineIndex: Int?
         for entry in sorted {
             if let field = entry.field, !MIQConfig.showMetadataField(field) { continue }
             if isFourD, entry.field == .volumes {
                 volumesLineIndex = lines.count
+                lines.append("")
+            } else if entry.field == .value {
+                valueLineIndex = lines.count
                 lines.append("")
             } else {
                 lines.append(entry.text)
@@ -231,21 +272,24 @@ final class MIQPreviewAppKitView: NSView {
             metadata.inset = inset
         }
         metadata.volumesLineIndex = volumesLineIndex
-        metadata.lineFont = volumesLineIndex == nil
+        metadata.valueLineIndex = valueLineIndex
+        metadata.totalLineCount = lines.count
+        metadata.lineFont = (volumesLineIndex == nil && valueLineIndex == nil)
             ? nil
             : NSFont.systemFont(ofSize: fontSize, weight: .regular)
         // The metadata panel shares the sagittal panel's x-range, so the
         // sagittal image's right edge is usable verbatim as the scrubber limit.
         metadata.scrubberRightLimit = sagittal.renderedImageRightEdge
         metadata.attributedText = makeMetadataAttributedString(from: lines, fontSize: fontSize)
-        // Reflect the now-known reserved slot immediately so the scrubber shows
-        // on first paint of a 4D file (not only after the next model change).
+        // Reflect the now-known reserved slots immediately so the scrubber / value
+        // readout show on first paint (not only after the next model change).
         metadata.setVolumeState(
             index: currentVolumeIndex,
             count: volumeCount,
             expanding: volumesExpanding,
             overlayColor: metadataOverlayColor
         )
+        metadata.setVoxelValue(voxelValueText)
     }
 
     private func buildUI() {
@@ -444,7 +488,8 @@ final class MIQPreviewAppKitView: NSView {
         lhs.hideDisclaimerInPreview == rhs.hideDisclaimerInPreview &&
         abs(lhs.fontSize - rhs.fontSize) <= 0.001 &&
         abs(lhs.inset - rhs.inset) <= 0.001 &&
-        lhs.isFourD == rhs.isFourD
+        lhs.isFourD == rhs.isFourD &&
+        lhs.showsValue == rhs.showsValue
     }
 
     private func applyLabelFontSize(_ size: CGFloat) {
@@ -608,6 +653,17 @@ private final class MetadataView: NSView {
     /// guarantees that line is empty in `attributedText` so the scrubber sits
     /// exactly where "Volumes:" would have rendered.
     var volumesLineIndex: Int? { didSet { needsLayout = true } }
+    /// Index (within the drawn metadata lines) of the line reserved blank for the
+    /// live voxel-value readout, or `nil` when the value field is hidden / there
+    /// is no interaction yet. Reserved and positioned exactly like
+    /// `volumesLineIndex`; both can be set at once (a 4D file with the value field
+    /// enabled), which is why `reservedLineFragmentRect` is index-aware.
+    var valueLineIndex: Int? { didSet { needsLayout = true } }
+    /// Total number of drawn metadata lines (excluding the disclaimer). Lets
+    /// `reservedLineFragmentRect` tell whether a given reserved index is the
+    /// trailing line — the only one TextKit may represent as the *extra* line
+    /// fragment.
+    var totalLineCount: Int = 0 { didSet { needsLayout = true } }
     var lineFont: NSFont? { didSet { needsLayout = true } }
     /// Right edge (this view's x coordinates) the scrubber must not exceed —
     /// the sagittal image's right edge. The metadata panel shares the sagittal
@@ -621,23 +677,65 @@ private final class MetadataView: NSView {
     var onVolumeScroll: (@MainActor (Int) -> Void)?
     var onScrollGestureBegan: (@MainActor () -> Void)?
     private var scrollResolver = ScrollStepResolver()
+    private var orphanScrollMonitor: Any?
 
     private let scrubber = MIQVolumeScrubber()
+    private let valueReadout = MIQValueReadout()
 
     override var isFlipped: Bool { true }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if let orphanScrollMonitor {
+            NSEvent.removeMonitor(orphanScrollMonitor)
+            self.orphanScrollMonitor = nil
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        orphanScrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            MainActor.assumeIsolated {
+                self?.handleOrphanedScroll(event)
+            }
+            return event
+        }
+    }
+
+    /// Full-screen rescue for ⌥-scroll over the metadata panel. The full-screen
+    /// Quick Look host forwards most scroll events with `event.window == nil`,
+    /// which AppKit drops before responder dispatch (see
+    /// `MIQSliceCanvas.handleOrphanedEvent` for the full story). Window-less
+    /// events carry screen coordinates; recover the position and feed the same
+    /// resolver as the responder path. Addressed events keep the normal path.
+    private func handleOrphanedScroll(_ event: NSEvent) {
+        guard event.window == nil else { return }
+        guard let window, window.occlusionState.contains(.visible) else { return }
+        let location = convert(window.convertPoint(fromScreen: event.locationInWindow), from: nil)
+        guard bounds.contains(location) else { return }
+        guard let outcome = scrollResolver.resolve(ScrollStepInput(event), onBegan: { [weak self] in
+            self?.onScrollGestureBegan?()
+        }), outcome.axis == .volume else { return }
+        onVolumeScroll?(outcome.step)
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         configureTextKit()
         scrubber.isHidden = true
+        valueReadout.isHidden = true
         addSubview(scrubber)
+        addSubview(valueReadout)
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         configureTextKit()
         scrubber.isHidden = true
+        valueReadout.isHidden = true
         addSubview(scrubber)
+        addSubview(valueReadout)
     }
 
     private func configureTextKit() {
@@ -687,8 +785,13 @@ private final class MetadataView: NSView {
     /// *above* Volumes and hide it. The extra line fragment exists for this
     /// builder's output only in exactly that trailing-empty-Volumes case (every
     /// non-empty last line ends without a newline), so prefer it when present.
+    /// The extra line fragment represents only the *trailing* empty line, so it
+    /// applies to a reserved index iff that index is the last drawn line. With two
+    /// reserved lines (Volumes + Value) at most one can be trailing; the other is
+    /// mid-text and uses its glyph fragment. Gating on `index == totalLineCount-1`
+    /// keeps the non-trailing reserved line from grabbing the extra fragment.
     private func reservedLineFragmentRect(_ index: Int) -> CGRect {
-        if layoutManager.extraLineFragmentTextContainer != nil {
+        if index == totalLineCount - 1, layoutManager.extraLineFragmentTextContainer != nil {
             return layoutManager.extraLineFragmentRect
         }
         let glyphIndex = layoutManager.glyphIndexForCharacter(at: characterIndexForLine(index))
@@ -703,19 +806,39 @@ private final class MetadataView: NSView {
         scrubber.isHidden = volumesLineIndex == nil || count <= 1
     }
 
+    /// Cheap per-frame update of the live voxel readout: only the displayed text.
+    /// Like `setVolumeState`, it never touches `attributedText`, so a crosshair
+    /// drag redraws this small overlay without re-running the metadata rebuild.
+    func setVoxelValue(_ text: String?) {
+        valueReadout.setText(text)
+        valueReadout.isHidden = valueLineIndex == nil
+    }
+
     override func layout() {
         super.layout()
-        guard let index = volumesLineIndex, textStorage.length > 0 else {
+        guard textStorage.length > 0 else {
             scrubber.isHidden = true
+            valueReadout.isHidden = true
             return
         }
         syncContainer()
-        if let font = lineFont { scrubber.font = font }
+        if let font = lineFont {
+            scrubber.font = font
+            valueReadout.font = font
+        }
+        // Visibility is owned by setVolumeState / setVoxelValue; here we only place
+        // the overlays on their reserved line fragments.
+        positionReservedOverlay(scrubber, lineIndex: volumesLineIndex, rightLimit: scrubberRightLimit)
+        positionReservedOverlay(valueReadout, lineIndex: valueLineIndex, rightLimit: nil)
+    }
+
+    private func positionReservedOverlay(_ overlay: NSView, lineIndex: Int?, rightLimit: CGFloat?) {
+        guard let index = lineIndex else { return }
         let fragment = reservedLineFragmentRect(index)
         let originX = inset + fragment.minX
         let fullWidth = bounds.width - inset - originX
-        let limitedWidth = scrubberRightLimit.map { $0 - originX } ?? fullWidth
-        scrubber.frame = CGRect(
+        let limitedWidth = rightLimit.map { $0 - originX } ?? fullWidth
+        overlay.frame = CGRect(
             x: originX,
             y: inset + fragment.minY,
             width: max(0, min(fullWidth, limitedWidth)),
@@ -747,6 +870,42 @@ private final class MetadataView: NSView {
             self?.onScrollGestureBegan?()
         }), outcome.axis == .volume else { return }
         onVolumeScroll?(outcome.step)
+    }
+}
+
+/// Display-only live readout drawn over the reserved "Value:" metadata line. Non
+/// interactive (unlike the 4D scrubber), so it is a thin sibling: it mirrors the
+/// metadata label/value colouring and draws at the fragment top so it lines up
+/// with the rows above and below. The number is pushed per cursor move via
+/// `setText`, change-gated so a static crosshair never repaints.
+private final class MIQValueReadout: NSView {
+    var font: NSFont = .systemFont(ofSize: 13, weight: .regular) { didSet { needsDisplay = true } }
+    private var text: String?
+
+    private static let labelColor = NSColor(calibratedWhite: 0.68, alpha: 1.0)
+    private static let valueColor = NSColor(calibratedWhite: 0.95, alpha: 1.0)
+
+    override var isFlipped: Bool { true }
+
+    func setText(_ newText: String?) {
+        guard newText != text else { return }
+        text = newText
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.black.setFill()
+        bounds.fill()
+        let labelAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Self.labelColor]
+        let valueAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Self.valueColor]
+        let label = "Voxel value: " as NSString
+        // Draw at y = 0 (the frame top): the frame top is already the sibling
+        // line's fragment top, and NSString.draw(at:) shares the default line
+        // metrics of NSAttributedString.draw(in:), so the baseline matches.
+        label.draw(at: CGPoint(x: 0, y: 0), withAttributes: labelAttrs)
+        let labelWidth = label.size(withAttributes: labelAttrs).width
+        let value = (text ?? "—") as NSString
+        value.draw(at: CGPoint(x: labelWidth, y: 0), withAttributes: valueAttrs)
     }
 }
 
@@ -875,14 +1034,63 @@ private final class MIQVolumeScrubber: NSView {
     }
 
     private var isScrubbing = false
+    private var orphanDragMonitor: Any?
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if let orphanDragMonitor {
+            NSEvent.removeMonitor(orphanDragMonitor)
+            self.orphanDragMonitor = nil
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        orphanDragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            MainActor.assumeIsolated {
+                self?.handleOrphanedEvent(event)
+            }
+            return event
+        }
+    }
+
+    /// Full-screen rescue for the scrub drag. The initiating mouseDown is
+    /// always properly addressed (so `isScrubbing` is reliable), but the host
+    /// forwards the subsequent drag/up events with `event.window == nil` in
+    /// full screen and AppKit drops them — the knob would seek once and
+    /// freeze. Gating on `isScrubbing` instead of containment reproduces the
+    /// responder chain's mouse capture: drags clamp to the track ends even
+    /// when the pointer leaves the view, exactly like `mouseDragged`. The
+    /// canvases yield via `FullScreenEventRescue.scrubInProgress`.
+    private func handleOrphanedEvent(_ event: NSEvent) {
+        guard event.window == nil, isScrubbing else { return }
+        guard let window, window.occlusionState.contains(.visible) else { return }
+        switch event.type {
+        case .leftMouseDragged:
+            guard count > 1, let track = trackRange() else { return }
+            let x = convert(window.convertPoint(fromScreen: event.locationInWindow), from: nil).x
+            applySeek(x: x, track: track)
+        case .leftMouseUp:
+            endScrub()
+        default:
+            break
+        }
+    }
+
+    private func endScrub() {
+        isScrubbing = false
+        FullScreenEventRescue.scrubInProgress = false
+    }
 
     override func mouseDown(with event: NSEvent) {
         guard count > 1, let track = trackRange() else { return }
         let x = convert(event.locationInWindow, from: nil).x
         // The minX guard belongs ONLY here: a click on the "Volumes: n / N"
         // text must not seek. Once a scrub starts, drags are clamped instead.
-        guard x >= track.minX - Self.seekHitSlop else { isScrubbing = false; return }
+        guard x >= track.minX - Self.seekHitSlop else { endScrub(); return }
         isScrubbing = true
+        FullScreenEventRescue.scrubInProgress = true
         applySeek(x: x, track: track)
     }
 
@@ -895,7 +1103,7 @@ private final class MIQVolumeScrubber: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        isScrubbing = false
+        endScrub()
     }
 
     private func applySeek(x: CGFloat, track: (minX: CGFloat, maxX: CGFloat)) {

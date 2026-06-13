@@ -7,14 +7,17 @@ public struct RenderingOptions: Sendable, Hashable {
     public let lowerPercentile: Double
     public let upperPercentile: Double
     public let orientation: ViewOrientation
+    public let segmentationColoring: SegmentationColoring
 
     public init(
         lowerPercentile: Double,
         upperPercentile: Double,
-        orientation: ViewOrientation = .stored
+        orientation: ViewOrientation = .stored,
+        segmentationColoring: SegmentationColoring = .off
     ) {
         self.lowerPercentile = lowerPercentile
         self.upperPercentile = upperPercentile
         self.orientation = orientation
+        self.segmentationColoring = segmentationColoring
     }
 }

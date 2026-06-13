@@ -1,10 +1,13 @@
 {
+  "features" : [
+    "specular-location"
+  ],
   "fill-specializations" : [
     {
       "value" : {
         "linear-gradient" : [
           "extended-gray:0.50000,1.00000",
-          "extended-gray:0.25000,1.00000"
+          "srgb:0.37056,0.37056,0.37056,1.00000"
         ],
         "orientation" : {
           "start" : {
@@ -21,36 +24,17 @@
     {
       "appearance" : "dark",
       "value" : {
-        "linear-gradient" : [
-          "extended-gray:0.25000,1.00000",
-          "extended-gray:0.00000,1.00000"
-        ],
-        "orientation" : {
-          "start" : {
-            "x" : 0.5,
-            "y" : 0
-          },
-          "stop" : {
-            "x" : 0.5,
-            "y" : 0.7
-          }
-        }
+        "solid" : "srgb:0.12984,0.12985,0.12984,1.00000"
       }
     }
   ],
   "groups" : [
     {
+      "blend-mode" : "normal",
+      "blur-material" : 1,
+      "hidden" : false,
       "layers" : [
         {
-          "blend-mode-specializations" : [
-            {
-              "value" : "normal"
-            },
-            {
-              "appearance" : "tinted",
-              "value" : "normal"
-            }
-          ],
           "fill-specializations" : [
             {
               "value" : "automatic"
@@ -58,29 +42,47 @@
             {
               "appearance" : "dark",
               "value" : "automatic"
+            },
+            {
+              "appearance" : "tinted",
+              "value" : "automatic"
             }
           ],
           "glass" : true,
           "hidden" : false,
-          "image-name" : "magnifyingglass.circle.png",
-          "name" : "magnifyingglass.circle",
-          "opacity" : 0.6
+          "image-name" : "Magnify.svg",
+          "name" : "Magnify",
+          "opacity" : 0.5,
+          "position" : {
+            "scale" : 1.25,
+            "translation-in-points" : [
+              -0.000423200000000179,
+              0.00027139999997416453
+            ]
+          }
         }
       ],
+      "lighting" : "individual",
+      "opacity" : 0.75,
+      "refractivity" : {
+        "depth" : 0.3462109375,
+        "enabled" : false,
+        "strength" : -0.0810546875
+      },
       "shadow" : {
         "kind" : "neutral",
-        "opacity" : 0.5
+        "opacity" : 0.6
       },
+      "specular" : "inside",
       "translucency" : {
-        "enabled" : true,
+        "enabled" : false,
         "value" : 0.5
       }
     }
   ],
   "supported-platforms" : {
-    "circles" : [
-      "watchOS"
-    ],
-    "squares" : "shared"
+    "squares" : [
+      "macOS"
+    ]
   }
 }
