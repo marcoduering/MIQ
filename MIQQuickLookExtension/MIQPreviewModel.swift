@@ -356,7 +356,11 @@ final class MIQPreviewModel {
     /// same way): absent on the cold/first-frame preview, present once the user
     /// has interacted. Used by the view to insert/remove the value line — a
     /// one-time structural change, not a per-frame one.
-    var showsVoxelValue: Bool { hasInteracted && interactiveState != nil }
+    var showsVoxelValue: Bool {
+        guard hasInteracted, let interactiveState else { return false }
+        let dt = interactiveState.volume.image.header.datatype
+        return dt != .rgb24 && dt != .rgba32
+    }
 
     /// Formatted image intensity at the current crosshair voxel, for the live
     /// readout. Only meaningful while `showsVoxelValue`. Returns "—" when the
@@ -379,7 +383,7 @@ final class MIQPreviewModel {
         if value == value.rounded(), abs(value) < 1e7 {
             return String(Int(value))
         }
-        return String(format: "%.4g", Double(value))
+        return String(format: "%.6g", Double(value))
     }
 
     private func apply(bundle: MIQPreviewBundle) {

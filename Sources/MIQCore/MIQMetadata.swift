@@ -77,6 +77,6 @@ public struct MIQMetadata: Sendable {
         guard !(abs(slope - 1) <= epsilon && abs(intercept) <= epsilon) else { return nil }
 
         let sign = intercept < 0 ? "-" : "+"
-        return String(format: "x %.3f %@ %.3f", slope, sign, abs(intercept))
+        return String(format: "x %.6g %@ %.6g", slope, sign, abs(intercept))
     }
 }

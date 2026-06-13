@@ -898,7 +898,7 @@ private final class MIQValueReadout: NSView {
         bounds.fill()
         let labelAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Self.labelColor]
         let valueAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Self.valueColor]
-        let label = "Value: " as NSString
+        let label = "Voxel value: " as NSString
         // Draw at y = 0 (the frame top): the frame top is already the sibling
         // line's fragment top, and NSString.draw(at:) shares the default line
         // metrics of NSAttributedString.draw(in:), so the baseline matches.

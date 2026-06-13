@@ -76,7 +76,7 @@ private func metadataLabel(_ field: MetadataField) -> String {
     case .datatype:    return "Datatype"
     case .volumes:     return "Volumes"
     case .scaling:     return "Scaling"
-    case .value:       return "Value"
+    case .value:       return "Voxel value"
     }
 }
 
