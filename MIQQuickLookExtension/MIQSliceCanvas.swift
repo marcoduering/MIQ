@@ -90,7 +90,7 @@ final class MIQSliceCanvas: NSView {
         layer?.backgroundColor = NSColor.black.cgColor
     }
 
-    required init?(coder: NSCoder) {
+    required init?(coder _: NSCoder) {
         return nil
     }
 
@@ -173,7 +173,7 @@ final class MIQSliceCanvas: NSView {
         needsDisplay = true
     }
 
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+    override func acceptsFirstMouse(for _: NSEvent?) -> Bool {
         true
     }
 
@@ -223,7 +223,7 @@ final class MIQSliceCanvas: NSView {
         }
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    override func draw(_: NSRect) {
         NSColor.black.setFill()
         bounds.fill()
 

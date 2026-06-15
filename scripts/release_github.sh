@@ -20,7 +20,7 @@ DIST_ZIP=""
 for arg in "$@"; do
   case "$arg" in
     --publish) DRAFT=false ;;
-    --*) echo "ERROR: Unknown option: $arg"; exit 1 ;;
+    --*) echo "ERROR: Unknown option: $arg" >&2; exit 1 ;;
     *) DIST_ZIP="$arg" ;;
   esac
 done
@@ -29,7 +29,7 @@ done
 if [[ -z "$DIST_ZIP" ]]; then
   LATEST_DIR=$(find build -maxdepth 1 -name 'release-*' -type d | sort | tail -1)
   if [[ -z "$LATEST_DIR" ]]; then
-    echo "ERROR: No build/release-* directory found. Run release_notarize.sh first."
+    echo "ERROR: No build/release-* directory found. Run release_notarize.sh first." >&2
     exit 1
   fi
   DIST_ZIP="$LATEST_DIR/MIQ.app.zip"
@@ -37,25 +37,25 @@ if [[ -z "$DIST_ZIP" ]]; then
 fi
 
 if [[ ! -f "$DIST_ZIP" ]]; then
-  echo "ERROR: Distribution zip not found: $DIST_ZIP"
+  echo "ERROR: Distribution zip not found: $DIST_ZIP" >&2
   echo "      MIQ.app.zip is produced by release_notarize.sh after stapling."
   exit 1
 fi
 
 # Require HEAD to be on an exact tag
 if ! TAG=$(git describe --exact-match --tags HEAD 2>/dev/null); then
-  echo "ERROR: HEAD is not on an exact git tag."
+  echo "ERROR: HEAD is not on an exact git tag." >&2
   echo "       Tag first: git tag <version> && git push origin <version>"
   exit 1
 fi
 
 if ! command -v gh >/dev/null 2>&1; then
-  echo "ERROR: gh CLI not found. Install with: brew install gh"
+  echo "ERROR: gh CLI not found. Install with: brew install gh" >&2
   exit 1
 fi
 
 if ! gh auth status >/dev/null 2>&1; then
-  echo "ERROR: gh CLI not authenticated. Run: gh auth login"
+  echo "ERROR: gh CLI not authenticated. Run: gh auth login" >&2
   exit 1
 fi
 

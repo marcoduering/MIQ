@@ -502,7 +502,7 @@ brew install --cask miq</pre>
         t.setAttribute('aria-selected', String(t.dataset.tab === name));
       });
       document.querySelectorAll('.panel').forEach(function (p) {
-        p.setAttribute('data-active', String(p.dataset.tab === name));
+        p.dataset.active = String(p.dataset.tab === name);
       });
     });
   });
@@ -513,10 +513,10 @@ brew install --cask miq</pre>
     img.addEventListener('click', function () {
       lbImg.src = img.currentSrc || img.src;
       lbImg.alt = img.alt;
-      lb.setAttribute('data-open', 'true');
+      lb.dataset.open = 'true';
     });
   });
-  function closeLightbox() { lb.setAttribute('data-open', 'false'); }
+  function closeLightbox() { lb.dataset.open = 'false'; }
   lb.addEventListener('click', closeLightbox);
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') closeLightbox();

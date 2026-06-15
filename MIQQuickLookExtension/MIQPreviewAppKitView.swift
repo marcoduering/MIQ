@@ -846,7 +846,7 @@ private final class MetadataView: NSView {
         )
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    override func draw(_: NSRect) {
         NSColor.black.setFill()
         bounds.fill()
         #if DEBUG
@@ -893,7 +893,7 @@ private final class MIQValueReadout: NSView {
         needsDisplay = true
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    override func draw(_: NSRect) {
         NSColor.black.setFill()
         bounds.fill()
         let labelAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Self.labelColor]
@@ -923,7 +923,7 @@ private final class MIQVolumeScrubber: NSView {
     private var expanding = false
 
     override var isFlipped: Bool { true }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func acceptsFirstMouse(for _: NSEvent?) -> Bool { true }
 
     /// Single change-gated entry point. Returns early when nothing visible
     /// changed so a pure x/y/z slice scroll (same timepoint, same colour) never
@@ -987,7 +987,7 @@ private final class MIQVolumeScrubber: NSView {
         return expanding ? base + "  decompressing…" : base
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    override func draw(_: NSRect) {
         NSColor.black.setFill()
         bounds.fill()
 
@@ -1102,7 +1102,7 @@ private final class MIQVolumeScrubber: NSView {
         applySeek(x: convert(event.locationInWindow, from: nil).x, track: track)
     }
 
-    override func mouseUp(with event: NSEvent) {
+    override func mouseUp(with _: NSEvent) {
         endScrub()
     }
 

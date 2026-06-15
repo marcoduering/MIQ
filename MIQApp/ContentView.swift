@@ -239,9 +239,9 @@ private struct SettingsToolbarInstaller: NSViewRepresentable {
             toolbar.selectedItemIdentifier = selection.toolbarItemIdentifier
         }
 
-        func toolbar(_ toolbar: NSToolbar,
+        func toolbar(_ _: NSToolbar,
                      itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
-                     willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+                     willBeInsertedIntoToolbar _: Bool) -> NSToolbarItem? {
             guard let tab = SettingsTab.tab(for: itemIdentifier) else { return nil }
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = tab.label
@@ -252,15 +252,15 @@ private struct SettingsToolbarInstaller: NSViewRepresentable {
             return item
         }
 
-        func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        func toolbarDefaultItemIdentifiers(_ _: NSToolbar) -> [NSToolbarItem.Identifier] {
             SettingsTab.allCases.map(\.toolbarItemIdentifier)
         }
 
-        func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        func toolbarAllowedItemIdentifiers(_ _: NSToolbar) -> [NSToolbarItem.Identifier] {
             SettingsTab.allCases.map(\.toolbarItemIdentifier)
         }
 
-        func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        func toolbarSelectableItemIdentifiers(_ _: NSToolbar) -> [NSToolbarItem.Identifier] {
             SettingsTab.allCases.map(\.toolbarItemIdentifier)
         }
 
@@ -1019,7 +1019,7 @@ private struct MetadataReorderDropDelegate: DropDelegate {
     @Binding var order: StoredMetadataOrder
     @Binding var draggedField: MetadataField?
 
-    func dropEntered(info: DropInfo) {
+    func dropEntered(info _: DropInfo) {
         guard let dragged = draggedField, dragged != destination else { return }
         var fields = order.fields
         guard let from = fields.firstIndex(of: dragged),
@@ -1029,16 +1029,16 @@ private struct MetadataReorderDropDelegate: DropDelegate {
         order = StoredMetadataOrder(fields)
     }
 
-    func dropUpdated(info: DropInfo) -> DropProposal? {
+    func dropUpdated(info _: DropInfo) -> DropProposal? {
         DropProposal(operation: .move)
     }
 
-    func performDrop(info: DropInfo) -> Bool {
+    func performDrop(info _: DropInfo) -> Bool {
         draggedField = nil
         return true
     }
 
-    func dropExited(info: DropInfo) { /* no cleanup needed on drag exit */ }
+    func dropExited(info _: DropInfo) { /* no cleanup needed on drag exit */ }
 }
 
 #Preview {

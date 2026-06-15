@@ -659,7 +659,8 @@ struct PerformanceBaselineTests {
                 // timing jitter dominates the ratio — show the delta unflagged so
                 // the tool doesn't cry wolf every release).
                 let stable = flag && base >= 1.0 && cur >= 1.0
-                let mark = !stable ? "" : (ratio > threshold ? " ⚠️ REGRESSION" : (ratio < 0.8 ? " ✅ faster" : ""))
+                let innerMark = ratio > threshold ? " ⚠️ REGRESSION" : ratio < 0.8 ? " ✅ faster" : ""
+                let mark = stable ? innerMark : ""
                 cmp = String(format: "%.1f → %.1f (%+.0f%%)%@", base, cur, pct, mark)
             } else if base == nil {
                 cmp = "—"

@@ -55,7 +55,7 @@ print_log_excerpt() {
     printing && /\([0-9]+ failures\)/ { exit }
   ' "$log_file" || true
 
-  echo "----- matching error lines -----"
+  echo "----- matching error lines -----" >&2
   grep -nEi "error:|failed|SwiftDriver|CodeSign|codesign|notarytool|provisioning profile|certificate|ARCHIVE FAILED" "$log_file" | tail -n 40 || true
 
   echo "----- last 80 log lines -----"
@@ -75,7 +75,7 @@ run_logged() {
 
   if [[ $status -ne 0 ]]; then
     echo
-    echo "ERROR: $step_name failed with exit code $status"
+    echo "ERROR: $step_name failed with exit code $status" >&2
     print_log_excerpt "$log_file"
     echo "Full log: $log_file"
     exit "$status"
@@ -83,24 +83,24 @@ run_logged() {
 }
 
 if [[ -z "$NOTARY_PROFILE" ]]; then
-  echo "ERROR: NOTARY_PROFILE is required."
+  echo "ERROR: NOTARY_PROFILE is required." >&2
   echo "Example: NOTARY_PROFILE=my-notary-profile $0"
   exit 1
 fi
 
 if ! command -v xcodebuild >/dev/null 2>&1; then
-  echo "ERROR: xcodebuild not found."
+  echo "ERROR: xcodebuild not found." >&2
   exit 1
 fi
 
 if ! command -v xcrun >/dev/null 2>&1; then
-  echo "ERROR: xcrun not found."
+  echo "ERROR: xcrun not found." >&2
   exit 1
 fi
 
 SIGNING_IDENTITIES="$(security find-identity -v -p codesigning || true)"
 if ! grep -q "Developer ID Application" <<< "$SIGNING_IDENTITIES"; then
-  echo "ERROR: No 'Developer ID Application' certificate found in keychain."
+  echo "ERROR: No 'Developer ID Application' certificate found in keychain." >&2
   echo "Available signing identities:"
   echo "$SIGNING_IDENTITIES"
   exit 1
@@ -162,7 +162,7 @@ run_logged "Exporting signed app (Developer ID)" "$EXPORT_LOG" xcodebuild \
   -exportOptionsPlist "$EXPORT_PLIST"
 
 if [[ ! -d "$APP_PATH" ]]; then
-  echo "ERROR: Exported app not found at $APP_PATH"
+  echo "ERROR: Exported app not found at $APP_PATH" >&2
   exit 1
 fi
 
