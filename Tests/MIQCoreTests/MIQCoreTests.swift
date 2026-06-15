@@ -512,8 +512,8 @@ struct MIQCoreTests {
     func scrollResolverLegacyWheelRoutesByModifierAndInvertsVolume() {
         var slice = ScrollStepResolver()
         var volume = ScrollStepResolver()
-        let s = slice.resolve(scrollInput(legacy: true, dy: 1), onBegan: {})
-        let v = volume.resolve(scrollInput(option: true, legacy: true, dy: 1), onBegan: {})
+        let s = slice.resolve(scrollInput(legacy: true, dy: 1), onBegan: { /* not observed in this test */ })
+        let v = volume.resolve(scrollInput(option: true, legacy: true, dy: 1), onBegan: { /* not observed in this test */ })
         #expect(s?.axis == .slice)
         #expect(v?.axis == .volume)
         #expect(s?.step != nil && v?.step != nil)
@@ -525,13 +525,13 @@ struct MIQCoreTests {
     @Test
     func scrollResolverPreciseDeltasAccumulateToThreshold() {
         var r = ScrollStepResolver()
-        #expect(r.resolve(scrollInput(began: true, dy: 8, precise: true), onBegan: {}) == nil)
-        let stepped = r.resolve(scrollInput(dy: 8, precise: true), onBegan: {})
+        #expect(r.resolve(scrollInput(began: true, dy: 8, precise: true), onBegan: { /* not observed in this test */ }) == nil)
+        let stepped = r.resolve(scrollInput(dy: 8, precise: true), onBegan: { /* not observed in this test */ })
         #expect(stepped?.axis == .slice)            // 16 ≥ 14 → one step
         #expect(stepped?.step == -1)                // dy > 0 → slice -1
         // 16 − 14 = 2 carried; a small follow-up still can't reach 14 alone.
-        #expect(r.resolve(scrollInput(dy: 8, precise: true), onBegan: {}) == nil)  // 2+8=10
-        #expect(r.resolve(scrollInput(dy: 8, precise: true), onBegan: {})?.step == -1) // 18 ≥ 14
+        #expect(r.resolve(scrollInput(dy: 8, precise: true), onBegan: { /* not observed in this test */ }) == nil)  // 2+8=10
+        #expect(r.resolve(scrollInput(dy: 8, precise: true), onBegan: { /* not observed in this test */ })?.step == -1) // 18 ≥ 14
     }
 
     /// The modifier latched at `.began` holds through subsequent (momentum)
@@ -539,8 +539,8 @@ struct MIQCoreTests {
     @Test
     func scrollResolverLatchesModifierThroughMomentum() {
         var r = ScrollStepResolver()
-        let a = r.resolve(scrollInput(option: true, began: true, dy: 20, precise: true), onBegan: {})
-        let b = r.resolve(scrollInput(option: true, dy: 20, precise: true), onBegan: {})
+        let a = r.resolve(scrollInput(option: true, began: true, dy: 20, precise: true), onBegan: { /* not observed in this test */ })
+        let b = r.resolve(scrollInput(option: true, dy: 20, precise: true), onBegan: { /* not observed in this test */ })
         #expect(a?.axis == .volume)
         #expect(b?.axis == .volume)
     }
@@ -550,11 +550,11 @@ struct MIQCoreTests {
     @Test
     func scrollResolverReleasingOptionCancelsRemainder() {
         var r = ScrollStepResolver()
-        #expect(r.resolve(scrollInput(option: true, began: true, dy: 20, precise: true), onBegan: {})?.axis == .volume)
-        #expect(r.resolve(scrollInput(option: false, dy: 20, precise: true), onBegan: {}) == nil)  // released → cancel
-        #expect(r.resolve(scrollInput(option: true, dy: 20, precise: true), onBegan: {}) == nil)   // stays swallowed
+        #expect(r.resolve(scrollInput(option: true, began: true, dy: 20, precise: true), onBegan: { /* not observed in this test */ })?.axis == .volume)
+        #expect(r.resolve(scrollInput(option: false, dy: 20, precise: true), onBegan: { /* not observed in this test */ }) == nil)  // released → cancel
+        #expect(r.resolve(scrollInput(option: true, dy: 20, precise: true), onBegan: { /* not observed in this test */ }) == nil)   // stays swallowed
         // A fresh gesture recovers.
-        #expect(r.resolve(scrollInput(began: true, dy: 20, precise: true), onBegan: {})?.axis == .slice)
+        #expect(r.resolve(scrollInput(began: true, dy: 20, precise: true), onBegan: { /* not observed in this test */ })?.axis == .slice)
     }
 
     /// A gesture latched to slice ignores Option pressed mid-gesture (no axis
@@ -562,8 +562,8 @@ struct MIQCoreTests {
     @Test
     func scrollResolverSliceGestureIgnoresLaterOption() {
         var r = ScrollStepResolver()
-        #expect(r.resolve(scrollInput(began: true, dy: 20, precise: true), onBegan: {})?.axis == .slice)
-        #expect(r.resolve(scrollInput(option: true, dy: 20, precise: true), onBegan: {})?.axis == .slice)
+        #expect(r.resolve(scrollInput(began: true, dy: 20, precise: true), onBegan: { /* not observed in this test */ })?.axis == .slice)
+        #expect(r.resolve(scrollInput(option: true, dy: 20, precise: true), onBegan: { /* not observed in this test */ })?.axis == .slice)
     }
 
     /// Zero delta yields no step, and `onBegan` fires exactly once per gesture.
@@ -1957,7 +1957,9 @@ enum TestMIQFactory {
         let voxelCount = width * height * depth
         var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
 
-        let axisLayout = try! MIFAxisLayout(dim: [width, height, depth], layout: layout)
+        guard let axisLayout = try? MIFAxisLayout(dim: [width, height, depth], layout: layout) else {
+            fatalError("MIFAxisLayout init failed with layout \(layout)")
+        }
         let baseElementIndex = axisLayout.baseElementIndex
         let elementStrides = axisLayout.rawStrides
 

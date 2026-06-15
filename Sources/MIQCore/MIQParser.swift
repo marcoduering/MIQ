@@ -1,7 +1,7 @@
 import Foundation
 
 public struct MIQParser {
-    public init() {}
+    public init() { /* value type, no stored state */ }
 
     /// - Parameter fullyDecompress: When `true`, bypass the volume-0 budget cap
     ///   for `.nii.gz` and decompress the entire stream. The default (`false`)

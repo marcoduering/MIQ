@@ -16,7 +16,7 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
 
     override var preferredContentSize: NSSize {
         get { NSSize(width: 700, height: 600) }
-        set { }
+        set { /* read-only override; caller uses preferredContentSize getter only */ }
     }
 
     override func loadView() {

@@ -61,7 +61,7 @@ public struct ScrollStepResolver: Sendable {
     /// Option released mid volume-gesture: swallow the remainder + its inertia.
     private var volumeCancelled = false
 
-    public init() {}
+    public init() { /* all stored properties have defaults */ }
 
     /// `onBegan` fires once per gesture start (used to cancel pending renders).
     /// Returns `nil` when the event should produce no step (below threshold,

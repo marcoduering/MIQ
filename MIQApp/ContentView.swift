@@ -402,7 +402,7 @@ struct ContentView: View {
             Button("Open Changelog on GitHub") {
                 NSWorkspace.shared.open(result.releaseURL)
             }
-            Button("Cancel", role: .cancel) { }
+            Button("Cancel", role: .cancel) { /* sheet dismissed by .cancel role */ }
         } message: { result in
             Text("MIQ \(result.version) is available.\nYou are running \(Self.currentVersion).\n\nDownload the latest release from GitHub.\n\nOr if you installed via Homebrew, run in Terminal:\n\(Self.homebrewCommand)")
         }
@@ -1038,7 +1038,7 @@ private struct MetadataReorderDropDelegate: DropDelegate {
         return true
     }
 
-    func dropExited(info: DropInfo) {}
+    func dropExited(info: DropInfo) { /* no cleanup needed on drag exit */ }
 }
 
 #Preview {
