@@ -28,6 +28,18 @@ final class MIQPreviewModel {
         case loading
         case ready
         case failed(String)
+        /// A large file on a network volume whose full read was deferred behind a
+        /// placeholder (see `MIQConfig.deferLargeNetworkPreviews`). Carries the
+        /// display name and on-disk size for the placeholder. `forceFullRead`
+        /// (the "Load preview" button) bypasses the gate and parses normally.
+        case deferred(name: String, sizeBytes: Int)
+    }
+
+    /// Result of the cold detached load: either the parsed preview, or a signal
+    /// that the network gate deferred it (carrying the size for the placeholder).
+    private enum LoadOutcome: Sendable {
+        case loaded(RawPreviewData)
+        case deferred(sizeBytes: Int)
     }
 
     /// Lifecycle of the lazy full-decompression for 4D `.nii.gz`. Every other
@@ -106,10 +118,18 @@ final class MIQPreviewModel {
         volume.volumes > 1 && !volume.containsAllVolumes
     }
 
-    func load() async {
+    /// - Parameter forceFullRead: when `true` (the placeholder's "Load preview"
+    ///   button), bypass the large-network-preview gate and parse normally. The
+    ///   default cold load respects the gate.
+    func load(forceFullRead: Bool = false) async {
         state = .loading
         onChange?()
         let fileURL = self.url
+        let kind = self.fileKind
+        // The gate's on/off flag is a cheap UserDefaults read, fine on the
+        // MainActor; the actual locality + size probe (which can block on a hung
+        // mount) runs inside the detached task below.
+        let applyNetworkGate = !forceFullRead && MIQConfig.deferLargeNetworkPreviews
         let options = RenderingOptions(
             lowerPercentile: MIQConfig.windowLowerPercentile,
             upperPercentile: MIQConfig.windowUpperPercentile,
@@ -166,16 +186,26 @@ final class MIQPreviewModel {
         }
 
         do {
-            let raw = try await Self.runCancelableDetached { () -> RawPreviewData in
-                try Self.loadPreviewData(fileURL: fileURL, options: options, maxDimension: maxDimension)
+            let outcome = try await Self.runCancelableDetached { () -> LoadOutcome in
+                if applyNetworkGate, let sizeBytes = Self.networkDeferralSizeBytes(fileURL: fileURL, kind: kind) {
+                    return .deferred(sizeBytes: sizeBytes)
+                }
+                return .loaded(try Self.loadPreviewData(fileURL: fileURL, options: options, maxDimension: maxDimension))
             }
 
-            let bundle = makeBundle(from: raw)
-            MIQPreviewCache.insert(bundle, for: cacheKey)
-            apply(raw: raw)
-            state = .ready
-            logger.notice("load() finished successfully")
-            onChange?()
+            switch outcome {
+            case .deferred(let sizeBytes):
+                state = .deferred(name: fileURL.lastPathComponent, sizeBytes: sizeBytes)
+                logger.notice("load() deferred large network preview: \(sizeBytes / (1024 * 1024), privacy: .public)MB")
+                onChange?()
+            case .loaded(let raw):
+                let bundle = makeBundle(from: raw)
+                MIQPreviewCache.insert(bundle, for: cacheKey)
+                apply(raw: raw)
+                state = .ready
+                logger.notice("load() finished successfully")
+                onChange?()
+            }
         } catch is CancellationError {
             // Preview dismissed/replaced mid-parse (e.g. a large file abandoned on
             // a slow network mount). The load task is being torn down — leave state
@@ -559,6 +589,20 @@ final class MIQPreviewModel {
         } onCancel: {
             task.cancel()
         }
+    }
+
+    /// On a network volume, the on-disk size (bytes) at which a non-boundable
+    /// kind's cold preview should be deferred behind a placeholder rather than
+    /// pulling the whole file (which would stall Finder's I/O on a slow mount).
+    /// `nil` ⇒ load normally (local disk, canonical NIfTI, or under threshold).
+    /// Runs inside the detached task: `VolumeLocation.isLocal` (statfs) and the
+    /// size stat can block on a hung mount, so they stay off the MainActor.
+    private nonisolated static func networkDeferralSizeBytes(fileURL: URL, kind: MIQFileKind?) -> Int? {
+        guard let kind, !kind.supportsBoundedNetworkRead else { return nil }
+        guard !VolumeLocation.isLocal(fileURL) else { return nil }
+        guard let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size > MIQConfig.networkPreviewThresholdBytes else { return nil }
+        return size
     }
 
     private nonisolated static func loadPreviewData(

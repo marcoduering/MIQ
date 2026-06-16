@@ -314,6 +314,8 @@ struct ContentView: View {
     private var showMetadataValue: Bool = MIQConfig.Defaults.showMetadataValue
     @AppStorage(MIQConfig.Keys.metadataOrder, store: Self.store)
     private var metadataOrder: StoredMetadataOrder = StoredMetadataOrder.defaultValue
+    @AppStorage(MIQConfig.Keys.deferLargeNetworkPreviews, store: Self.store)
+    private var deferLargeNetworkPreviews: Bool = MIQConfig.Defaults.deferLargeNetworkPreviews
     @AppStorage(MIQConfig.Keys.hideDisclaimerInPreview, store: Self.store)
     private var hideDisclaimerInPreview: Bool = MIQConfig.Defaults.hideDisclaimerInPreview
     @AppStorage(MIQConfig.Keys.showThumbnails, store: Self.store)
@@ -409,7 +411,7 @@ struct ContentView: View {
         } message: { result in
             Text("MIQ \(result.version) is available.\nYou are running \(Self.currentVersion).\n\nDownload the latest release from GitHub.\n\nOr if you installed via Homebrew, run in Terminal:\n\(Self.homebrewCommand)")
         }
-        .frame(minWidth: 550, idealWidth: 550, maxWidth: 550, minHeight: 614, idealHeight: 614, maxHeight: 614)
+        .frame(minWidth: 550, idealWidth: 550, maxWidth: 550, minHeight: 591, idealHeight: 591, maxHeight: 591)
         .onAppear {
             focusedTarget = .resetButton
             #if DEBUG
@@ -581,7 +583,7 @@ struct ContentView: View {
                             Text(orientation.label).tag(orientation)
                         }
                     }
-                    Text("By default, the image is rendered as stored (best for checking your raw data). Depending on its orientation, it may appear rotated or flipped. If you prefer a standardized view, the preview can be rendered in the neurological convention (patient right on viewer's right) or the radiological convention (patient right on viewer's left).")
+                    Text("By default, images are rendered as stored. For a standardized view, use neurological (patient right on right) or radiological (patient right on left).")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -604,7 +606,7 @@ struct ContentView: View {
                                 .background(Capsule().fill(.tint))
                         }
                     }
-                    Text("When a file is detected as an integer label volume (e.g. FreeSurfer aseg/aparc, binary mask), colour each label instead of applying a grayscale intensity window. Auto uses canonical FreeSurfer colours when the file looks like a FreeSurfer parcellation, otherwise assigns random colours. Off (default) always uses grayscale windowing.")
+                    Text("When a label file is detected, render in colour. Auto uses canonical FreeSurfer colours when a FreeSurfer parcellation is detected, otherwise assigns random colours.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -631,7 +633,7 @@ struct ContentView: View {
                             .labelsHidden()
                     }
 
-                    Text("Initial grayscale intensity range using percentile thresholds for non-zero voxels (default: 2% - 98%).")
+                    Text("Initial intensity range, percentile thresholds for non-zero voxels (default: 2% - 98%).")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -645,7 +647,7 @@ struct ContentView: View {
                             .labelsHidden()
                     }
 
-                    Text("Off (default): the window is computed once from the first volume and kept constant. On: The window is re-calculated for each volume. A manual window/level adjustment overrides all volumes.")
+                    Text("Off (default): the window is computed once from the first volume and kept constant. On: The window is re-calculated for each volume.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -666,6 +668,22 @@ struct ContentView: View {
                     Spacer()
                     Toggle("", isOn: $showAxisLabels)
                         .labelsHidden()
+                }
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Defer large previews on network volumes")
+                        Spacer()
+                        Toggle("", isOn: $deferLargeNetworkPreviews)
+                            .labelsHidden()
+                    }
+
+                    Text("On by default: for files larger than \(Int(MIQConfig.Defaults.networkPreviewThresholdMB)) the user needs to actively confirm loading. 4D NIfTI is unaffected, it only reads the first volume.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -1009,6 +1027,7 @@ struct ContentView: View {
         showMetadataScaling     = MIQConfig.Defaults.showMetadataScaling
         metadataOrder           = StoredMetadataOrder.defaultValue
         hideDisclaimerInPreview = MIQConfig.Defaults.hideDisclaimerInPreview
+        deferLargeNetworkPreviews = MIQConfig.Defaults.deferLargeNetworkPreviews
         showThumbnails            = MIQConfig.Defaults.showThumbnails
         showThumbnailsOnNetworkVolumes = MIQConfig.Defaults.showThumbnailsOnNetworkVolumes
         thumbnailImageOrientation = ViewOrientation.defaultValue

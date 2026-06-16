@@ -39,6 +39,11 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
         root.onSliceWindowAdjust = { [weak self] deltaX, deltaY in
             self?.model?.adjustWindow(deltaX: deltaX, deltaY: deltaY)
         }
+        root.onLoadAnyway = { [weak self] in
+            // The "Load preview" button on the deferred-network placeholder:
+            // re-run the load with the gate bypassed so the full read proceeds.
+            self?.beginLoad(forceFullRead: true)
+        }
         self.previewView = root
         self.view = root
     }
@@ -73,8 +78,8 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
             case .loading:
                 logger.notice("same URL requested while load is in progress; reusing existing model")
                 return
-            case .ready:
-                logger.notice("same URL requested with ready model; reusing existing preview")
+            case .ready, .deferred:
+                logger.notice("same URL requested with ready/deferred model; reusing existing preview")
                 previewView?.update(from: model)
                 return
             case .idle, .failed:
@@ -84,13 +89,10 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
 
         currentURL = url
 
-        loadTask?.cancel()
-        loadingIndicatorTask?.cancel()
         guard previewView != nil else {
             logger.error("preview root view missing")
             return
         }
-        previewView?.hideStatus()
         logger.notice("using persistent AppKit preview root view")
 
         let model = MIQPreviewModel(url: url)
@@ -105,11 +107,25 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
             let shouldFlushDisplay: Bool
             switch model.state {
             case .ready: shouldFlushDisplay = !model.hasInteracted
+            case .deferred: shouldFlushDisplay = true  // show the placeholder promptly
             case .idle, .loading, .failed: shouldFlushDisplay = false
             }
             self.refreshPreviewView(from: model, flushDisplay: shouldFlushDisplay)
         }
         self.model = model
+
+        beginLoad(forceFullRead: false)
+    }
+
+    /// Starts (or restarts) the async model load with its delayed loading
+    /// indicator. Reused by the cold path and by the deferred-network
+    /// placeholder's "Load preview" button (`forceFullRead: true`).
+    @MainActor
+    private func beginLoad(forceFullRead: Bool) {
+        guard let model else { return }
+        loadTask?.cancel()
+        loadingIndicatorTask?.cancel()
+        previewView?.hideStatus()
 
         loadingIndicatorTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
@@ -119,8 +135,8 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
 
         loadTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            logger.notice("starting async model load")
-            await model.load()
+            logger.notice("starting async model load (forceFullRead=\(forceFullRead, privacy: .public))")
+            await model.load(forceFullRead: forceFullRead)
             self.loadingIndicatorTask?.cancel()
             guard !Task.isCancelled else {
                 self.logger.notice("load task canceled before UI update")

@@ -52,6 +52,8 @@ final class MIQPreviewAppKitView: NSView {
     var onVolumeSeek: (@MainActor (Int) -> Void)?
     var onSliceCursorPosition: (@MainActor (SlicePlane, MIQNormalizedPoint) -> Void)?
     var onSliceWindowAdjust: (@MainActor (CGFloat, CGFloat) -> Void)?
+    /// Invoked by the deferred-network placeholder's "Load preview" button.
+    var onLoadAnyway: (@MainActor () -> Void)?
 
     private let coronal = MIQSliceCanvas(
         plane: .coronal,
@@ -70,6 +72,11 @@ final class MIQPreviewAppKitView: NSView {
     )
     private let metadata = MetadataView()
     private let status = NSTextField(labelWithString: "")
+    // Centered placeholder shown for the deferred-network state: a message plus a
+    // "Load preview" button that triggers the (throttled, cancelable) full read.
+    private let deferredPlaceholder = NSView()
+    private let deferredLabel = NSTextField(wrappingLabelWithString: "")
+    private let deferredButton = NSButton(title: "Load preview", target: nil, action: nil)
     private var columnRatioConstraint: NSLayoutConstraint?
     private var rowRatioConstraint: NSLayoutConstraint?
     private var metadataEntries: [MetadataEntry] = []
@@ -174,13 +181,17 @@ final class MIQPreviewAppKitView: NSView {
         metadata.setVoxelValue(voxelValueText)
 
         switch model.state {
+        case .deferred(let name, let sizeBytes):
+            showDeferredPlaceholder(name: name, sizeBytes: sizeBytes)
         case .failed(let message):
+            deferredPlaceholder.isHidden = true
             status.stringValue = "Preview failed: \(message)"
             status.isHidden = false
         case .ready:
+            deferredPlaceholder.isHidden = true
             status.isHidden = true
         case .idle, .loading:
-            break
+            deferredPlaceholder.isHidden = true
         }
     }
 
@@ -418,8 +429,11 @@ final class MIQPreviewAppKitView: NSView {
         status.maximumNumberOfLines = 2
         status.cell?.wraps = true
 
+        buildDeferredPlaceholder()
+
         addSubview(gridLikeLayout)
         addSubview(status)
+        addSubview(deferredPlaceholder)
 
         NSLayoutConstraint.activate([
             gridLikeLayout.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -429,8 +443,70 @@ final class MIQPreviewAppKitView: NSView {
             status.centerXAnchor.constraint(equalTo: centerXAnchor),
             status.centerYAnchor.constraint(equalTo: centerYAnchor),
             status.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.86),
-            status.heightAnchor.constraint(greaterThanOrEqualToConstant: 32)
+            status.heightAnchor.constraint(greaterThanOrEqualToConstant: 32),
+            deferredPlaceholder.centerXAnchor.constraint(equalTo: centerXAnchor),
+            deferredPlaceholder.centerYAnchor.constraint(equalTo: centerYAnchor),
+            // Deterministic width (equality, not `<=`): an inequality-only width let
+            // the container collapse ambiguously across the two QL hosts.
+            deferredPlaceholder.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.7)
         ])
+    }
+
+    private func buildDeferredPlaceholder() {
+        // Explicit constraints (not an NSStackView): a wrapping label with no width
+        // constraint left the stack mis-sizing the button to nothing. Here the
+        // label fills the container width (capped where the placeholder is added)
+        // and the button is pinned below it, so the button is always laid out.
+        deferredPlaceholder.translatesAutoresizingMaskIntoConstraints = false
+        deferredPlaceholder.isHidden = true
+
+        deferredLabel.translatesAutoresizingMaskIntoConstraints = false
+        deferredLabel.alignment = .center
+        deferredLabel.font = .systemFont(ofSize: 13, weight: .regular)
+        deferredLabel.textColor = NSColor(calibratedWhite: 0.9, alpha: 1.0)
+        deferredLabel.maximumNumberOfLines = 0
+        deferredLabel.lineBreakMode = .byWordWrapping
+
+        deferredButton.translatesAutoresizingMaskIntoConstraints = false
+        deferredButton.bezelStyle = .rounded
+        deferredButton.controlSize = .large
+        // Explicit accent fill + white title. The standard bezel is dark-on-black in
+        // the spacebar Quick Look panel's dark appearance (the button was laid out
+        // but invisible); a saturated accent bezel with white text reads on the
+        // black background in both the dark space window and the light Finder pane.
+        deferredButton.bezelColor = .controlAccentColor
+        deferredButton.attributedTitle = NSAttributedString(
+            string: "Load preview",
+            attributes: [
+                .foregroundColor: NSColor.white,
+                .font: NSFont.systemFont(ofSize: 13, weight: .medium)
+            ]
+        )
+        deferredButton.target = self
+        deferredButton.action = #selector(deferredButtonClicked)
+
+        deferredPlaceholder.addSubview(deferredLabel)
+        deferredPlaceholder.addSubview(deferredButton)
+
+        NSLayoutConstraint.activate([
+            deferredLabel.topAnchor.constraint(equalTo: deferredPlaceholder.topAnchor),
+            deferredLabel.leadingAnchor.constraint(equalTo: deferredPlaceholder.leadingAnchor),
+            deferredLabel.trailingAnchor.constraint(equalTo: deferredPlaceholder.trailingAnchor),
+            deferredButton.topAnchor.constraint(equalTo: deferredLabel.bottomAnchor, constant: 16),
+            deferredButton.centerXAnchor.constraint(equalTo: deferredPlaceholder.centerXAnchor),
+            deferredButton.bottomAnchor.constraint(equalTo: deferredPlaceholder.bottomAnchor)
+        ])
+    }
+
+    @objc private func deferredButtonClicked() {
+        onLoadAnyway?()
+    }
+
+    private func showDeferredPlaceholder(name: String, sizeBytes: Int) {
+        let size = ByteCountFormatter.string(fromByteCount: Int64(sizeBytes), countStyle: .file)
+        deferredLabel.stringValue = "\(name) is \(size) on a network volume.\nLoading it now could make Finder unresponsive while it transfers."
+        deferredPlaceholder.isHidden = false
+        status.isHidden = true
     }
 
     private func updateFOVLayoutRatios() {

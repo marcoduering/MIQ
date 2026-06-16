@@ -33,6 +33,17 @@ public enum MIQFileKind: Sendable, CaseIterable {
         }
     }
 
+    /// Whether a cold preview of this kind can be bounded to a volume-0 prefix on
+    /// a network volume. Only canonical NIfTI qualifies (see
+    /// `MIQParser.loadBoundedNiftiPrefix`); every other kind needs a full read,
+    /// which is what the large-network preview gate defers.
+    public var supportsBoundedNetworkRead: Bool {
+        switch self {
+        case .nii, .niiGz: return true
+        case .mgh, .mgz, .mif, .mifGz, .nrrd: return false
+        }
+    }
+
     public var displayName: String {
         switch self {
         case .nii: return "NIfTI-1"

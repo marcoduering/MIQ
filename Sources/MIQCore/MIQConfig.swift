@@ -34,6 +34,7 @@ public enum MIQConfig {
         public static let metadataOrder           = "metadataOrder"
         public static let segmentationColoring           = "segmentationColoring"
         public static let hideDisclaimerInPreview = "hideDisclaimerInPreview"
+        public static let deferLargeNetworkPreviews = "deferLargeNetworkPreviews"
         public static let showThumbnails                 = "showThumbnails"
         public static let showThumbnailsOnNetworkVolumes = "showThumbnailsOnNetworkVolumes"
         public static let thumbnailImageOrientation      = "thumbnailImageOrientation"
@@ -63,6 +64,10 @@ public enum MIQConfig {
         public static let metadataOrder           = "format,dimensions,spacing,orientation,datatype,volumes,scaling,value"
         public static let segmentationColoring           = "off"
         public static let hideDisclaimerInPreview = false
+        public static let deferLargeNetworkPreviews = true
+        /// Size (MB) above which `deferLargeNetworkPreviews` defers a network
+        /// preview. Not user-configurable (no `Keys` entry / UI control).
+        public static let networkPreviewThresholdMB = 100.0
         public static let showThumbnails                 = false
         public static let showThumbnailsOnNetworkVolumes = false
         public static let thumbnailImageOrientation      = "stored"
@@ -153,6 +158,23 @@ public enum MIQConfig {
     public static var hideDisclaimerInPreview: Bool {
         let d = defaults
         return d.object(forKey: Keys.hideDisclaimerInPreview) as? Bool ?? Defaults.hideDisclaimerInPreview
+    }
+
+    /// When `true` (default), the preview extension defers the heavy full-file
+    /// read for non-boundable kinds (`.mgz`/`.mif.gz`/`.nrrd`, and `.mgh`/`.mif`)
+    /// on a network volume when the file exceeds `networkPreviewThresholdBytes`,
+    /// showing a "load preview" placeholder instead of auto-pulling it. Prevents a
+    /// large read from stalling Finder's own I/O on a slow mount. Local disk and
+    /// canonical NIfTI (already bounded to volume 0) are unaffected. Read by the
+    /// preview extension only.
+    public static var deferLargeNetworkPreviews: Bool {
+        let d = defaults
+        return d.object(forKey: Keys.deferLargeNetworkPreviews) as? Bool ?? Defaults.deferLargeNetworkPreviews
+    }
+
+    /// Byte threshold derived from `Defaults.networkPreviewThresholdMB`.
+    public static var networkPreviewThresholdBytes: Int {
+        Int(Defaults.networkPreviewThresholdMB * 1024 * 1024)
     }
 
     // MARK: - Thumbnails (Finder / Quick Look thumbnail extension)
