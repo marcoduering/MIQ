@@ -166,9 +166,9 @@ final class MIQPreviewModel {
         }
 
         do {
-            let raw = try await Task.detached(priority: .userInitiated) { () -> RawPreviewData in
+            let raw = try await Self.runCancelableDetached { () -> RawPreviewData in
                 try Self.loadPreviewData(fileURL: fileURL, options: options, maxDimension: maxDimension)
-            }.value
+            }
 
             let bundle = makeBundle(from: raw)
             MIQPreviewCache.insert(bundle, for: cacheKey)
@@ -176,6 +176,11 @@ final class MIQPreviewModel {
             state = .ready
             logger.notice("load() finished successfully")
             onChange?()
+        } catch is CancellationError {
+            // Preview dismissed/replaced mid-parse (e.g. a large file abandoned on
+            // a slow network mount). The load task is being torn down — leave state
+            // untouched and don't surface a failure.
+            logger.notice("load() canceled before completion")
         } catch {
             logger.error("load() failed: \(error.localizedDescription, privacy: .public)")
             state = .failed(error.localizedDescription)
@@ -272,7 +277,7 @@ final class MIQPreviewModel {
         expansionTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let expanded = try await Task.detached(priority: .userInitiated) { () -> InteractivePreviewState in
+                let expanded = try await Self.runCancelableDetached { () -> InteractivePreviewState in
                     try Self.loadExpandedInteractiveState(
                         fileURL: fileURL,
                         options: options,
@@ -280,7 +285,7 @@ final class MIQPreviewModel {
                         windowBounds: windowBounds,
                         segmentationLut: segmentationLut
                     )
-                }.value
+                }
                 guard !Task.isCancelled else { return }
                 self.expansionTask = nil
                 self.interactiveState = expanded
@@ -448,9 +453,9 @@ final class MIQPreviewModel {
         interactionPreparationTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let interactiveState = try await Task.detached(priority: .userInitiated) { () -> InteractivePreviewState in
+                let interactiveState = try await Self.runCancelableDetached { () -> InteractivePreviewState in
                     try Self.loadInteractiveState(fileURL: fileURL, options: options, maxDimension: maxDimension)
-                }.value
+                }
                 guard !Task.isCancelled else { return }
                 self.interactionPreparationTask = nil
                 self.interactiveState = interactiveState
@@ -513,18 +518,15 @@ final class MIQPreviewModel {
 
         renderTask = Task { [weak self] in
             guard let self else { return }
-            let result = await Task.detached(priority: .userInitiated) { () -> (bounds: MIQIntensityWindowBounds?, bitmaps: [SlicePlane: RGBABitmap]) in
-                let bounds = Self.resolveWindowBounds(
+            let result = await Task.detached(priority: .userInitiated) {
+                Self.renderBitmaps(
                     cursor: cursor,
+                    planes: planesToRender,
                     interactiveState: interactiveState,
                     manual: manualBounds,
                     perVolume: perVolume,
                     cached: cachedAutoBounds
                 )
-                let slices = Self.renderSlices(for: cursor, planes: planesToRender, interactiveState: interactiveState, windowBounds: bounds)
-                // RGBA expansion stays off the MainActor with the rest of the
-                // pixel work; only CGImage/NSImage wrapping happens in apply.
-                return (bounds, slices.compactMapValues { $0.rgbaBitmap() })
             }.value
             guard !Task.isCancelled else { return }
             self.apply(bitmaps: result.bitmaps)
@@ -540,6 +542,22 @@ final class MIQPreviewModel {
             self.onChange?()
             self.renderTask = nil
             self.startNextRenderIfNeeded()
+        }
+    }
+
+    /// Runs `work` off the MainActor on a detached task but propagates *this*
+    /// task's cancellation into it. A bare `Task.detached(...).value` would keep
+    /// running after the awaiting task is cancelled (detached tasks don't inherit
+    /// cancellation), so a dismissed/replaced preview couldn't stop an in-flight
+    /// parse — notably the full network read for non-boundable kinds (`.mif.gz`).
+    private static func runCancelableDetached<T: Sendable>(
+        _ work: @Sendable @escaping () throws -> T
+    ) async throws -> T {
+        let task = Task.detached(priority: .userInitiated, operation: work)
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
         }
     }
 
@@ -650,6 +668,21 @@ final class MIQPreviewModel {
     /// cold preview, just for `cursor.t`); a single-volume file or a missing
     /// window falls back to the volume-0 bounds. Called only inside the detached
     /// render task — `fixedCenterWindow` decodes 3 center slices.
+    private nonisolated static func renderBitmaps(
+        cursor: MIQVolumeCursor,
+        planes: [SlicePlane],
+        interactiveState: InteractivePreviewState,
+        manual: MIQIntensityWindowBounds?,
+        perVolume: Bool,
+        cached: MIQIntensityWindowBounds?
+    ) -> (bounds: MIQIntensityWindowBounds?, bitmaps: [SlicePlane: RGBABitmap]) {
+        let bounds = resolveWindowBounds(cursor: cursor, interactiveState: interactiveState, manual: manual, perVolume: perVolume, cached: cached)
+        let slices = renderSlices(for: cursor, planes: planes, interactiveState: interactiveState, windowBounds: bounds)
+        // RGBA expansion stays off the MainActor with the rest of the
+        // pixel work; only CGImage/NSImage wrapping happens in apply.
+        return (bounds, slices.compactMapValues { $0.rgbaBitmap() })
+    }
+
     private nonisolated static func resolveWindowBounds(
         cursor: MIQVolumeCursor,
         interactiveState: InteractivePreviewState,

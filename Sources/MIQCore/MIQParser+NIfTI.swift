@@ -48,15 +48,8 @@ extension MIQParser {
         let srowZ = MIQBinaryReader.float32Array(data, 312, count: 4, littleEndian: littleEndian)
 
         let orientationFrame = niftiOrientationFrame(
-            sformCode: sformCode,
-            srowX: srowX,
-            srowY: srowY,
-            srowZ: srowZ,
-            qformCode: qformCode,
-            quaternB: quaternB,
-            quaternC: quaternC,
-            quaternD: quaternD,
-            qfac: pixdim[safe: 0] ?? 1
+            sform: SformFields(code: sformCode, rowX: srowX, rowY: srowY, rowZ: srowZ),
+            qform: QformFields(code: qformCode, quaternB: quaternB, quaternC: quaternC, quaternD: quaternD, qfac: pixdim[safe: 0] ?? 1)
         )
 
         return MIQHeader(
@@ -102,15 +95,8 @@ extension MIQParser {
         let srowZ = MIQBinaryReader.float64Array(data, 464, count: 4, littleEndian: littleEndian).map { Float($0) }
 
         let orientationFrame = niftiOrientationFrame(
-            sformCode: sformCode,
-            srowX: srowX,
-            srowY: srowY,
-            srowZ: srowZ,
-            qformCode: qformCode,
-            quaternB: quaternB,
-            quaternC: quaternC,
-            quaternD: quaternD,
-            qfac: pixdim[safe: 0] ?? 1
+            sform: SformFields(code: sformCode, rowX: srowX, rowY: srowY, rowZ: srowZ),
+            qform: QformFields(code: qformCode, quaternB: quaternB, quaternC: quaternC, quaternD: quaternD, qfac: pixdim[safe: 0] ?? 1)
         )
 
         return MIQHeader(
@@ -132,27 +118,32 @@ extension MIQParser {
 
     // MARK: - Shared helpers
 
+    private struct SformFields {
+        let code: Int
+        let rowX: [Float]
+        let rowY: [Float]
+        let rowZ: [Float]
+    }
+
+    private struct QformFields {
+        let code: Int
+        let quaternB: Float
+        let quaternC: Float
+        let quaternD: Float
+        let qfac: Float
+    }
+
     /// Resolves the anatomical orientation frame per NIfTI-1 spec rules: prefer
     /// sform when present and non-degenerate; otherwise fall back to qform; otherwise
     /// `nil`. Sform wins when both are valid because the spec treats sform as the
     /// "newer" / preferred transform.
-    private func niftiOrientationFrame(
-        sformCode: Int,
-        srowX: [Float],
-        srowY: [Float],
-        srowZ: [Float],
-        qformCode: Int,
-        quaternB: Float,
-        quaternC: Float,
-        quaternD: Float,
-        qfac: Float
-    ) -> OrientationFrame? {
-        if sformCode > 0,
-           let frame = OrientationFrame.from(srowX: srowX, srowY: srowY, srowZ: srowZ, source: .sform) {
+    private func niftiOrientationFrame(sform: SformFields, qform: QformFields) -> OrientationFrame? {
+        if sform.code > 0,
+           let frame = OrientationFrame.from(srowX: sform.rowX, srowY: sform.rowY, srowZ: sform.rowZ, source: .sform) {
             return frame
         }
-        if qformCode > 0,
-           let frame = OrientationFrame.fromQuaternion(b: quaternB, c: quaternC, d: quaternD, qfac: qfac) {
+        if qform.code > 0,
+           let frame = OrientationFrame.fromQuaternion(b: qform.quaternB, c: qform.quaternC, d: qform.quaternD, qfac: qform.qfac) {
             return frame
         }
         return nil

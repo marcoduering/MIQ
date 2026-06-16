@@ -25,10 +25,21 @@ public struct MIQParser {
     /// plus typical extensions — enough to compute the payload budget cheaply.
     private static let headerProbeBytes = 64 * 1024
 
+    /// Chunk size for the cancelable network read. Large enough to keep the read
+    /// efficient over a network mount, small enough that a cancelled task stops
+    /// pulling within roughly one chunk.
+    private static let networkReadChunkBytes = 4 * 1024 * 1024
+
     private func loadAndDecompress(url: URL, fullyDecompress: Bool = false) throws -> (Data, MIQFileKind) {
         guard let kind = MIQFileKind(url: url) else {
             throw MIQError.unsupportedFileFormat
         }
+
+        // `statfs` locality probe (cheap, one syscall). Now probed for every kind,
+        // not just NIfTI: non-boundable kinds (`.mgz`/`.mif.gz`/`.nrrd`) can't read
+        // a volume-0 prefix, so on a network volume they fall back to a full read —
+        // which must be cancelable (see below), and that needs the locality answer.
+        let isLocal = VolumeLocation.isLocal(url)
 
         // Network volumes can't be memory-mapped: `.mappedIfSafe` falls back to a
         // full read into RAM, so even our capped gunzip first pulls every byte off
@@ -36,15 +47,20 @@ public struct MIQParser {
         // (canonical NIfTI), read only that prefix from disk instead. Local disk
         // keeps the proven mmap + demand-paging path unchanged (zero perf risk),
         // and the 4D `fullyDecompress: true` re-parse always uses it.
-        //
-        // Only NIfTI can be bounded, so gate on kind *before* the `statfs`
-        // locality probe — `.mgz`/`.mif`/`.nrrd` skip it entirely and pay nothing.
-        if !fullyDecompress, kind == .nii || kind == .niiGz, !VolumeLocation.isLocal(url),
+        if !fullyDecompress, kind == .nii || kind == .niiGz, !isLocal,
            let bounded = try? loadBoundedNiftiPrefix(url: url, kind: kind) {
             return (bounded, kind)
         }
 
-        let raw = try Data(contentsOf: url, options: [.mappedIfSafe])
+        // Local disk: keep the proven mmap + demand-paging fast path (zero perf
+        // risk). Network volume: `.mappedIfSafe` can't map here and would degrade
+        // to one *uncancelable* full read off the wire — for a large `.mif.gz`
+        // that pins the (already slow) link until completion, stalling Finder's own
+        // I/O on the same mount even after the user dismisses the preview. Read in
+        // cancelable chunks instead so a cancelled parse task stops pulling bytes.
+        let raw = isLocal
+            ? try Data(contentsOf: url, options: [.mappedIfSafe])
+            : try readCancelable(url: url)
         guard kind.isCompressed else {
             return (raw, kind)
         }
@@ -156,6 +172,43 @@ public struct MIQParser {
             return false
         }
         return prefix.isEmpty ? nil : prefix
+    }
+
+    /// Reads the whole file in cancelable chunks, the network-volume substitute
+    /// for `Data(contentsOf:.mappedIfSafe)` (which can't map a network file and so
+    /// degrades to one uncancelable full read). `Task.checkCancellation()` between
+    /// chunks lets a dismissed/replaced preview's cancelled parse task stop pulling
+    /// bytes immediately, freeing the slow link for Finder. Capacity is reserved
+    /// from the file size to avoid repeated reallocations of a large buffer.
+    private func readCancelable(url: URL) throws -> Data {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+
+        // Deprioritize this thread's I/O while pulling the file off the wire so
+        // Finder's foreground filesystem calls on the same network mount aren't
+        // starved (the freeze symptom). Per-thread policy is safe here: the read
+        // runs to completion on one cooperative-pool thread (no `await` inside),
+        // and `defer` restores the prior policy on that same thread. Best-effort —
+        // throttling biases the *local* I/O scheduler, so it eases contention more
+        // than it cures a fully network-bound stall.
+        let previousPolicy = getiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD)
+        setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, IOPOL_THROTTLE)
+        defer {
+            setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, previousPolicy >= 0 ? previousPolicy : IOPOL_DEFAULT)
+        }
+
+        var data = Data()
+        if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 0 {
+            data.reserveCapacity(size)
+        }
+        while true {
+            try Task.checkCancellation()
+            guard let chunk = try handle.read(upToCount: Self.networkReadChunkBytes), !chunk.isEmpty else {
+                break
+            }
+            data.append(chunk)
+        }
+        return data
     }
 
     private func parseImage(data: Data, kind: MIQFileKind) throws -> MIQImage {
