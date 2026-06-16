@@ -76,24 +76,26 @@ public enum UpdateChecker {
         }
 
         struct Payload: Decodable {
-            let tag_name: String
-            let html_url: String
+            let tagName: String
+            let htmlUrl: String
             let draft: Bool?
             let prerelease: Bool?
         }
         let payload: Payload
         do {
-            payload = try JSONDecoder().decode(Payload.self, from: data)
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            payload = try decoder.decode(Payload.self, from: data)
         } catch {
             throw UpdateCheckError.malformedResponse
         }
 
-        guard let url = URL(string: payload.html_url) else {
+        guard let url = URL(string: payload.htmlUrl) else {
             throw UpdateCheckError.malformedResponse
         }
         return UpdateCheckResult(
-            tagName: payload.tag_name,
-            version: stripLeadingV(payload.tag_name),
+            tagName: payload.tagName,
+            version: stripLeadingV(payload.tagName),
             releaseURL: url
         )
     }

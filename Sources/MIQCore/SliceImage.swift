@@ -17,4 +17,11 @@ public enum SliceImage: Sendable {
         case .rgb(let img): return img.height
         }
     }
+
+    public var pixels: [UInt8] {
+        switch self {
+        case .grayscale(let img): return img.pixels
+        case .rgb(let img): return img.pixels
+        }
+    }
 }

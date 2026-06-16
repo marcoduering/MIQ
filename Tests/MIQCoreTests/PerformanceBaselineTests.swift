@@ -367,7 +367,10 @@ struct PerformanceBaselineTests {
     func resampleDownscale() {
         // A 600² source downscaled to 512² — representative of a hi-res slice
         // resampled into the preview's max dimension.
-        let w = 600, h = 600, tw = 512, th = 512
+        let w = 600
+        let h = 600
+        let tw = 512
+        let th = 512
         var seed: UInt64 = 0xFEEDFACECAFEF00D
         func nextByte() -> UInt8 {
             seed = seed &* 6364136223846793005 &+ 1442695040888963407
@@ -659,7 +662,14 @@ struct PerformanceBaselineTests {
                 // timing jitter dominates the ratio — show the delta unflagged so
                 // the tool doesn't cry wolf every release).
                 let stable = flag && base >= 1.0 && cur >= 1.0
-                let innerMark = ratio > threshold ? " ⚠️ REGRESSION" : ratio < 0.8 ? " ✅ faster" : ""
+                let innerMark: String
+                if ratio > threshold {
+                    innerMark = " ⚠️ REGRESSION"
+                } else if ratio < 0.8 {
+                    innerMark = " ✅ faster"
+                } else {
+                    innerMark = ""
+                }
                 let mark = stable ? innerMark : ""
                 cmp = String(format: "%.1f → %.1f (%+.0f%%)%@", base, cur, pct, mark)
             } else if base == nil {
@@ -683,7 +693,8 @@ struct PerformanceBaselineTests {
     }
 
     private static func row3(_ a: String, _ b: String, _ c: String) -> String {
-        let wa = 27, wb = 11
+        let wa = 27
+        let wb = 11
         let pa = a.count >= wa ? a : a + String(repeating: " ", count: wa - a.count)
         let pb = b.count >= wb ? b : b + String(repeating: " ", count: wb - b.count)
         return pa + " " + pb + " " + c
@@ -695,9 +706,11 @@ struct PerformanceBaselineTests {
         let geo = volume.sliceGeometry(for: plane, options: options)
         let cursor = volume.centerCursor()
         let slice = cursor.coordinate(forAxis: geo.sliceAxis)
-        var lo = Int.max, hi = Int.min
+        var lo = Int.max
+        var hi = Int.min
         let img = volume.image
-        let stepW = max(1, geo.width / 32), stepH = max(1, geo.height / 32)
+        let stepW = max(1, geo.width / 32)
+        let stepH = max(1, geo.height / 32)
         var c = [0, 0, 0]
         c[geo.sliceAxis] = slice
         var row = 0
@@ -719,7 +732,8 @@ struct PerformanceBaselineTests {
     }
 
     private static func row2(_ a: String, _ b: String, _ c: String) -> String {
-        let wa = 26, wb = 18
+        let wa = 26
+        let wb = 18
         let pa = a.count >= wa ? a : a + String(repeating: " ", count: wa - a.count)
         let pb = b.count >= wb ? b : b + String(repeating: " ", count: wb - b.count)
         return pa + " " + pb + " " + c

@@ -102,7 +102,8 @@ struct IntensityWindowSortTests {
 
     @Test func emptyAndAllNonFiniteReturnNil() {
         #expect(IntensityWindow.bounds(for: [], lowerPercentile: 2, upperPercentile: 98) == nil)
-        let nan = Float.nan, inf = Float.infinity
+        let nan = Float.nan
+        let inf = Float.infinity
         #expect(IntensityWindow.bounds(for: [nan, inf, -inf], lowerPercentile: 2, upperPercentile: 98) == nil)
     }
 }

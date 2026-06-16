@@ -40,7 +40,10 @@ struct StoredColor: RawRepresentable, Equatable {
     }
 
     var rawValue: String {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
         NSColor(color).usingColorSpace(.sRGB)?.getRed(&r, green: &g, blue: &b, alpha: &a)
         return "\(r),\(g),\(b),\(a)"
     }

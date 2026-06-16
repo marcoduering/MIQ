@@ -1,0 +1,4 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:30.000
+Screen recording demonstrating MIQ Quick Look extension. A medical volume image file is selected in macOS Finder and previewed with Space bar, showing a 2×2 orthogonal slice grid (axial, coronal, sagittal views) with anatomical orientation labels and a metadata panel. The user scrubs through slices and volume timepoints interactively.

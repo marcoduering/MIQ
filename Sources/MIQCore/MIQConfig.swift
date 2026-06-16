@@ -71,7 +71,10 @@ public enum MIQConfig {
     }
 
     public struct MIQColor: Sendable {
-        public let red, green, blue, alpha: Double
+        public let red: Double
+        public let green: Double
+        public let blue: Double
+        public let alpha: Double
     }
 
     /// Shared App Group store, resolved once. Cached rather than reconstructed

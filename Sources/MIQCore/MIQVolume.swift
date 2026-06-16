@@ -871,7 +871,9 @@ private struct SliceConfig {
     func coordinate(slice: Int, row: Int, col: Int) -> (x: Int, y: Int, z: Int) {
         let hVal = hReversed ? (hDim - 1 - col) : col
         let vVal = vReversed ? (vDim - 1 - row) : row
-        var x = 0, y = 0, z = 0
+        var x = 0
+        var y = 0
+        var z = 0
         switch sliceAxis { case 0: x = slice; case 1: y = slice; default: z = slice }
         switch hAxis { case 0: x = hVal; case 1: y = hVal; default: z = hVal }
         switch vAxis { case 0: x = vVal; case 1: y = vVal; default: z = vVal }

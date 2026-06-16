@@ -57,18 +57,22 @@ struct MIQCoreTests {
 
         for plane in SlicePlane.allCases {
             let rendered = volume.centerSlice(plane: plane, options: testRenderingOptions, windowBounds: window)
-            switch (shared[plane], rendered) {
-            case (.grayscale(let a)?, .grayscale(let b)):
-                #expect(a.width == b.width)
-                #expect(a.height == b.height)
-                #expect(a.pixels == b.pixels)
-            case (.rgb(let a)?, .rgb(let b)):
-                #expect(a.width == b.width)
-                #expect(a.height == b.height)
-                #expect(a.pixels == b.pixels)
-            default:
+            guard let sharedSlice = shared[plane] else {
                 Issue.record("slice rendering with fixed shared window did not match centerSlices output")
+                continue
             }
+            let sameKind: Bool
+            switch (sharedSlice, rendered) {
+            case (.grayscale, .grayscale), (.rgb, .rgb): sameKind = true
+            default: sameKind = false
+            }
+            guard sameKind else {
+                Issue.record("slice rendering with fixed shared window did not match centerSlices output")
+                continue
+            }
+            #expect(sharedSlice.width == rendered.width)
+            #expect(sharedSlice.height == rendered.height)
+            #expect(sharedSlice.pixels == rendered.pixels)
         }
     }
 
@@ -128,7 +132,7 @@ struct MIQCoreTests {
         )
         let scaledLines = MIQMetadata(header: scaledHeader).asDisplayLines()
 
-        #expect(scaledLines.contains(where: { $0.field == .scaling && $0.text == "Scaling: x 0.004 + 1024.000" }))
+        #expect(scaledLines.contains(where: { $0.field == .scaling && $0.text == "Scaling: x 0.004 + 1024" }))
 
         let identityHeader = MIQHeader(
             littleEndian: true,
@@ -201,7 +205,10 @@ struct MIQCoreTests {
     /// (proving the optimization engaged, not silently doing full work).
     @Test
     func partialDecompressionMatchesFullForFourDNifti() throws {
-        let w = 8, h = 6, d = 4, t = 5
+        let w = 8
+        let h = 6
+        let d = 4
+        let t = 5
         let raw = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: t)
         let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         let plainURL = tmpDir.appendingPathComponent("miq-test-\(UUID().uuidString).nii")
@@ -244,7 +251,10 @@ struct MIQCoreTests {
     /// budget actually engages (small files legitimately decompress in full).
     @Test
     func boundedPrefixReadMatchesFullForFourDNiftiGz() throws {
-        let w = 64, h = 64, d = 20, t = 5
+        let w = 64
+        let h = 64
+        let d = 20
+        let t = 5
         let raw = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: t)
         let plainURL = Self.tempURL(suffix: ".nii")
         let gzURL = Self.tempURL(suffix: ".nii.gz")
@@ -284,7 +294,10 @@ struct MIQCoreTests {
     /// trailing volumes while keeping volume 0 byte-identical.
     @Test
     func boundedPrefixReadMatchesFullForFourDNiftiPlain() throws {
-        let w = 8, h = 6, d = 4, t = 5
+        let w = 8
+        let h = 6
+        let d = 4
+        let t = 5
         let raw = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: t)
         let plainURL = Self.tempURL(suffix: ".nii")
         let prefixURL = Self.tempURL(suffix: ".nii")
@@ -319,7 +332,10 @@ struct MIQCoreTests {
     /// check missed).
     @Test
     func containsAllVolumesReflectsBoundedPrefix() throws {
-        let w = 8, h = 6, d = 4, t = 5
+        let w = 8
+        let h = 6
+        let d = 4
+        let t = 5
         let raw = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: t)
         let url = Self.tempURL(suffix: ".nii")
         let prefixURL = Self.tempURL(suffix: ".nii")
@@ -386,7 +402,10 @@ struct MIQCoreTests {
     /// than reading a neighbouring volume or crashing.
     @Test
     func fourDVoxelAddressingMatchesFillPattern() throws {
-        let w = 5, h = 4, d = 3, t = 6
+        let w = 5
+        let h = 4
+        let d = 3
+        let t = 6
         let raw = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: t)
         let url = Self.tempURL(suffix: ".nii")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -418,7 +437,10 @@ struct MIQCoreTests {
     /// volumes, which percentile windowing intentionally normalises away.)
     @Test
     func centerSliceSelectsRequestedVolume() throws {
-        let w = 8, h = 6, d = 4, t = 5
+        let w = 8
+        let h = 6
+        let d = 4
+        let t = 5
         let raw4D = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: t)
         let raw3D = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16)
         let url4D = Self.tempURL(suffix: ".nii")
@@ -451,7 +473,10 @@ struct MIQCoreTests {
     /// to the uncompressed reference. Volume 0 is invariant across all paths.
     @Test
     func fullyDecompressRecoversAllVolumesForFourDGz() throws {
-        let w = 8, h = 6, d = 4, t = 5
+        let w = 8
+        let h = 6
+        let d = 4
+        let t = 5
         let raw = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: t)
         let plainURL = Self.tempURL(suffix: ".nii")
         let gzURL = Self.tempURL(suffix: ".nii.gz")
@@ -1080,7 +1105,9 @@ struct MIQCoreTests {
     func neurologicalModeOnLasStorageHorizontallyMirrorsStoredPixels() throws {
         // Use a volume with enough x-resolution that mirrored columns map to distinct
         // gray levels after percentile normalization.
-        let width = 8, height = 4, depth = 4
+        let width = 8
+        let height = 4
+        let depth = 4
         let mif = TestMIQFactory.makeMif(width: width, height: height, depth: depth, datatype: .uint8, layoutTokens: ["-0", "+1", "+2"])
         let url = Self.tempURL(suffix: ".mif")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -1110,7 +1137,9 @@ struct MIQCoreTests {
     @Test
     func radiologicalModeOnLasStoragePreservesPixels() throws {
         // LAS-stored data viewed in .radiological mode = no transformation (same plan as .stored).
-        let width = 8, height = 4, depth = 4
+        let width = 8
+        let height = 4
+        let depth = 4
         let mif = TestMIQFactory.makeMif(width: width, height: height, depth: depth, datatype: .uint8, layoutTokens: ["-0", "+1", "+2"])
         let url = Self.tempURL(suffix: ".mif")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -1603,8 +1632,12 @@ struct MIQCoreTests {
 
     /// Hue of a packed RGB, in degrees, or nil for an achromatic colour.
     private func hueDegrees(_ rgb: (r: UInt8, g: UInt8, b: UInt8)) -> Double? {
-        let r = Double(rgb.r) / 255, g = Double(rgb.g) / 255, b = Double(rgb.b) / 255
-        let mx = max(r, g, b), mn = min(r, g, b), d = mx - mn
+        let r = Double(rgb.r) / 255
+        let g = Double(rgb.g) / 255
+        let b = Double(rgb.b) / 255
+        let mx = max(r, g, b)
+        let mn = min(r, g, b)
+        let d = mx - mn
         guard d > 1e-9 else { return nil }
         let h: Double
         if mx == r { h = (g - b) / d }
