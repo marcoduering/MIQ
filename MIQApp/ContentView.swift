@@ -147,6 +147,7 @@ private struct SettingsHeaderIcon: View {
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(.tint)
             .font(.system(size: 28))
+            .frame(width: 32, height: 36)
     }
 }
 
@@ -194,26 +195,45 @@ private struct SettingsToolbarInstaller: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            context.coordinator.install(into: view.window)
+        // A plain NSView added via .background() is not in a window yet at
+        // makeNSView time, so the toolbar can only be installed once the view
+        // joins the window hierarchy. Doing that synchronously in
+        // viewDidMoveToWindow (rather than a deferred DispatchQueue hop) installs
+        // the toolbar during the first layout pass, before the window displays —
+        // otherwise it appears a tick late and shifts the settings content down.
+        let view = InstallerView()
+        view.onMoveToWindow = { [coordinator = context.coordinator] window in
+            coordinator.install(into: window)
         }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         if context.coordinator.window == nil {
-            DispatchQueue.main.async {
-                context.coordinator.install(into: nsView.window)
-            }
+            context.coordinator.install(into: nsView.window)
         }
         context.coordinator.update(selection: selection)
+    }
+
+    private final class InstallerView: NSView {
+        var onMoveToWindow: ((NSWindow?) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            // This view never accepts first responder, so pointing the window's
+            // initial first responder at it suppresses AppKit's default of
+            // auto-focusing the first key view (the GitHub link) on launch.
+            window.initialFirstResponder = self
+            onMoveToWindow?(window)
+        }
     }
 
     @MainActor
     final class Coordinator: NSObject, NSToolbarDelegate {
         @Binding var selection: SettingsTab
         weak var window: NSWindow?
+        private var keyObserver: NSObjectProtocol?
 
         init(selection: Binding<SettingsTab>) {
             self._selection = selection
@@ -232,6 +252,53 @@ private struct SettingsToolbarInstaller: NSViewRepresentable {
             toolbar.delegate = self
             window.toolbar = toolbar
             window.toolbarStyle = .preference
+            toolbar.selectedItemIdentifier = selection.toolbarItemIdentifier
+            applyInitialSelectionHighlight(in: window)
+        }
+
+        /// The macOS 26+ liquid-glass selection highlight only renders while the
+        /// window is on screen; setting `selectedItemIdentifier` at install time
+        /// (before first display) leaves the initial tab unhighlighted until the
+        /// user switches tabs. Re-apply it once the window first becomes key —
+        /// toggling through nil so AppKit treats it as a fresh selection and
+        /// draws the glass. (User-driven tab switches already happen while the
+        /// window is key, which is why they work.)
+        private func applyInitialSelectionHighlight(in window: NSWindow) {
+            if window.isKeyWindow {
+                finalizeInitialWindowState()
+                return
+            }
+            keyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if let keyObserver = self.keyObserver {
+                        NotificationCenter.default.removeObserver(keyObserver)
+                        self.keyObserver = nil
+                    }
+                    self.finalizeInitialWindowState()
+                }
+            }
+        }
+
+        private func finalizeInitialWindowState() {
+            reapplySelectionHighlight()
+            // Leave nothing focused on launch, matching the state after switching
+            // tabs back to About. SwiftUI's hosting view re-asserts focus on the
+            // first control (the GitHub link) as the window comes up, so clearing
+            // synchronously here is overridden — defer one tick so the clear runs
+            // after SwiftUI has settled.
+            DispatchQueue.main.async { [weak self] in
+                self?.window?.makeFirstResponder(nil)
+            }
+        }
+
+        private func reapplySelectionHighlight() {
+            guard let toolbar = window?.toolbar else { return }
+            toolbar.selectedItemIdentifier = nil
             toolbar.selectedItemIdentifier = selection.toolbarItemIdentifier
         }
 
@@ -276,10 +343,6 @@ private struct SettingsToolbarInstaller: NSViewRepresentable {
 }
 
 struct ContentView: View {
-    private enum FocusTarget: Hashable {
-        case resetButton
-    }
-
     private static let store = UserDefaults(suiteName: MIQConfig.appGroupID)
 
     @AppStorage(MIQConfig.Keys.imageOrientation, store: Self.store)
@@ -329,7 +392,6 @@ struct ContentView: View {
     @AppStorage(MIQConfig.Keys.thumbnailWindowUpperPercentile, store: Self.store)
     private var thumbnailUpperPercentile: Double = MIQConfig.Defaults.thumbnailWindowUpperPercentile
 
-    @FocusState private var focusedTarget: FocusTarget?
     @State private var showHideDisclaimerConfirm = false
     @State private var draggedMetadataField: MetadataField?
     @State private var presentedMetadataInfoField: MetadataField?
@@ -411,9 +473,12 @@ struct ContentView: View {
         } message: { result in
             Text("MIQ \(result.version) is available.\nYou are running \(Self.currentVersion).\n\nDownload the latest release from GitHub.\n\nOr if you installed via Homebrew, run in Terminal:\n\(Self.homebrewCommand)")
         }
-        .frame(minWidth: 550, idealWidth: 550, maxWidth: 550, minHeight: 591, idealHeight: 591, maxHeight: 591)
+        .frame(minWidth: 550, idealWidth: 550, maxWidth: 550, minHeight: 587, idealHeight: 587, maxHeight: 587)
         .onAppear {
-            focusedTarget = .resetButton
+            // No element is focused on launch (matching the state after switching
+            // tabs back to About). AppKit would otherwise auto-focus the first
+            // key view (the GitHub link); SettingsToolbarInstaller suppresses that
+            // and clears the first responder once the window is up.
             #if DEBUG
             if simulateUpdateAvailable {
                 updateState = .available(Self.simulatedUpdateResult)
@@ -492,7 +557,6 @@ struct ContentView: View {
                     Button("Reset") {
                         restoreDefaults()
                     }
-                    .focused($focusedTarget, equals: .resetButton)
                 }
             }
 

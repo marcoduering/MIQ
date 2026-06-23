@@ -6,8 +6,8 @@
     {
       "value" : {
         "linear-gradient" : [
-          "extended-gray:0.50000,1.00000",
-          "srgb:0.37056,0.37056,0.37056,1.00000"
+          "srgb:0.57046,0.57047,0.57046,1.00000",
+          "srgb:0.26052,0.26052,0.26052,1.00000"
         ],
         "orientation" : {
           "start" : {
@@ -35,6 +35,7 @@
       "hidden" : false,
       "layers" : [
         {
+          "blend-mode" : "normal",
           "fill-specializations" : [
             {
               "value" : "automatic"
@@ -52,7 +53,7 @@
           "hidden" : false,
           "image-name" : "Magnify.svg",
           "name" : "Magnify",
-          "opacity" : 0.5,
+          "opacity" : 1,
           "position" : {
             "scale" : 1.25,
             "translation-in-points" : [
@@ -63,7 +64,7 @@
         }
       ],
       "lighting" : "individual",
-      "opacity" : 0.75,
+      "opacity" : 0.65,
       "refractivity" : {
         "depth" : 0.3462109375,
         "enabled" : false,
@@ -75,7 +76,7 @@
       },
       "specular" : "inside",
       "translucency" : {
-        "enabled" : false,
+        "enabled" : true,
         "value" : 0.5
       }
     }

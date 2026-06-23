@@ -1,5 +1,6 @@
 .build/
 .claude/
+.codex/
 .idea/
 .swiftpm/
 .vscode/
@@ -13,6 +14,7 @@
 **/xcshareddata/swiftpm/
 **/xcshareddata/WorkspaceSettings.xcsettings
 build/
+AGENTS.md
 CLAUDE.md
 DerivedData/
 LocalSigning.xcconfig

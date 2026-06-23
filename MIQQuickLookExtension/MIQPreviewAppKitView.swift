@@ -77,6 +77,7 @@ final class MIQPreviewAppKitView: NSView {
     private let deferredPlaceholder = NSView()
     private let deferredLabel = NSTextField(wrappingLabelWithString: "")
     private let deferredButton = NSButton(title: "Load preview", target: nil, action: nil)
+    private let deferredHint = NSTextField(wrappingLabelWithString: "")
     private var columnRatioConstraint: NSLayoutConstraint?
     private var rowRatioConstraint: NSLayoutConstraint?
     private var metadataEntries: [MetadataEntry] = []
@@ -485,8 +486,17 @@ final class MIQPreviewAppKitView: NSView {
         deferredButton.target = self
         deferredButton.action = #selector(deferredButtonClicked)
 
+        deferredHint.translatesAutoresizingMaskIntoConstraints = false
+        deferredHint.alignment = .center
+        deferredHint.font = .systemFont(ofSize: 11, weight: .regular)
+        deferredHint.textColor = NSColor(calibratedWhite: 0.5, alpha: 1.0)
+        deferredHint.maximumNumberOfLines = 0
+        deferredHint.lineBreakMode = .byWordWrapping
+        deferredHint.stringValue = "You can turn this off in MIQ Settings ▸ Image Display."
+
         deferredPlaceholder.addSubview(deferredLabel)
         deferredPlaceholder.addSubview(deferredButton)
+        deferredPlaceholder.addSubview(deferredHint)
 
         NSLayoutConstraint.activate([
             deferredLabel.topAnchor.constraint(equalTo: deferredPlaceholder.topAnchor),
@@ -494,7 +504,10 @@ final class MIQPreviewAppKitView: NSView {
             deferredLabel.trailingAnchor.constraint(equalTo: deferredPlaceholder.trailingAnchor),
             deferredButton.topAnchor.constraint(equalTo: deferredLabel.bottomAnchor, constant: 16),
             deferredButton.centerXAnchor.constraint(equalTo: deferredPlaceholder.centerXAnchor),
-            deferredButton.bottomAnchor.constraint(equalTo: deferredPlaceholder.bottomAnchor)
+            deferredHint.topAnchor.constraint(equalTo: deferredButton.bottomAnchor, constant: 14),
+            deferredHint.leadingAnchor.constraint(equalTo: deferredPlaceholder.leadingAnchor),
+            deferredHint.trailingAnchor.constraint(equalTo: deferredPlaceholder.trailingAnchor),
+            deferredHint.bottomAnchor.constraint(equalTo: deferredPlaceholder.bottomAnchor)
         ])
     }
 
