@@ -738,13 +738,22 @@ struct ContentView: View {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text("Defer large previews on network volumes")
+                        HStack(spacing: 6) {
+                            Text("Defer large previews on network volumes")
+                            Text("NEW in v1.2.0")
+                                .font(.caption2)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(.tint))
+                        }
                         Spacer()
                         Toggle("", isOn: $deferLargeNetworkPreviews)
                             .labelsHidden()
                     }
 
-                    Text("On by default: for files larger than \(Int(MIQConfig.Defaults.networkPreviewThresholdMB)) the user needs to actively confirm loading. 4D NIfTI is unaffected, it only reads the first volume.")
+                    Text("On by default: for files larger than \(Int(MIQConfig.Defaults.networkPreviewThresholdMB)) MB the user needs to actively confirm loading. 4D NIfTI is unaffected, it only reads the first volume.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -868,7 +877,16 @@ struct ContentView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text("Include network volumes")
+                        HStack(spacing: 6) {
+                            Text("Include network volumes")
+                            Text("NEW in v1.2.0")
+                                .font(.caption2)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(.tint))
+                        }
                         Spacer()
                         Toggle("", isOn: $showThumbnailsOnNetworkVolumes)
                             .labelsHidden()
