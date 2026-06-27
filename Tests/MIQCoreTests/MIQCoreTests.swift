@@ -23,6 +23,161 @@ struct MIQCoreTests {
     }
 
     @Test
+    func niftiRejectsOverflowingDimensionsInsteadOfTrapping() {
+        // dim product × bytesPerVoxel overflows Int — must throw, not trap/crash.
+        let data = TestMIQFactory.makeNii2HeaderOnly(
+            width: 4_000_000_000, height: 4_000_000_000, depth: 4_000_000_000, datatype: .uint8
+        )
+        #expect(throws: MIQError.self) {
+            try MIQParser().parseNiftiHeader(from: data)
+        }
+    }
+
+    @Test
+    func mghRejectsOverflowingDimensionsInsteadOfTrapping() {
+        let data = TestMIQFactory.makeMghHeaderOnly(
+            width: 2_000_000_000, height: 2_000_000_000, depth: 2_000_000_000, frames: 1, datatype: .uint8
+        )
+        #expect(throws: MIQError.self) {
+            try MIQParser().parseMghHeader(from: data)
+        }
+    }
+
+    @Test
+    func gunzipRejectsLyingIsizeTrailerWithoutTrustingItsClaim() throws {
+        // Valid gzip whose 4-byte ISIZE trailer is then overwritten to claim ~4 GB.
+        // The allocation must stay bounded by the compressed size (not the lie),
+        // and inflate must fail cleanly on the trailer mismatch — not OOM-kill the
+        // appex by allocating 4 GB up front.
+        var bomb = try TestZlib.gzip(Data("hello, volume preview".utf8))
+        bomb.replaceSubrange((bomb.count - 4)..<bomb.count, with: [0xFF, 0xFF, 0xFF, 0xFF])
+        #expect(throws: MIQError.self) {
+            _ = try MIQBinaryReader.gunzip(bomb)
+        }
+    }
+
+    /// Mutation fuzzer: every format parser must respond to corrupted input with a
+    /// value or a thrown `MIQError` — never a trap (overflow / out-of-bounds /
+    /// precondition), which `do/catch` can't intercept and which would instead
+    /// crash this whole runner. So a reintroduced trap surfaces here as a process
+    /// crash, while any non-`MIQError` throw is recorded as a normal failure.
+    /// Seeded (SplitMix64) and deterministic: a failure prints the exact
+    /// (target, iteration, seed) needed to reproduce it. Always-on and bounded —
+    /// tiny fixtures, so several thousand parses run in well under a second.
+    @Test
+    func parsersNeverTrapOnMutatedInput() {
+        let parser = MIQParser()
+        let targets: [FuzzTarget] = [
+            FuzzTarget(name: "nii",
+                       seed: TestMIQFactory.makeNii(width: 6, height: 5, depth: 4, datatype: .int16, volumes: 2),
+                       parseImage: { _ = try parser.parseNifti($0) },
+                       parseHeader: { _ = try parser.parseNiftiHeader(from: $0) }),
+            FuzzTarget(name: "nii2",
+                       seed: TestMIQFactory.makeNii2(width: 6, height: 5, depth: 4, datatype: .int16),
+                       parseImage: { _ = try parser.parseNifti($0) },
+                       parseHeader: { _ = try parser.parseNiftiHeader(from: $0) }),
+            FuzzTarget(name: "mgh",
+                       seed: TestMIQFactory.makeMgh(width: 6, height: 5, depth: 4, frames: 2, datatype: .int16),
+                       parseImage: { _ = try parser.parseMgh($0) },
+                       parseHeader: { _ = try parser.parseMghHeader(from: $0) }),
+            FuzzTarget(name: "mif",
+                       seed: TestMIQFactory.makeMif(width: 6, height: 5, depth: 4, datatype: .int16),
+                       parseImage: { _ = try parser.parseMif($0) },
+                       parseHeader: { _ = try parser.parseMifHeaderOnly(from: $0) }),
+            FuzzTarget(name: "nrrd",
+                       seed: TestMIQFactory.makeNrrd(width: 6, height: 5, depth: 4, datatype: .int16),
+                       parseImage: { _ = try parser.parseNrrd($0) },
+                       parseHeader: { _ = try parser.parseNrrdHeaderOnly(from: $0) }),
+        ]
+
+        let mutationsPerTarget = 600
+        for (t, target) in targets.enumerated() {
+            for i in 0..<mutationsPerTarget {
+                // Stable per (target, iteration): String.hashValue is randomized per
+                // process, so derive the seed from indices only.
+                let seed = 0xD1B54A32D192ED03 &* UInt64(t + 1) &+ 0x9E3779B97F4A7C15 &* UInt64(i + 1)
+                var rng = SplitMix64(seed: seed)
+                let mutated = Self.mutate(target.seed, using: &rng)
+                assertGraceful(target.parseImage, mutated, target: "\(target.name).image", iteration: i, seed: seed)
+                assertGraceful(target.parseHeader, mutated, target: "\(target.name).header", iteration: i, seed: seed)
+            }
+        }
+    }
+
+    private func assertGraceful(
+        _ parse: (Data) throws -> Void,
+        _ data: Data,
+        target: String,
+        iteration: Int,
+        seed: UInt64
+    ) {
+        do {
+            try parse(data)            // a value is fine
+        } catch is MIQError {
+            // a thrown domain error is fine
+        } catch {
+            Issue.record("\(target) #\(iteration) (seed=\(seed)) threw non-MIQError: \(error)")
+        }
+    }
+
+    private struct FuzzTarget {
+        let name: String
+        let seed: Data
+        let parseImage: (Data) throws -> Void
+        let parseHeader: (Data) throws -> Void
+    }
+
+    /// Deterministic SplitMix64 — seedable (unlike `SystemRandomNumberGenerator`),
+    /// so fuzz failures reproduce exactly.
+    private struct SplitMix64 {
+        private var state: UInt64
+        init(seed: UInt64) { state = seed }
+        mutating func next() -> UInt64 {
+            state &+= 0x9E3779B97F4A7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+            z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+            return z ^ (z >> 31)
+        }
+    }
+
+    /// Corrupts a valid fixture, biasing toward the header region where the
+    /// dimension / offset fields live (the arithmetic that used to trap reads
+    /// from there): random byte flips, occasional drive of a 4-byte field to an
+    /// extreme value, and occasional truncation.
+    private static func mutate(_ original: Data, using rng: inout SplitMix64) -> Data {
+        var bytes = [UInt8](original)
+        guard !bytes.isEmpty else { return original }
+
+        let headerSpan = Swift.min(bytes.count, 320)
+        let flipCount = Int(rng.next() % 24) + 1
+        for _ in 0..<flipCount {
+            let inHeader = (rng.next() & 3) != 0 // ~75% land in the header span
+            let span = inHeader ? headerSpan : bytes.count
+            let idx = Int(rng.next() % UInt64(span))
+            bytes[idx] = UInt8(rng.next() & 0xFF)
+        }
+
+        // Drive a 4-byte little-endian field to an extreme — the values most
+        // likely to overflow downstream dimension/offset arithmetic.
+        if (rng.next() & 1) == 0, headerSpan >= 8 {
+            let idx = Int(rng.next() % UInt64(headerSpan - 4))
+            let big: UInt32 = (rng.next() & 1) == 0 ? 0xFFFFFFFF : 0x7FFFFFFF
+            bytes[idx] = UInt8(big & 0xFF)
+            bytes[idx + 1] = UInt8((big >> 8) & 0xFF)
+            bytes[idx + 2] = UInt8((big >> 16) & 0xFF)
+            bytes[idx + 3] = UInt8((big >> 24) & 0xFF)
+        }
+
+        if (rng.next() % 5) == 0 {
+            let keep = Int(rng.next() % UInt64(bytes.count))
+            bytes.removeLast(bytes.count - keep)
+        }
+
+        return Data(bytes)
+    }
+
+    @Test
     func rendersThreeCenterSlices() throws {
         let data = TestMIQFactory.makeNii(width: 8, height: 6, depth: 4, datatype: .uint8)
         let image = try MIQParser().parseNifti(data)
@@ -1917,6 +2072,60 @@ enum TestMIQFactory {
         }
 
         return Data(bytes + payload)
+    }
+
+    /// 540-byte NIfTI-2 header (no payload) with caller-supplied Int64 dimensions,
+    /// for the malformed-dimension overflow guard. Dims are written verbatim so a
+    /// test can declare a product that would overflow `Int` without the factory
+    /// itself computing (and trapping on) it.
+    static func makeNii2HeaderOnly(
+        width: Int64,
+        height: Int64,
+        depth: Int64,
+        datatype: MIQDatatype
+    ) -> Data {
+        let headerSize = 540
+        var bytes = [UInt8](repeating: 0, count: headerSize)
+
+        write(Int32(headerSize), to: &bytes, at: 0)
+        let magic: [UInt8] = [0x6E, 0x2B, 0x32, 0x00, 0x0D, 0x0A, 0x1A, 0x0A]
+        bytes.replaceSubrange(4..<12, with: magic)
+
+        write(datatype.rawValue, to: &bytes, at: 12)
+        write(Int16(datatype.bytesPerVoxel * 8), to: &bytes, at: 14)
+
+        write(Int64(3), to: &bytes, at: 16) // ndim
+        write(width, to: &bytes, at: 24)
+        write(height, to: &bytes, at: 32)
+        write(depth, to: &bytes, at: 40)
+        write(Int64(1), to: &bytes, at: 48)
+
+        write(Int64(headerSize + 4), to: &bytes, at: 168) // voxOffset
+        write(Double(1), to: &bytes, at: 176)             // scl_slope
+
+        return Data(bytes)
+    }
+
+    /// 284-byte MGH header (no payload) with caller-supplied Int32 dimensions, for
+    /// the malformed-dimension overflow guard. As above, dims are written verbatim.
+    static func makeMghHeaderOnly(
+        width: Int32,
+        height: Int32,
+        depth: Int32,
+        frames: Int32,
+        datatype: MIQDatatype
+    ) -> Data {
+        let headerSize = 284
+        var bytes = [UInt8](repeating: 0, count: headerSize)
+
+        writeBE(Int32(1), to: &bytes, at: 0)
+        writeBE(width, to: &bytes, at: 4)
+        writeBE(height, to: &bytes, at: 8)
+        writeBE(depth, to: &bytes, at: 12)
+        writeBE(frames, to: &bytes, at: 16)
+        writeBE(mghTypeCode(for: datatype), to: &bytes, at: 20)
+
+        return Data(bytes)
     }
 
     static func makeMgh(

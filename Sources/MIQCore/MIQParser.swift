@@ -211,6 +211,25 @@ public struct MIQParser {
         return data
     }
 
+    /// Rejects a header whose declared voxel extent (`dims` product × bytes per
+    /// voxel) overflows `Int`. A corrupt or crafted header can list dimensions
+    /// whose product exceeds `Int.max`; computing it with `*` traps and crashes
+    /// the sandboxed extension. Throwing `invalidDimensions` instead lets the
+    /// preview fail gracefully. This is purely an arithmetic representability
+    /// guard — it does *not* assert the payload is present, so the bounded NIfTI
+    /// cold-load path (which holds only volume 0) is unaffected. Validating here,
+    /// in each format's earliest shared header-parse step, also protects every
+    /// downstream product (axis strides, element counts, `containsAllVolumes`,
+    /// `voxelElementIndex`), since each is ≤ this total.
+    func validateDimensionExtent(_ dims: [Int], bytesPerVoxel: Int) throws {
+        var product = Swift.max(1, bytesPerVoxel)
+        for dim in dims {
+            let (next, overflow) = product.multipliedReportingOverflow(by: dim)
+            guard !overflow else { throw MIQError.invalidDimensions }
+            product = next
+        }
+    }
+
     private func parseImage(data: Data, kind: MIQFileKind) throws -> MIQImage {
         switch kind {
         case .nii, .niiGz:

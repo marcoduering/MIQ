@@ -135,6 +135,7 @@ extension MIQParser {
             throw MIQError.malformedFile("NRRD header is missing required field 'type'")
         }
         let datatype = try parseNrrdDatatype(typeStr)
+        try validateDimensionExtent(sizes, bytesPerVoxel: datatype.bytesPerVoxel)
 
         let endianStr = (fields["endian"] ?? "little").lowercased()
         let littleEndian = endianStr != "big"

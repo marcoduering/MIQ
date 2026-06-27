@@ -59,7 +59,7 @@ if ! gh auth status >/dev/null 2>&1; then
   exit 1
 fi
 
-ASSET_NAME="MIQ-${TAG}.zip"
+ASSET_NAME="MIQ.app.zip"
 DRAFT_ARGS=(--draft)
 [[ "$DRAFT" == false ]] && DRAFT_ARGS=()
 
@@ -69,19 +69,36 @@ echo "==> Mode:     $( [[ "$DRAFT" == true ]] && echo 'draft' || echo 'publish' 
 
 SHA256=$(shasum -a 256 "$DIST_ZIP" | awk '{print $1}')
 
-gh release create "$TAG" \
+RELEASE_NOTES=$(cat <<'EOF'
+**New features:**
+-
+
+**Performance improvements:**
+-
+
+**Fixes:**
+-
+
+**Other:**
+-
+EOF
+)
+
+RELEASE_URL=$(env GH_PAGER=cat gh release create "$TAG" \
   "$DIST_ZIP#$ASSET_NAME" \
-  --title "MIQ $TAG" \
-  --generate-notes \
-  "${DRAFT_ARGS[@]+"${DRAFT_ARGS[@]}"}"
+  --title "MIQ ${TAG#v}" \
+  --notes "$RELEASE_NOTES" \
+  "${DRAFT_ARGS[@]+"${DRAFT_ARGS[@]}"}")
 
 echo
 echo "SUCCESS"
 echo
-echo "Homebrew cask sha256:"
-echo "  $SHA256"
-echo
+
 if [[ "$DRAFT" == true ]]; then
   echo "Release created as DRAFT — review and publish at:"
-  gh release view "$TAG" --json url -q '  \(.url)'
+  echo "  $RELEASE_URL"
+  echo
 fi
+
+echo "Homebrew cask sha256:"
+echo "  $SHA256"

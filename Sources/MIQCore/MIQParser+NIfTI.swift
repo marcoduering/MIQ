@@ -15,13 +15,16 @@ extension MIQParser {
         let headerSizeLE = MIQBinaryReader.int32(data, 0, littleEndian: true)
         let headerSizeBE = MIQBinaryReader.int32(data, 0, littleEndian: false)
 
+        let header: MIQHeader
         if headerSizeLE == 348 || headerSizeBE == 348 {
-            return try parseNifti1Header(from: data, littleEndian: headerSizeLE == 348)
+            header = try parseNifti1Header(from: data, littleEndian: headerSizeLE == 348)
         } else if headerSizeLE == 540 || headerSizeBE == 540 {
-            return try parseNifti2Header(from: data, littleEndian: headerSizeLE == 540)
+            header = try parseNifti2Header(from: data, littleEndian: headerSizeLE == 540)
         } else {
             throw MIQError.invalidHeaderSize(headerSizeLE)
         }
+        try validateDimensionExtent(header.dimensions, bytesPerVoxel: header.datatype.bytesPerVoxel)
+        return header
     }
 
     // MARK: - NIfTI-1 (348-byte header)
@@ -35,7 +38,7 @@ extension MIQParser {
         let datatype = try readAndValidateDatatype(data: data, at: 70, bitpixAt: 72, littleEndian: littleEndian)
 
         let pixdim = MIQBinaryReader.float32Array(data, 76, count: 8, littleEndian: littleEndian)
-        let voxOffset = Int(MIQBinaryReader.float32(data, 108, littleEndian: littleEndian))
+        let voxOffset = MIQBinaryReader.safeInt(MIQBinaryReader.float32(data, 108, littleEndian: littleEndian))
         let sclSlope = MIQBinaryReader.float32(data, 112, littleEndian: littleEndian)
         let sclInter = MIQBinaryReader.float32(data, 116, littleEndian: littleEndian)
         let qformCode = Int(MIQBinaryReader.int16(data, 252, littleEndian: littleEndian))

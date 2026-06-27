@@ -46,6 +46,17 @@ enum MIQBinaryReader {
         }
     }
 
+    /// `Float`→`Int` that never traps. NaN/infinite or out-of-`Int`-range inputs
+    /// map to 0; finite in-range values truncate toward zero. A corrupt NIfTI
+    /// header can put NaN/inf or a huge value in the float `vox_offset` field,
+    /// where a plain `Int(Float)` would trap and crash the sandboxed extension.
+    static func safeInt(_ value: Float) -> Int {
+        guard value.isFinite else { return 0 }
+        if value >= Float(Int.max) { return Int.max }
+        if value <= Float(Int.min) { return Int.min }
+        return Int(value)
+    }
+
     static func isLikelyGzip(_ data: Foundation.Data) -> Bool {
         guard data.count >= 2 else {
             return false
@@ -73,7 +84,19 @@ enum MIQBinaryReader {
             throw MIQError.decompressionFailed
         }
 
-        var output = Data(count: Int(isize))
+        // ISIZE is attacker-controlled: a tiny crafted member can claim ~4 GB and
+        // OOM jetsam-kill the sandboxed appex (the broad gzip UTIs spawn it on any
+        // *.nii.gz / *.mif.gz / *.mgh.gz). Inflate only validates the trailer
+        // *after* decompressing, so trusting ISIZE for the up-front allocation is
+        // the bomb. DEFLATE expands at most ~1032:1, so a real stream's output
+        // can't exceed the compressed size times that ratio — clamp the allocation
+        // to that plausibility bound (with headroom). A legitimate stream is never
+        // under-allocated, so valid output stays byte-identical; only a lying
+        // trailer is capped, and inflate then still fails cleanly on the mismatch.
+        let ratioBound = data.count.multipliedReportingOverflow(by: 1100)
+        let allocCount = ratioBound.overflow ? Int(isize) : Swift.min(Int(isize), ratioBound.partialValue)
+        var output = Data(count: allocCount)
+        var produced = 0
         let result = data.withUnsafeBytes { inBuf in
             output.withUnsafeMutableBytes { outBuf -> Int32 in
                 guard let inBase = inBuf.bindMemory(to: Bytef.self).baseAddress,
@@ -83,8 +106,10 @@ enum MIQBinaryReader {
                 stream.next_in = UnsafeMutablePointer(mutating: inBase)
                 stream.avail_in = UInt32(data.count)
                 stream.next_out = outBase
-                stream.avail_out = isize
-                return inflate(&stream, Z_FINISH)
+                stream.avail_out = UInt32(allocCount)
+                let r = inflate(&stream, Z_FINISH)
+                produced = allocCount - Int(stream.avail_out)
+                return r
             }
         }
 
@@ -92,6 +117,9 @@ enum MIQBinaryReader {
             throw MIQError.decompressionFailed
         }
 
+        if produced < output.count {
+            output.removeLast(output.count - produced)
+        }
         return output
     }
 

@@ -57,6 +57,8 @@ extension MIQParser {
             throw MIQError.unsupportedDatatype(typeRaw)
         }
 
+        try validateDimensionExtent([width, height, depth, frames], bytesPerVoxel: mghType.datatype.bytesPerVoxel)
+
         let goodRAS = MIQBinaryReader.int16(data, 28, littleEndian: false)
         let pixdim: [Float]
         let srowX: [Float]

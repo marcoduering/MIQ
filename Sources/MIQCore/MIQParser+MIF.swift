@@ -98,6 +98,7 @@ extension MIQParser {
         }
 
         let (datatype, littleEndian) = try parseMifDatatype(datatypeString)
+        try validateDimensionExtent(dim, bytesPerVoxel: datatype.bytesPerVoxel)
         let (dataFile, dataOffset) = try parseMifFileSpec(fileString)
 
         let scalingValues = keyValues["scaling"]?.last.flatMap { try? parseMifFloatList($0) }
