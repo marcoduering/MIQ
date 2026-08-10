@@ -84,15 +84,26 @@ enum MIQBinaryReader {
             throw MIQError.decompressionFailed
         }
 
-        // ISIZE is attacker-controlled: a tiny crafted member can claim ~4 GB and
-        // OOM jetsam-kill the sandboxed appex (the broad gzip UTIs spawn it on any
-        // *.nii.gz / *.mif.gz / *.mgh.gz). Inflate only validates the trailer
-        // *after* decompressing, so trusting ISIZE for the up-front allocation is
-        // the bomb. DEFLATE expands at most ~1032:1, so a real stream's output
-        // can't exceed the compressed size times that ratio — clamp the allocation
-        // to that plausibility bound (with headroom). A legitimate stream is never
-        // under-allocated, so valid output stays byte-identical; only a lying
-        // trailer is capped, and inflate then still fails cleanly on the mismatch.
+        // ISIZE is attacker-controlled (inflate only validates the trailer *after*
+        // decompressing), and the broad gzip UTIs spawn this appex on any
+        // *.nii.gz / *.mif.gz / *.mgh.gz. The clamp below is a tidiness bound, not
+        // an OOM defense — measured Aug 2026, `Data(count:)` is demand-zeroed, so
+        // even `Data(count: 4 GB)` moves `phys_footprint` (what jetsam reads) by
+        // 0.0 MB; pages cost only what inflate actually writes. A lying trailer
+        // therefore buys an attacker virtual address space and nothing else.
+        // What the clamp does buy: `avail_out` stays proportionate to the input,
+        // so a bogus ISIZE can't hand inflate a wildly oversized output window.
+        // DEFLATE expands at most ~1032:1, so a legitimate stream's output never
+        // exceeds compressed size × that ratio — 1100 keeps headroom above it and
+        // is never under-allocated, leaving valid output byte-identical.
+        //
+        // Not defended against: a *genuine* bomb (~4 MB inflating to ~4 GB), which
+        // does commit every page. That is deliberate — real sparse volumes (a
+        // mostly-zero segmentation mask) reach comparable ratios, so any bound
+        // tight enough to catch a bomb would reject legitimate data. The failure
+        // mode is a jetsam-killed short-lived preview extension: no data loss, no
+        // code execution, system recovers. Tightening this trades a graceful
+        // failure for false rejections of real files.
         let ratioBound = data.count.multipliedReportingOverflow(by: 1100)
         let allocCount = ratioBound.overflow ? Int(isize) : Swift.min(Int(isize), ratioBound.partialValue)
         var output = Data(count: allocCount)

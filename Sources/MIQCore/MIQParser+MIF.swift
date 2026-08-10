@@ -187,7 +187,12 @@ extension MIQParser {
         guard elementCount > 0, payloadBytes > 0 else {
             throw MIQError.invalidDimensions
         }
-        guard dataOffset >= 0, data.count >= dataOffset + payloadBytes else {
+        // `dataOffset` comes from the free-text `file:` field, so it can be any
+        // Int64 the file cares to spell out (`file: . 9223372036854775807`).
+        // `validateDimensionExtent` bounds `payloadBytes` but not the offset, so
+        // the sum needs a checked add — a plain `+` traps and crashes the extension.
+        let (payloadEnd, overflow) = dataOffset.addingReportingOverflow(payloadBytes)
+        guard dataOffset >= 0, !overflow, data.count >= payloadEnd else {
             throw MIQError.truncatedData
         }
 

@@ -44,6 +44,47 @@ struct MIQCoreTests {
     }
 
     @Test
+    func niftiGzRejectsOverflowingVoxOffsetInsteadOfTrapping() throws {
+        // `vox_offset` is header-supplied and unbounded by the dimension guard, so
+        // it can reach Int.max. The volume-0 budget (`voxOffset + payloadBytes`) is
+        // computed during the cold `.nii.gz` load — *before* any payload-presence
+        // guard runs — so an unchecked `+` there traps instead of failing the
+        // preview. Driven through `parse(url:)` because the trap is in
+        // `loadAndDecompress`, which the parser-level fuzzer never reaches.
+        let header = TestMIQFactory.makeNii2HeaderOnly(
+            width: 4, height: 4, depth: 4, datatype: .uint8, voxOffset: Int64.max
+        )
+        let url = Self.tempURL(suffix: ".nii.gz")
+        try TestZlib.gzip(header).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(throws: MIQError.self) {
+            _ = try MIQParser().parse(url: url)
+        }
+    }
+
+    @Test
+    func mifRejectsOverflowingDataOffsetInsteadOfTrapping() {
+        // The `file:` field's byte offset is free text, so a file can simply spell
+        // out Int.max; adding the payload size to it in the truncation guard then
+        // overflows. The mutation fuzzer can't reach this — flipping bytes almost
+        // never yields a clean 19-digit ASCII decimal in that field.
+        let header = """
+        mrtrix image
+        dim: 4,4,4
+        vox: 1.0,1.0,1.0
+        layout: 0,1,2
+        datatype: UInt8
+        file: . \(Int.max)
+        END
+
+        """
+        #expect(throws: MIQError.self) {
+            _ = try MIQParser().parseMif(Data(header.utf8))
+        }
+    }
+
+    @Test
     func gunzipRejectsLyingIsizeTrailerWithoutTrustingItsClaim() throws {
         // Valid gzip whose 4-byte ISIZE trailer is then overwritten to claim ~4 GB.
         // The allocation must stay bounded by the compressed size (not the lie),
@@ -2077,12 +2118,14 @@ enum TestMIQFactory {
     /// 540-byte NIfTI-2 header (no payload) with caller-supplied Int64 dimensions,
     /// for the malformed-dimension overflow guard. Dims are written verbatim so a
     /// test can declare a product that would overflow `Int` without the factory
-    /// itself computing (and trapping on) it.
+    /// itself computing (and trapping on) it. `voxOffset` is likewise verbatim, so
+    /// a test can declare an offset that overflows when added to the payload size.
     static func makeNii2HeaderOnly(
         width: Int64,
         height: Int64,
         depth: Int64,
-        datatype: MIQDatatype
+        datatype: MIQDatatype,
+        voxOffset: Int64? = nil
     ) -> Data {
         let headerSize = 540
         var bytes = [UInt8](repeating: 0, count: headerSize)
@@ -2100,8 +2143,8 @@ enum TestMIQFactory {
         write(depth, to: &bytes, at: 40)
         write(Int64(1), to: &bytes, at: 48)
 
-        write(Int64(headerSize + 4), to: &bytes, at: 168) // voxOffset
-        write(Double(1), to: &bytes, at: 176)             // scl_slope
+        write(voxOffset ?? Int64(headerSize + 4), to: &bytes, at: 168) // voxOffset
+        write(Double(1), to: &bytes, at: 176)                          // scl_slope
 
         return Data(bytes)
     }

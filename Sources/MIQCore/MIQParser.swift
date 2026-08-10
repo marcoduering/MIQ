@@ -111,8 +111,15 @@ public struct MIQParser {
         let volumeElements = header.width * header.height * header.depth
         let payloadBytes = volumeElements * header.datatype.bytesPerVoxel
         guard volumeElements > 0, payloadBytes > 0 else { return nil }
-        let budget = header.voxOffset + payloadBytes
-        return budget > 0 ? budget : nil
+        // `validateDimensionExtent` bounds the dims product, but *not* `voxOffset`
+        // — that field is header-supplied and can legitimately reach `Int.max`
+        // (NIfTI-1's float `vox_offset` clamps there via `safeInt`; NIfTI-2 reads a
+        // raw Int64), so a plain `+` traps and crashes the extension. `nil` falls
+        // back to full decompression, where `parseNifti`'s `data.count >= voxOffset`
+        // guard rejects the file cleanly.
+        let (budget, overflow) = header.voxOffset.addingReportingOverflow(payloadBytes)
+        guard !overflow, budget > 0 else { return nil }
+        return budget
     }
 
     /// Reads only the volume-0 prefix of a canonical NIfTI from disk, so a remote
