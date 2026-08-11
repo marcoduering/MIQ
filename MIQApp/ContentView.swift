@@ -187,6 +187,20 @@ private enum SettingsTab: String, CaseIterable, Hashable {
     }
 }
 
+private extension View {
+    /// macOS 26+ draws a `.preference` toolbar's background from the content's
+    /// scroll edge effect. `.scrollDisabled(true)` leaves `.automatic` with no
+    /// edge to draw, so the bar fills only while hovered; `.hard` pins it.
+    @ViewBuilder
+    func pinnedTopScrollEdge() -> some View {
+        if #available(macOS 26.0, *) {
+            self.scrollEdgeEffectStyle(.hard, for: .top)
+        } else {
+            self
+        }
+    }
+}
+
 private struct SettingsToolbarInstaller: NSViewRepresentable {
     @Binding var selection: SettingsTab
 
@@ -441,7 +455,9 @@ struct ContentView: View {
         """
 
     var body: some View {
-        Group {
+        // One Form for all panes — a Form per pane rebuilt the backing
+        // NSScrollView on every tab switch, blinking the titlebar background.
+        Form {
             switch selectedTab {
             case .about:         aboutSettingsView
             case .usage:         usageSettingsView
@@ -450,6 +466,9 @@ struct ContentView: View {
             case .thumbnails:    thumbnailSettingsView
             }
         }
+        .formStyle(.grouped)
+        .scrollDisabled(true)
+        .pinnedTopScrollEdge()
         .background(SettingsToolbarInstaller(selection: $selectedTab))
         .alert("Hide disclaimer in preview?", isPresented: $showHideDisclaimerConfirm) {
             Button("Cancel", role: .cancel) {
@@ -521,7 +540,7 @@ struct ContentView: View {
     }
 
     private var aboutSettingsView: some View {
-        Form {
+        Group {
             Section {
                 VStack(spacing: 8) {
                     Image(nsImage: NSApp.applicationIconImage)
@@ -578,12 +597,10 @@ struct ContentView: View {
                 ))
             }
         }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
     }
 
     private var usageSettingsView: some View {
-        Form {
+        Group {
             
             Section {
                 HStack(spacing: 12) {
@@ -625,12 +642,10 @@ struct ContentView: View {
                 )
             }
         }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
     }
 
     private var imageDisplaySettingsView: some View {
-        Form {
+        Group {
             
             Section {
                 HStack(spacing: 12) {
@@ -760,12 +775,10 @@ struct ContentView: View {
                 }
             }
         }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
     }
 
     private var metadataPanelSettingsView: some View {
-        Form {
+        Group {
             
             Section {
                 HStack(spacing: 12) {
@@ -818,12 +831,10 @@ struct ContentView: View {
                 }
             }
         }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
     }
 
     private var thumbnailSettingsView: some View {
-        Form {
+        Group {
 
             Section {
                 HStack(spacing: 12) {
@@ -941,8 +952,6 @@ struct ContentView: View {
             }
             .disabled(!showThumbnails)
         }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
     }
 
     /// Terminal command that drops Quick Look's thumbnail cache and restarts the

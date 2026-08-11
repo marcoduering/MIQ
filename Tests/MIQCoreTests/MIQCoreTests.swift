@@ -306,7 +306,7 @@ struct MIQCoreTests {
         let image = try MIQParser().parseNifti(data)
         let lines = MIQMetadata(header: image.header).asDisplayLines()
 
-        #expect(lines.contains(where: { $0.text.contains("Dimensions: 16 x 8 x 4") }))
+        #expect(lines.contains(where: { $0.field == .dimensions && $0.value == "16 \u{00D7} 8 \u{00D7} 4" }))
         #expect(lines.contains(where: { $0.text.contains("Datatype: int16") }))
     }
 
@@ -328,7 +328,7 @@ struct MIQCoreTests {
         )
         let scaledLines = MIQMetadata(header: scaledHeader).asDisplayLines()
 
-        #expect(scaledLines.contains(where: { $0.field == .scaling && $0.text == "Scaling: x 0.004 + 1024" }))
+        #expect(scaledLines.contains(where: { $0.field == .scaling && $0.value == "\u{00D7} 0.004 + 1024" }))
 
         let identityHeader = MIQHeader(
             littleEndian: true,

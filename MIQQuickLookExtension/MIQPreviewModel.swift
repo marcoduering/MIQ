@@ -796,13 +796,13 @@ final class MIQPreviewModel {
 
     private nonisolated static func metadataFormatEntry(for url: URL, header: MIQHeader) -> MetadataEntry {
         let displayName = header.formatLabel ?? MIQFileKind(url: url)?.displayName ?? "Unknown"
-        return MetadataEntry(field: .format, text: "Format: \(displayName)")
+        return MetadataEntry(field: .format, label: "Format", value: displayName)
     }
 
     #if DEBUG
     private nonisolated static func buildDateEntry() -> MetadataEntry? {
         guard let formatted = BuildDate.formatted(for: Bundle.main.executableURL) else { return nil }
-        return MetadataEntry(field: nil, text: "DEBUG BUILD: \(formatted)")
+        return MetadataEntry(field: nil, label: "DEBUG BUILD", value: formatted)
     }
     #endif
 }

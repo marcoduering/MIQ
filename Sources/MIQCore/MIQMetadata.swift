@@ -16,13 +16,21 @@ public enum MetadataField: String, Sendable, CaseIterable {
     case value
 }
 
+/// One metadata row. Split, because the preview's two-column panel needs each
+/// label's rendered width; `text` is the joined form.
 public struct MetadataEntry: Sendable {
     public let field: MetadataField?
-    public let text: String
+    public let label: String
+    public let value: String
 
-    public init(field: MetadataField?, text: String) {
+    public var text: String {
+        label.isEmpty ? value : "\(label): \(value)"
+    }
+
+    public init(field: MetadataField?, label: String, value: String) {
         self.field = field
-        self.text = text
+        self.label = label
+        self.value = value
     }
 }
 
@@ -35,13 +43,17 @@ public struct MIQMetadata: Sendable {
     public let sclInter: Float
     public let orientation: String?
 
+    /// Multiplication sign, not the letter x.
+    private static let separator = "\u{00D7}"
+
     public init(header: MIQHeader, orientation: String? = nil) {
-        dimensions = "\(header.width) x \(header.height) x \(header.depth)"
+        let sep = " \(Self.separator) "
+        dimensions = "\(header.width)\(sep)\(header.height)\(sep)\(header.depth)"
 
         let x = header.pixdim[safe: 1] ?? 1
         let y = header.pixdim[safe: 2] ?? 1
         let z = header.pixdim[safe: 3] ?? 1
-        spacing = String(format: "%.2f x %.2f x %.2f mm", x, y, z)
+        spacing = String(format: "%.2f\(sep)%.2f\(sep)%.2f mm", x, y, z)
 
         datatype = header.datatype.label
         volumes = header.volumes
@@ -52,16 +64,16 @@ public struct MIQMetadata: Sendable {
 
     public func asDisplayLines() -> [MetadataEntry] {
         var entries: [MetadataEntry] = [
-            MetadataEntry(field: .dimensions, text: "Dimensions: \(dimensions)"),
-            MetadataEntry(field: .spacing, text: "Spacing: \(spacing)"),
+            MetadataEntry(field: .dimensions, label: "Dimensions", value: dimensions),
+            MetadataEntry(field: .spacing, label: "Spacing", value: spacing),
         ]
         if let orientation {
-            entries.append(MetadataEntry(field: .orientation, text: "Orientation: \(orientation)"))
+            entries.append(MetadataEntry(field: .orientation, label: "Orientation", value: orientation))
         }
-        entries.append(MetadataEntry(field: .datatype, text: "Datatype: \(datatype)"))
-        entries.append(MetadataEntry(field: .volumes, text: "Volumes: \(volumes)"))
+        entries.append(MetadataEntry(field: .datatype, label: "Datatype", value: datatype))
+        entries.append(MetadataEntry(field: .volumes, label: "Volumes", value: "\(volumes)"))
         if let scaling {
-            entries.append(MetadataEntry(field: .scaling, text: "Scaling: \(scaling)"))
+            entries.append(MetadataEntry(field: .scaling, label: "Scaling", value: scaling))
         }
         return entries
     }
@@ -77,6 +89,6 @@ public struct MIQMetadata: Sendable {
         guard !(abs(slope - 1) <= epsilon && abs(intercept) <= epsilon) else { return nil }
 
         let sign = intercept < 0 ? "-" : "+"
-        return String(format: "x %.6g %@ %.6g", slope, sign, abs(intercept))
+        return String(format: "\(Self.separator) %.6g %@ %.6g", slope, sign, abs(intercept))
     }
 }
