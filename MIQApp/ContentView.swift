@@ -426,7 +426,9 @@ struct ContentView: View {
         case checking
         case upToDate
         case available(UpdateCheckResult)
-        case error(String)
+        /// `prominent` is set only for a user-initiated check — the automatic
+        /// launch check reports quietly rather than opening Settings in red.
+        case error(message: String, prominent: Bool)
 
         var availableResult: UpdateCheckResult? {
             if case .available(let r) = self { return r }
@@ -1009,6 +1011,7 @@ struct ContentView: View {
                 Text("Checking for updates…")
             }
             .font(.callout)
+            .foregroundStyle(.secondary)
 
         case .upToDate:
             Button {
@@ -1036,10 +1039,10 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
 
-        case .error(let message):
+        case .error(let message, let prominent):
             HStack(spacing: 6) {
                 Text(message)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(prominent ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                 Button("Try again") {
                     Task { await runUpdateCheck(force: true) }
                 }
@@ -1064,6 +1067,10 @@ struct ContentView: View {
 
     private func runUpdateCheck(force: Bool) async {
         if case .checking = updateState { return }
+        // A failed check must not erase a cache-primed "update available" badge —
+        // that primed state is exactly what `primeUpdateStateFromCache` is for
+        // when the network is unreachable.
+        let cachedAvailable = updateState.availableResult
         updateState = .checking
         let started = Date()
 
@@ -1078,13 +1085,10 @@ struct ContentView: View {
             }
         } catch {
             let description = (error as? LocalizedError)?.errorDescription ?? "Couldn't check for updates."
-            if force {
-                nextState = .error(description)
-            } else {
-                // Silent failure for the on-launch check: revert to idle so the
-                // user can retry manually.
-                nextState = .idle
-            }
+            // The on-launch check reports failures too — reverting to idle made an
+            // offline launch look identical to never having checked.
+            nextState = cachedAvailable.map(UpdateState.available)
+                ?? .error(message: description, prominent: force)
         }
 
         // Keep the spinner visible long enough that a manual click feels

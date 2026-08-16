@@ -53,6 +53,10 @@ public enum UpdateChecker {
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
         request.setValue("MIQ-macOS", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 15
+        // GitHub serves anonymous API responses with `Cache-Control: max-age=60`,
+        // so the protocol cache would answer a re-check from disk — reporting a
+        // stale success while offline instead of the connectivity failure.
+        request.cachePolicy = .reloadIgnoringLocalCacheData
 
         let data: Data
         let response: URLResponse
