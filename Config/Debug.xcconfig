@@ -1,0 +1,25 @@
+// Project-level Debug configuration. Base config of the project's Debug entry.
+
+#include "Shared.xcconfig"
+
+// MARK: - Optimization / diagnostics
+
+DEBUG_INFORMATION_FORMAT = dwarf
+ENABLE_TESTABILITY = YES
+GCC_DYNAMIC_NO_PIC = NO
+GCC_OPTIMIZATION_LEVEL = 0
+GCC_PREPROCESSOR_DEFINITIONS = $(inherited) DEBUG=1
+MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE
+ONLY_ACTIVE_ARCH = YES
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG
+SWIFT_OPTIMIZATION_LEVEL = -Onone
+
+// MARK: - Signing
+
+// Identical for all three targets, so it lives here rather than in each one.
+// Automatic signing cannot provision the thumbnail extension's App Group — see
+// the signing convention in CLAUDE.md — which is why ./scripts/build.sh
+// defaults to Release and --debug is for when thumbnail settings don't matter.
+CODE_SIGN_IDENTITY = Apple Development
+CODE_SIGN_STYLE = Automatic
+PROVISIONING_PROFILE_SPECIFIER =

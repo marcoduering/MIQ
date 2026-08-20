@@ -5,7 +5,7 @@ MIQ is a lightweight **macOS QuickLook extension** for medical volume images. Pr
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_screenshot_dark.webp">
-    <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_screenshot.webp" width="65%">
+    <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_screenshot.webp" width="65%" alt="MIQ Quick Look preview of a brain MRI named Test.nii, showing coronal, sagittal and axial slices in a 2x2 grid with red anatomical edge labels, and a metadata panel listing format NIfTI-1, dimensions 211 x 215 x 175, spacing 1.00 mm isotropic, orientation RAS, datatype int16 and 1 volume.">
   </picture>
 </div>
 
@@ -43,11 +43,12 @@ The app and extension can be installed manually or via the package manager [Home
 
 1. Install on the command line:
 
-```bash
-brew tap marcoduering/miq
-brew trust --cask marcoduering/miq/miq
-brew install --cask miq
-```
+   ```bash
+   brew tap marcoduering/miq
+   brew trust --cask marcoduering/miq/miq
+   brew install --cask miq
+   ```
+
 2. **Open `MIQ.app`** (in `/Applications`) at least once to register the Quick Look extension.
 3. Press **Space** on any supported file in Finder.
 4. Optional: **Customize the preview** in the MIQ app.
@@ -73,19 +74,19 @@ Use the settings (main app) to tailor the preview and thumbnails to your needs. 
   <a href="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings1.webp">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings1_dark.webp">
-      <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings1.webp" width="32%">
+      <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings1.webp" width="32%" alt="MIQ settings, Image Display pane: render orientation, upper and lower intensity clip percentiles, per-volume intensity window for 4D data, overlay colour, and a toggle for axis labels.">
     </picture>
   </a>
   <a href="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings2.webp">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings2_dark.webp">
-      <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings2.webp" width="32%">
+      <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings2.webp" width="32%" alt="MIQ settings, Metadata Panel pane: a drag-and-drop list of the fields shown in the preview's metadata panel — format, dimensions, spacing, orientation, datatype, volumes and scaling — each with its own on/off toggle.">
     </picture>
   </a>
   <a href="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings3.webp">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings3_dark.webp">
-      <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings3.webp" width="32%">
+      <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings3.webp" width="32%" alt="MIQ settings, Thumbnails pane: a toggle to show image slices as Finder file thumbnails (off by default), a button to copy the refresh command, and independent orientation and intensity clip controls for thumbnails.">
     </picture>
   </a>
 </div>

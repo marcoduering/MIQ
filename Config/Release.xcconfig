@@ -1,0 +1,24 @@
+// Project-level Release configuration. Base config of the project's Release entry.
+
+#include "Shared.xcconfig"
+
+// MARK: - Optimization / diagnostics
+
+DEBUG_INFORMATION_FORMAT = dwarf-with-dsym
+ENABLE_NS_ASSERTIONS = NO
+MTL_ENABLE_DEBUG_INFO = NO
+ONLY_ACTIVE_ARCH = NO
+SWIFT_COMPILATION_MODE = wholemodule
+SWIFT_OPTIMIZATION_LEVEL = -O
+
+// MARK: - Signing
+
+// Manual Developer ID signing, identical for all three targets. Only the
+// provisioning profile differs per target, so that stays in the target's own
+// build settings (MIQ_Provisioning / MIQ_Extension_Provisioning /
+// MIQ_Thumbnails_Provisioning — all three authorize the App Group).
+// DEVELOPMENT_TEAM comes from LocalSigning.xcconfig, the targets' base config.
+CODE_SIGN_IDENTITY = Apple Development
+CODE_SIGN_IDENTITY[sdk=macosx*] = Developer ID Application
+CODE_SIGN_STYLE = Manual
+PROVISIONING_PROFILE_SPECIFIER =
