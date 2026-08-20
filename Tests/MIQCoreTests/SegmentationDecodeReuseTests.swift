@@ -11,7 +11,7 @@ struct SegmentationDecodeReuseTests {
     private static let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
 
     private static func labelVolume(_ labels: [Int]) throws -> MIQVolume {
-        let data = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .int16, labels: labels)
+        let data = TestMIQFactory.makeNiiLabels(width: 16, height: 16, depth: 16, datatype: .int16, labels: labels)
         return MIQVolume(image: try MIQParser().parseNifti(data))
     }
 

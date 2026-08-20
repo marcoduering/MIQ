@@ -2,8 +2,10 @@ import Foundation
 
 /// Maps integer segmentation labels to display RGB. Two colour schemes:
 /// a deterministic *random* (categorical) palette and a curated *FreeSurfer*
-/// palette — the canonical colours for the common aseg + aparc (Desikan-Killiany)
-/// structures, with any label not in the table falling back to the random hash.
+/// palette — the canonical colours for the aseg subcortical structures, both aparc
+/// cortical parcellations (Desikan-Killiany and Destrieux/a2009s), and the wmparc
+/// gyral white-matter parcels, with any label not in the table falling back to the
+/// random hash.
 /// Label 0 is background (black). A monochrome-white mode renders every non-zero
 /// label white — used for a detected binary mask where a coloured palette adds
 /// nothing.
@@ -185,9 +187,12 @@ public struct SegmentationLut: Sendable {
         UInt8(max(0, min(255, Int((unit * 255.0).rounded()))))
     }
 
-    // MARK: - FreeSurfer table (aseg + Desikan aparc)
+    // MARK: - FreeSurfer table (aseg + Desikan/Destrieux aparc + wmparc)
 
-    // Stored as packed 0xRRGGBB for Sendable conformance.
+    // Stored as packed 0xRRGGBB for Sendable conformance. ~340 entries, built
+    // lazily on first lookup (~0.15 ms, a few KB) — immaterial next to the parse
+    // it runs behind, but keep the parcel families as index-parallel arrays rather
+    // than literal per-label entries so it stays that way.
     private static let freeSurferTable: [Int: UInt32] = buildFreeSurferTable()
 
     private static func pack(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> UInt32 {
@@ -200,7 +205,7 @@ public struct SegmentationLut: Sendable {
 
     // Desikan-Killiany cortical colours, indexed by (label % 1000), 0..35.
     // lh = 1000+i, rh = 2000+i, both hemispheres share the same colour.
-    // Values from FreeSurferColorLUT.txt. Port of MIQ-Win's Cortical[] array.
+    // Values from FreeSurferColorLUT.txt (v1.105). Port of MIQ-Win's Cortical[].
     private static let cortical: [(UInt8, UInt8, UInt8)] = [
         (25, 5, 25),     // 0  unknown
         (25, 100, 40),   // 1  bankssts
@@ -238,6 +243,130 @@ public struct SegmentationLut: Sendable {
         (70, 70, 70),    // 33 temporalpole
         (150, 150, 200), // 34 transversetemporal
         (255, 192, 32),  // 35 insula
+    ]
+
+    // Destrieux (a2009s) cortical colours, indexed by (label % 100), 0..75.
+    // lh = 11100+i, rh = 12100+i, both hemispheres share the same colour.
+    // Values from FreeSurferColorLUT.txt (v1.105).
+    private static let destrieux: [(UInt8, UInt8, UInt8)] = [
+        (0, 0, 0),        //  0 Unknown
+        (23, 220, 60),    //  1 G_and_S_frontomargin
+        (23, 60, 180),    //  2 G_and_S_occipital_inf
+        (63, 100, 60),    //  3 G_and_S_paracentral
+        (63, 20, 220),    //  4 G_and_S_subcentral
+        (13, 0, 250),     //  5 G_and_S_transv_frontopol
+        (26, 60, 0),      //  6 G_and_S_cingul-Ant
+        (26, 60, 75),     //  7 G_and_S_cingul-Mid-Ant
+        (26, 60, 150),    //  8 G_and_S_cingul-Mid-Post
+        (25, 60, 250),    //  9 G_cingul-Post-dorsal
+        (60, 25, 25),     // 10 G_cingul-Post-ventral
+        (180, 20, 20),    // 11 G_cuneus
+        (220, 20, 100),   // 12 G_front_inf-Opercular
+        (140, 60, 60),    // 13 G_front_inf-Orbital
+        (180, 220, 140),  // 14 G_front_inf-Triangul
+        (140, 100, 180),  // 15 G_front_middle
+        (180, 20, 140),   // 16 G_front_sup
+        (23, 10, 10),     // 17 G_Ins_lg_and_S_cent_ins
+        (225, 140, 140),  // 18 G_insular_short
+        (180, 60, 180),   // 19 G_occipital_middle
+        (20, 220, 60),    // 20 G_occipital_sup
+        (60, 20, 140),    // 21 G_oc-temp_lat-fusifor
+        (220, 180, 140),  // 22 G_oc-temp_med-Lingual
+        (65, 100, 20),    // 23 G_oc-temp_med-Parahip
+        (220, 60, 20),    // 24 G_orbital
+        (20, 60, 220),    // 25 G_pariet_inf-Angular
+        (100, 100, 60),   // 26 G_pariet_inf-Supramar
+        (220, 180, 220),  // 27 G_parietal_sup
+        (20, 180, 140),   // 28 G_postcentral
+        (60, 140, 180),   // 29 G_precentral
+        (25, 20, 140),    // 30 G_precuneus
+        (20, 60, 100),    // 31 G_rectus
+        (60, 220, 20),    // 32 G_subcallosal
+        (60, 60, 220),    // 33 G_temp_sup-G_T_transv
+        (220, 60, 220),   // 34 G_temp_sup-Lateral
+        (65, 220, 60),    // 35 G_temp_sup-Plan_polar
+        (25, 140, 20),    // 36 G_temp_sup-Plan_tempo
+        (220, 220, 100),  // 37 G_temporal_inf
+        (180, 60, 60),    // 38 G_temporal_middle
+        (61, 20, 220),    // 39 Lat_Fis-ant-Horizont
+        (61, 20, 60),     // 40 Lat_Fis-ant-Vertical
+        (61, 60, 100),    // 41 Lat_Fis-post
+        (25, 25, 25),     // 42 Medial_wall
+        (140, 20, 60),    // 43 Pole_occipital
+        (220, 180, 20),   // 44 Pole_temporal
+        (63, 180, 180),   // 45 S_calcarine
+        (221, 20, 10),    // 46 S_central
+        (221, 20, 100),   // 47 S_cingul-Marginalis
+        (221, 60, 140),   // 48 S_circular_insula_ant
+        (221, 20, 220),   // 49 S_circular_insula_inf
+        (61, 220, 220),   // 50 S_circular_insula_sup
+        (100, 200, 200),  // 51 S_collat_transv_ant
+        (10, 200, 200),   // 52 S_collat_transv_post
+        (221, 220, 20),   // 53 S_front_inf
+        (141, 20, 100),   // 54 S_front_middle
+        (61, 220, 100),   // 55 S_front_sup
+        (141, 60, 20),    // 56 S_interm_prim-Jensen
+        (143, 20, 220),   // 57 S_intrapariet_and_P_trans
+        (101, 60, 220),   // 58 S_oc_middle_and_Lunatus
+        (21, 20, 140),    // 59 S_oc_sup_and_transversal
+        (61, 20, 180),    // 60 S_occipital_ant
+        (221, 140, 20),   // 61 S_oc-temp_lat
+        (141, 100, 220),  // 62 S_oc-temp_med_and_Lingual
+        (221, 100, 20),   // 63 S_orbital_lateral
+        (181, 200, 20),   // 64 S_orbital_med-olfact
+        (101, 20, 20),    // 65 S_orbital-H_Shaped
+        (101, 100, 180),  // 66 S_parieto_occipital
+        (181, 220, 20),   // 67 S_pericallosal
+        (21, 140, 200),   // 68 S_postcentral
+        (21, 20, 240),    // 69 S_precentral-inf-part
+        (21, 20, 200),    // 70 S_precentral-sup-part
+        (21, 20, 60),     // 71 S_suborbital
+        (101, 60, 60),    // 72 S_subparietal
+        (21, 180, 180),   // 73 S_temporal_inf
+        (223, 220, 60),   // 74 S_temporal_sup
+        (221, 60, 60),    // 75 S_temporal_transverse
+    ]
+
+    // Gyral white-matter colours for wmparc, indexed the same way as `cortical`
+    // (identical parcel names, different colours): lh = 3000+i, rh = 4000+i.
+    // Values from FreeSurferColorLUT.txt (v1.105).
+    private static let gyralWhiteMatter: [(UInt8, UInt8, UInt8)] = [
+        (230, 250, 230),  //  0 unknown
+        (230, 155, 215),  //  1 bankssts
+        (130, 155, 95),   //  2 caudalanteriorcingulate
+        (155, 230, 255),  //  3 caudalmiddlefrontal
+        (135, 185, 205),  //  4 corpuscallosum
+        (35, 235, 155),   //  5 cuneus
+        (35, 235, 245),   //  6 entorhinal
+        (75, 35, 115),    //  7 fusiform
+        (35, 195, 35),    //  8 inferiorparietal
+        (75, 215, 135),   //  9 inferiortemporal
+        (115, 235, 115),  // 10 isthmuscingulate
+        (235, 225, 115),  // 11 lateraloccipital
+        (220, 180, 205),  // 12 lateralorbitofrontal
+        (30, 115, 115),   // 13 lingual
+        (55, 220, 180),   // 14 medialorbitofrontal
+        (95, 155, 205),   // 15 middletemporal
+        (235, 35, 195),   // 16 parahippocampal
+        (195, 35, 195),   // 17 paracentral
+        (35, 75, 115),    // 18 parsopercularis
+        (235, 155, 205),  // 19 parsorbitalis
+        (35, 195, 235),   // 20 parstriangularis
+        (135, 155, 195),  // 21 pericalcarine
+        (35, 235, 235),   // 22 postcentral
+        (35, 75, 35),     // 23 posteriorcingulate
+        (195, 235, 35),   // 24 precentral
+        (95, 115, 75),    // 25 precuneus
+        (175, 235, 115),  // 26 rostralanteriorcingulate
+        (180, 205, 130),  // 27 rostralmiddlefrontal
+        (235, 35, 95),    // 28 superiorfrontal
+        (235, 75, 115),   // 29 superiorparietal
+        (115, 35, 35),    // 30 superiortemporal
+        (175, 95, 235),   // 31 supramarginal
+        (155, 255, 155),  // 32 frontalpole
+        (185, 185, 185),  // 33 temporalpole
+        (105, 105, 55),   // 34 transversetemporal
+        (20, 220, 160),   // 35 insula
     ]
 
     private static func buildFreeSurferTable() -> [Int: UInt32] {
@@ -288,13 +417,33 @@ public struct SegmentationLut: Sendable {
             253: pack(0,   0,   160), // CC_Central
             254: pack(0,   0,   208), // CC_Mid_Anterior
             255: pack(0,   0,   255), // CC_Anterior
+            // wmparc leftovers: white matter not assigned to a gyral parcel.
+            5001: pack(20, 30, 40),   // Left-UnsegmentedWhiteMatter
+            5002: pack(20, 30, 40),   // Right-UnsegmentedWhiteMatter
         ]
+        // Hemisphere-symmetric parcel families: one colour per index, applied to
+        // the left- and right-hemisphere label of that index. Reserve up front so
+        // the ~300 inserts below don't rehash the storage repeatedly.
+        d.reserveCapacity(360)
         // Desikan aparc cortical labels: lh = 1000+i, rh = 2000+i, same colour.
-        for (i, c) in cortical.enumerated() {
-            let packed = pack(c.0, c.1, c.2)
-            d[1000 + i] = packed
-            d[2000 + i] = packed
-        }
+        addSymmetric(&d, cortical, lhBase: 1000, rhBase: 2000)
+        // Destrieux (a2009s) cortical labels: lh = 11100+i, rh = 12100+i.
+        addSymmetric(&d, destrieux, lhBase: 11100, rhBase: 12100)
+        // wmparc gyral white-matter labels: lh = 3000+i, rh = 4000+i.
+        addSymmetric(&d, gyralWhiteMatter, lhBase: 3000, rhBase: 4000)
         return d
+    }
+
+    private static func addSymmetric(
+        _ d: inout [Int: UInt32],
+        _ colors: [(UInt8, UInt8, UInt8)],
+        lhBase: Int,
+        rhBase: Int
+    ) {
+        for (i, c) in colors.enumerated() {
+            let packed = pack(c.0, c.1, c.2)
+            d[lhBase + i] = packed
+            d[rhBase + i] = packed
+        }
     }
 }

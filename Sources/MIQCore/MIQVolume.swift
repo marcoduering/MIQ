@@ -581,29 +581,40 @@ public struct MIQVolume: Sendable {
     /// Decides whether this volume should be rendered as a coloured segmentation
     /// and builds the shared label→RGB LUT. Returns `nil` (→ percentile windowing)
     /// when colouring is `.off`, the datatype/scaling is intensity-like, or the
-    /// sampled center slices don't look like integer labels.
+    /// sampled center slices don't look like a label map.
     ///
-    /// Detection is conservative: integer/float datatypes with identity scaling
-    /// only; every sampled center-slice value must be integral (|v - round(v)| ≤
-    /// 1e-3); distinct-label count must stay < `maxLabels` (default 160). A genuine
-    /// float intensity image has continuous values and fails the integrality check.
+    /// Detection is conservative, and rests on two independent properties:
+    ///  * **integrality** — identity scaling only, and every sampled center-slice
+    ///    value must be integral (|v - round(v)| ≤ 1e-3). This rejects float
+    ///    intensity images, whose values are continuous.
+    ///  * **piecewise constancy** — the sampled slices must be built from regions
+    ///    of constant value (`LabelScan.isPiecewiseConstant`). This is the *only*
+    ///    thing separating a label map from an **integer** intensity image, for
+    ///    which the integrality test is vacuous: a normalised uint8 T1
+    ///    (FreeSurfer `brain.mgz`, `norm.mgz`) is integral by construction and
+    ///    uses well under `maxLabels` distinct values, so nothing else rejects it.
     ///
-    /// `maxLabels` is exposed for testing with small fixtures; production callers
-    /// use the default.
-    public func buildSegmentationLut(options: RenderingOptions, maxLabels: Int = 160) -> SegmentationLut? {
+    /// `maxLabels` is a resource guard, not a detection signal — real label counts
+    /// and intensity value counts overlap completely (a Destrieux parcellation has
+    /// more distinct values than a normalised T1), so it is set well above any
+    /// real atlas and never used to discriminate. It is also the seam tests use to
+    /// exercise the rejection path with small fixtures.
+    public func buildSegmentationLut(options: RenderingOptions, maxLabels: Int = 4096) -> SegmentationLut? {
         guard segmentationDetectionEligible(options: options) else { return nil }
 
-        var labelSet = Set<Int>()
+        var scan = LabelScan()
         let dims = [width, height, depth]
         for plane in SlicePlane.allCases {
             let plan = orientation.plan(for: plane, mode: options.orientation)
             let center = max(0, dims[plan.sliceAxis] / 2)
-            guard case .grayscale(let values, _, _) = prepareSlice(plan: plan, index: center, volumeIndex: 0) else {
+            guard case .grayscale(let values, let config, _) = prepareSlice(plan: plan, index: center, volumeIndex: 0) else {
                 return nil
             }
-            guard collectLabels(values, into: &labelSet, maxLabels: maxLabels) else { return nil }
+            guard collectLabels(values, rowLength: config.innerCount, into: &scan, maxLabels: maxLabels) else {
+                return nil
+            }
         }
-        return finishSegmentationLut(labelSet: labelSet, options: options)
+        return finishSegmentationLut(scan: scan, options: options)
     }
 
     /// Same detection as `buildSegmentationLut(options:)`, but reading the label
@@ -614,16 +625,18 @@ public struct MIQVolume: Sendable {
     private func buildSegmentationLut(
         options: RenderingOptions,
         preparedCenterSlices prepared: [(plane: SlicePlane, slice: PreparedSlice)],
-        maxLabels: Int = 160
+        maxLabels: Int = 4096
     ) -> SegmentationLut? {
         guard segmentationDetectionEligible(options: options) else { return nil }
 
-        var labelSet = Set<Int>()
+        var scan = LabelScan()
         for entry in prepared {
-            guard case .grayscale(let values, _, _) = entry.slice else { return nil }
-            guard collectLabels(values, into: &labelSet, maxLabels: maxLabels) else { return nil }
+            guard case .grayscale(let values, let config, _) = entry.slice else { return nil }
+            guard collectLabels(values, rowLength: config.innerCount, into: &scan, maxLabels: maxLabels) else {
+                return nil
+            }
         }
-        return finishSegmentationLut(labelSet: labelSet, options: options)
+        return finishSegmentationLut(scan: scan, options: options)
     }
 
     /// Cheap pre-decode gate: colouring enabled, datatype not already RGB, and
@@ -638,26 +651,118 @@ public struct MIQVolume: Sendable {
         return (slope == 0 || slope == 1) && inter == 0
     }
 
-    /// Folds one center slice's voxels into the running label set. Returns
-    /// `false` (→ not a label volume) the instant a value is non-integral or the
-    /// distinct-label count exceeds `maxLabels`. Order-independent, so pooling
-    /// across planes in any order yields the same set.
-    private func collectLabels(_ values: [Float], into labelSet: inout Set<Int>, maxLabels: Int) -> Bool {
-        for v in values {
-            guard v.isFinite else { continue }
-            let rounded = Int(v.rounded())
-            guard abs(v - Float(rounded)) <= 1e-3 else { return false }
-            labelSet.insert(rounded)
-            if labelSet.count > maxLabels { return false }
+    /// Running state of the center-slice label scan: the distinct values seen, plus
+    /// the piecewise-constancy sample (how many horizontally adjacent foreground
+    /// pairs were compared, and how many of them differ).
+    ///
+    /// A label map is built from regions of constant value, so neighbouring
+    /// foreground voxels are almost always equal and differ only across a region
+    /// boundary. An intensity image carries noise at every voxel, so neighbours
+    /// nearly always differ. Measured over the validation corpus, pooled across the
+    /// three center planes:
+    ///
+    ///     label maps   synthseg 0.083 · CerebNet 0.111 · aseg 0.122
+    ///                  aparc.a2009s+aseg 0.139 · wmparc 0.153
+    ///     intensity    wm.asegedit 0.549 · wm 0.590 · wm.seg 0.632
+    ///                  brain 0.854 · antsdn.brain 0.856 · norm 0.938
+    ///
+    /// `maxEdgeRatio` sits near the geometric midpoint of that gap, ~2× clear of
+    /// both sides. Note the densely parcellated atlases (Destrieux, wmparc) are the
+    /// worst case for a label map and still land at 0.15 — thin cortical parcels
+    /// add boundaries only where parcels meet, not throughout.
+    private struct LabelScan {
+        /// Piecewise-constancy threshold; above this the volume reads as intensity.
+        static let maxEdgeRatio = 0.30
+        /// Below this many sampled pairs the ratio is too noisy to reject on, so
+        /// the test abstains rather than reclassifying (a small mask or a thin
+        /// structure has little foreground — CerebNet yields under 1000 pairs).
+        static let minPairs = 256
+        /// Reject-side early exit: a running ratio this far above `maxEdgeRatio`
+        /// over a large enough sample is decisive, and lets an integer intensity
+        /// image bail after a couple of foreground rows instead of walking three
+        /// full center slices. Deliberately conservative — the worst transient
+        /// seen on a real label map is 0.201 (wmparc at 2000 pairs), so this is 3×
+        /// clear of it. Accepting never exits early: `looksLikeFreeSurfer` and the
+        /// ranked random palette are both functions of the *complete* label set,
+        /// and wmparc has collected only 14 of its 136 labels by 2000 pairs.
+        static let decisiveEdgeRatio = 0.60
+        static let decisiveMinPairs = 1024
+
+        var labels = Set<Int>()
+        var adjacentPairs = 0
+        var differingPairs = 0
+
+        /// True once the sample is large enough and lopsided enough that the final
+        /// verdict cannot realistically come out as "label map".
+        var isDecisivelyIntensity: Bool {
+            adjacentPairs >= Self.decisiveMinPairs
+                && Double(differingPairs) > Self.decisiveEdgeRatio * Double(adjacentPairs)
+        }
+
+        /// Final verdict. Abstains (returns `true`) on too small a sample so that
+        /// sparse masks keep their existing behaviour.
+        var isPiecewiseConstant: Bool {
+            guard adjacentPairs >= Self.minPairs else { return true }
+            return Double(differingPairs) <= Self.maxEdgeRatio * Double(adjacentPairs)
+        }
+    }
+
+    /// Folds one center slice's voxels into the running scan. Returns `false`
+    /// (→ not a label volume) the instant a value is non-integral, the distinct
+    /// count exceeds `maxLabels`, or the piecewise-constancy sample turns
+    /// decisively intensity-like.
+    ///
+    /// `rowLength` is the prepared slice's `innerCount`, so adjacency is measured
+    /// along a stored row and never wraps between rows. Pairs are counted only
+    /// where *both* voxels are foreground: background dominates most volumes and
+    /// would otherwise swamp the ratio, and a non-finite voxel breaks the chain
+    /// rather than pairing across the gap. Label collection itself stays
+    /// order-independent, so pooling across planes in any order yields the same set.
+    private func collectLabels(
+        _ values: [Float],
+        rowLength: Int,
+        into scan: inout LabelScan,
+        maxLabels: Int
+    ) -> Bool {
+        guard rowLength > 0 else { return true }
+        let count = values.count
+        var start = 0
+        while start < count {
+            let end = min(start + rowLength, count)
+            // 0 doubles as "no foreground predecessor": row start, background, and
+            // the voxel after a non-finite gap all suppress the pair.
+            var previous = 0
+            for i in start..<end {
+                let v = values[i]
+                guard v.isFinite else { previous = 0; continue }
+                let rounded = Int(v.rounded())
+                guard abs(v - Float(rounded)) <= 1e-3 else { return false }
+                scan.labels.insert(rounded)
+                if scan.labels.count > maxLabels { return false }
+                if rounded != 0 && previous != 0 {
+                    scan.adjacentPairs += 1
+                    if rounded != previous { scan.differingPairs += 1 }
+                }
+                previous = rounded
+            }
+            if scan.isDecisivelyIntensity { return false }
+            start = end
         }
         return true
     }
 
-    /// Final LUT selection from a collected label set (background removed here):
-    /// empty ⇒ nil; a lone label confirmed against the full volume ⇒ binary mask
-    /// (or `nil`/multi-label per the scan); otherwise FreeSurfer or random.
-    private func finishSegmentationLut(labelSet: Set<Int>, options: RenderingOptions) -> SegmentationLut? {
-        var labelSet = labelSet
+    /// Final LUT selection from a completed scan (background removed here):
+    /// not piecewise constant ⇒ nil; empty ⇒ nil; a lone label confirmed against
+    /// the full volume ⇒ binary mask (or `nil`/multi-label per the scan);
+    /// otherwise FreeSurfer or random.
+    ///
+    /// The piecewise-constancy gate is checked first so that an intensity volume
+    /// never reaches `confirmBinaryMask`, whose scan walks all of volume 0. It
+    /// cannot affect the binary-mask path itself: a single foreground label makes
+    /// every foreground pair equal, so such a volume scores exactly 0.
+    private func finishSegmentationLut(scan: LabelScan, options: RenderingOptions) -> SegmentationLut? {
+        guard scan.isPiecewiseConstant else { return nil }
+        var labelSet = scan.labels
         labelSet.remove(0)
         guard !labelSet.isEmpty else { return nil }
 

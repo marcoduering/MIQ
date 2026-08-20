@@ -1665,7 +1665,7 @@ struct MIQCoreTests {
 
     @Test
     func segmentationOffModeReturnsNilLut() throws {
-        let data = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .int16, labels: [0, 1, 2, 3])
+        let data = TestMIQFactory.makeNiiLabels(width: 16, height: 16, depth: 16, datatype: .int16, labels: [0, 1, 2, 3])
         let image = try MIQParser().parseNifti(data)
         let volume = MIQVolume(image: image)
         let offOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .off)
@@ -1676,7 +1676,7 @@ struct MIQCoreTests {
     func segmentationFreeSurferAsegColorIsCanonical() throws {
         // White matter (label 2) must render (245,245,245) in auto mode
         let labels: [Int] = [0, 2, 3, 41, 42, 10, 11, 17, 251]  // enough FS labels + signature
-        let data = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .int16, labels: labels)
+        let data = TestMIQFactory.makeNiiLabels(width: 16, height: 16, depth: 16, datatype: .int16, labels: labels)
         let image = try MIQParser().parseNifti(data)
         let volume = MIQVolume(image: image)
         let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
@@ -1686,9 +1686,63 @@ struct MIQCoreTests {
     }
 
     @Test
+    func segmentationDestrieuxParcellationGetsFreeSurferPalette() throws {
+        // aparc.a2009s+aseg: the cortex is labelled ctx_lh_* = 11100+i / ctx_rh_* =
+        // 12100+i. Before those ranges were in the table only the aseg labels were
+        // known, the majority test in `looksLikeFreeSurfer` failed, and a Destrieux
+        // parcellation fell through to the random palette.
+        let labels: [Int] = [0, 2, 41, 42, 251, 11101, 11106, 11175, 12101, 12106, 12175]
+        let data = TestMIQFactory.makeNiiLabels(width: 16, height: 16, depth: 16, datatype: .int16, labels: labels)
+        let image = try MIQParser().parseNifti(data)
+        let volume = MIQVolume(image: image)
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        let lut = try #require(volume.buildSegmentationLut(options: autoOptions))
+        #expect(lut.kind == .freeSurfer)
+        // Canonical FreeSurferColorLUT.txt values, shared by both hemispheres.
+        #expect(lut.lookup(11101) == (23, 220, 60))   // ctx_lh_G_and_S_frontomargin
+        #expect(lut.lookup(12101) == (23, 220, 60))   // ctx_rh_G_and_S_frontomargin
+        #expect(lut.lookup(11175) == (221, 60, 60))   // ctx_lh_S_temporal_transverse
+        #expect(lut.lookup(12175) == (221, 60, 60))
+    }
+
+    @Test
+    func segmentationWmparcGyralWhiteMatterColorIsCanonical() throws {
+        // wmparc: gyral white matter is wm_lh_* = 3000+i / wm_rh_* = 4000+i, plus
+        // 5001/5002 for white matter not assigned to a parcel. These resolved to
+        // .freeSurfer already (the aseg labels carried the majority) but the wm_*
+        // parcels themselves fell back to the per-label hash.
+        let labels: [Int] = [0, 2, 41, 42, 251, 3001, 3035, 4001, 4035, 5001, 5002]
+        let data = TestMIQFactory.makeNiiLabels(width: 16, height: 16, depth: 16, datatype: .int16, labels: labels)
+        let image = try MIQParser().parseNifti(data)
+        let volume = MIQVolume(image: image)
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        let lut = try #require(volume.buildSegmentationLut(options: autoOptions))
+        #expect(lut.kind == .freeSurfer)
+        #expect(lut.lookup(3001) == (230, 155, 215))  // wm-lh-bankssts
+        #expect(lut.lookup(4001) == (230, 155, 215))  // wm-rh-bankssts
+        #expect(lut.lookup(3035) == (20, 220, 160))   // wm-lh-insula
+        #expect(lut.lookup(5001) == (20, 30, 40))     // Left-UnsegmentedWhiteMatter
+        #expect(lut.lookup(5002) == (20, 30, 40))     // Right-UnsegmentedWhiteMatter
+    }
+
+    @Test
+    func segmentationFreeSurferTableIsHemisphereSymmetric() {
+        // Every parcel family is stored as one index-parallel colour array applied
+        // to both hemispheres; this pins that the lh/rh bases stay in step.
+        for (lhBase, rhBase, count) in [(1000, 2000, 36), (11100, 12100, 76), (3000, 4000, 36)] {
+            for i in 0..<count {
+                #expect(SegmentationLut.isFreeSurferLabel(lhBase + i))
+                #expect(SegmentationLut.isFreeSurferLabel(rhBase + i))
+                #expect(SegmentationLut.freeSurfer.lookup(lhBase + i)
+                        == SegmentationLut.freeSurfer.lookup(rhBase + i))
+            }
+        }
+    }
+
+    @Test
     func segmentationGenericTissueMappingGetsRandomNotFreeSurfer() throws {
         // {1, 2, 3} has no FreeSurfer signature labels → random palette
-        let data = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .int16, labels: [0, 1, 2, 3])
+        let data = TestMIQFactory.makeNiiLabels(width: 16, height: 16, depth: 16, datatype: .int16, labels: [0, 1, 2, 3])
         let image = try MIQParser().parseNifti(data)
         let volume = MIQVolume(image: image)
         let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
@@ -1701,7 +1755,7 @@ struct MIQCoreTests {
     @Test
     func segmentationBinaryMaskRendersWhite() throws {
         // Single non-zero label across the whole volume → monochromeWhite
-        let data = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .uint8, labels: [0, 5])
+        let data = TestMIQFactory.makeNiiLabels(width: 16, height: 16, depth: 16, datatype: .uint8, labels: [0, 5])
         let image = try MIQParser().parseNifti(data)
         let volume = MIQVolume(image: image)
         let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
@@ -1730,8 +1784,8 @@ struct MIQCoreTests {
         // A label map stored as float32 with integral values must be detected and
         // coloured identically to the int16 equivalent.
         let labelsFS: [Int] = [0, 2, 3, 41, 42, 10, 11, 17, 251]
-        let intData = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .int16, labels: labelsFS)
-        let floatData = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .float32, labels: labelsFS)
+        let intData = TestMIQFactory.makeNiiLabels(width: 16, height: 16, depth: 16, datatype: .int16, labels: labelsFS)
+        let floatData = TestMIQFactory.makeNiiLabels(width: 16, height: 16, depth: 16, datatype: .float32, labels: labelsFS)
         let intImage = try MIQParser().parseNifti(intData)
         let floatImage = try MIQParser().parseNifti(floatData)
         let intLut = MIQVolume(image: intImage).buildSegmentationLut(
@@ -1745,7 +1799,9 @@ struct MIQCoreTests {
 
     @Test
     func segmentationIntensityImageUnaffected() throws {
-        // Dense uint8 anatomical spans 0..254 → more than 160 distinct → nil LUT
+        // Dense uint8 anatomical spanning 0..254. Every value is integral and the
+        // distinct count is far below `maxLabels`, so only the piecewise-constancy
+        // test rejects it — the factory's `i % 255` makes every neighbour differ.
         let data = TestMIQFactory.makeNii(width: 16, height: 16, depth: 16, datatype: .uint8)
         let image = try MIQParser().parseNifti(data)
         let volume = MIQVolume(image: image)
@@ -1755,20 +1811,73 @@ struct MIQCoreTests {
 
     @Test
     func segmentationInt16CTIntensityImageUnaffected() throws {
-        // int16 CT values span a wide range of signed integers → not label-like
-        let data = TestMIQFactory.makeNii(width: 8, height: 8, depth: 8, datatype: .int16)
+        // int16 CT values span a wide range of signed integers → not label-like.
+        // 16³ so the center slices carry enough foreground pairs to clear
+        // `LabelScan.minPairs`; the factory's `i % 1024` makes every neighbour
+        // differ, so the piecewise-constancy test rejects it.
+        let data = TestMIQFactory.makeNii(width: 16, height: 16, depth: 16, datatype: .int16)
         let image = try MIQParser().parseNifti(data)
         let volume = MIQVolume(image: image)
         let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
-        // The factory voxel values are i % 1024 which spans 0..1023 → 161+ distinct
         #expect(volume.buildSegmentationLut(options: autoOptions) == nil)
+    }
+
+    @Test
+    func segmentationIntegerIntensityWithFewDistinctValuesIsNotColoured() throws {
+        // The regression this gate exists for: FreeSurfer `brain.mgz` / `wm.mgz`
+        // are uint8 intensity volumes, so every value is integral by construction
+        // and the distinct count (44–124) sits far below `maxLabels`. Nothing but
+        // the piecewise-constancy test can reject them. `blockSize: 1` reproduces
+        // that shape — few distinct values, but noisy at every voxel.
+        let data = TestMIQFactory.makeNiiLabels(
+            width: 16, height: 16, depth: 16, datatype: .uint8,
+            labels: Array(80...119), blockSize: 1
+        )
+        let volume = MIQVolume(image: try MIQParser().parseNifti(data))
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        #expect(volume.buildSegmentationLut(options: autoOptions) == nil)
+    }
+
+    @Test
+    func segmentationSmallSampleAbstainsFromPiecewiseTest() throws {
+        // Same noisy shape, but an 8³ volume yields ~168 adjacent foreground pairs
+        // across the three center slices — under `LabelScan.minPairs`. Too small a
+        // sample must abstain (keep the pre-existing verdict) rather than reject,
+        // so sparse masks and thin structures are never reclassified on noise.
+        let data = TestMIQFactory.makeNiiLabels(
+            width: 8, height: 8, depth: 8, datatype: .uint8,
+            labels: Array(80...119), blockSize: 1
+        )
+        let volume = MIQVolume(image: try MIQParser().parseNifti(data))
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        #expect(volume.buildSegmentationLut(options: autoOptions) != nil)
+    }
+
+    @Test
+    func segmentationAtlasAboveLegacyLabelCapIsDetected() throws {
+        // 200 foreground labels — rejected by the old 160 cap, which is why dense
+        // atlases (Schaefer-1000, HCP-MMP) never coloured. The cap is now a
+        // resource guard set well above any real atlas, and piecewise constancy
+        // does the discriminating. Sized so the three sampled center planes
+        // (16×16 blocks each) themselves carry more than 160 distinct labels —
+        // detection never sees the whole volume, so a smaller fixture would stay
+        // under the legacy cap and prove nothing.
+        let data = TestMIQFactory.makeNiiLabels(
+            width: 96, height: 96, depth: 96, datatype: .int16,
+            labels: Array(0...200), blockSize: 6
+        )
+        let volume = MIQVolume(image: try MIQParser().parseNifti(data))
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        let lut = try #require(volume.buildSegmentationLut(options: autoOptions))
+        #expect(lut.kind == .random)
+        #expect(volume.buildSegmentationLut(options: autoOptions, maxLabels: 160) == nil)
     }
 
     @Test
     func segmentationRandomModeSkipsFreeSurferDetection() throws {
         // Even with FreeSurfer labels, .random forces random palette
         let labels: [Int] = [0, 2, 3, 41, 42, 10, 11, 17, 251]
-        let data = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .int16, labels: labels)
+        let data = TestMIQFactory.makeNiiLabels(width: 16, height: 16, depth: 16, datatype: .int16, labels: labels)
         let image = try MIQParser().parseNifti(data)
         let volume = MIQVolume(image: image)
         let randomOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .random)
@@ -1780,7 +1889,7 @@ struct MIQCoreTests {
     func segmentationNonIdentityScalingIsGrayscale() throws {
         // scl_slope != 0 or != 1 → intensity, not labels
         let data = TestMIQFactory.makeNiiLabels(
-            width: 8, height: 8, depth: 8, datatype: .int16,
+            width: 16, height: 16, depth: 16, datatype: .int16,
             labels: [0, 1, 2, 3], sclSlope: 2.0
         )
         let image = try MIQParser().parseNifti(data)
@@ -1792,7 +1901,7 @@ struct MIQCoreTests {
     @Test
     func segmentationSliceIsRGBWhenLutActive() throws {
         let labels: [Int] = [0, 2, 3, 41, 42, 10, 11, 17, 251]
-        let data = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .int16, labels: labels)
+        let data = TestMIQFactory.makeNiiLabels(width: 16, height: 16, depth: 16, datatype: .int16, labels: labels)
         let image = try MIQParser().parseNifti(data)
         let volume = MIQVolume(image: image)
         let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
@@ -1814,7 +1923,7 @@ struct MIQCoreTests {
     func segmentationMaxLabelsThresholdIsRespected() throws {
         // Use a tiny maxLabels so a fixture with just 3 foreground labels exceeds it
         let labels: [Int] = [0, 1, 2, 3]
-        let data = TestMIQFactory.makeNiiLabels(width: 8, height: 8, depth: 8, datatype: .int16, labels: labels)
+        let data = TestMIQFactory.makeNiiLabels(width: 16, height: 16, depth: 16, datatype: .int16, labels: labels)
         let image = try MIQParser().parseNifti(data)
         let volume = MIQVolume(image: image)
         let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
@@ -2410,8 +2519,13 @@ END
         return Data(header.utf8) + Data(payload)
     }
 
-    /// NIfTI fixture whose voxels cycle through `labels`, so every label value
-    /// appears uniformly across the volume (including all three center slices).
+    /// NIfTI fixture whose voxels cycle through `labels` in cubic blocks of
+    /// `blockSize`, so every label value appears across the volume (including all
+    /// three center slices) while each label occupies a spatially coherent region.
+    /// The blocks matter: segmentation detection requires the sampled slices to be
+    /// piecewise constant, so a per-voxel cycle (every neighbour differing) reads
+    /// as intensity data, not labels. Dimensions must be large enough that
+    /// `(dim / blockSize)^3` covers `labels.count`, or trailing labels never appear.
     /// `sclSlope` defaults to 1 (identity); pass a non-identity value to test
     /// that the scl-slope guard prevents segmentation detection.
     static func makeNiiLabels(
@@ -2420,7 +2534,8 @@ END
         depth: Int,
         datatype: MIQDatatype,
         labels: [Int],
-        sclSlope: Float = 1.0
+        sclSlope: Float = 1.0,
+        blockSize: Int = 4
     ) -> Data {
         let headerSize = 348
         let voxOffset = 352
@@ -2445,8 +2560,15 @@ END
 
         let voxelCount = width * height * depth
         var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
+        let block = max(1, blockSize)
+        let blocksX = (width + block - 1) / block
+        let blocksY = (height + block - 1) / block
         for i in 0..<voxelCount {
-            let label = labels.isEmpty ? 0 : labels[i % labels.count]
+            let x = i % width
+            let y = (i / width) % height
+            let z = i / (width * height)
+            let blockIndex = (x / block) + (y / block) * blocksX + (z / block) * blocksX * blocksY
+            let label = labels.isEmpty ? 0 : labels[blockIndex % labels.count]
             switch datatype {
             case .uint8:
                 payload[i] = UInt8(clamping: label)
