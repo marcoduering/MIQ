@@ -2,9 +2,11 @@ import Foundation
 import Testing
 @testable import MIQCore
 
-/// `IntensityWindow.bounds` switched its in-place sort from `Array.sort()` to
-/// Accelerate's `vDSP_vsort`. The rendered preview must not change, so these
-/// pin the windowed output bit-identical to a `Array.sort()`-based reference.
+/// `IntensityWindow.bounds` reads at most four order statistics, so it selects
+/// (quickselect) instead of sorting the pooled buffer. The k-th smallest of a
+/// multiset is algorithm-independent, so the rendered preview must not change —
+/// these pin the windowed output bit-identical to an `Array.sort()`-based
+/// reference, which is also the pre-optimization algorithm.
 struct IntensityWindowSortTests {
 
     /// Reference reimplementation of `bounds` using `Array.sort()` — the exact
@@ -105,5 +107,55 @@ struct IntensityWindowSortTests {
         let nan = Float.nan
         let inf = Float.infinity
         #expect(IntensityWindow.bounds(for: [nan, inf, -inf], lowerPercentile: 2, upperPercentile: 98) == nil)
+    }
+
+    @Test func matchesReferenceOnConstantBuffer() {
+        // Every element equal: both percentiles collapse to the same value, so the
+        // `lower < upper` tail rule fires and the bounds come from min/max instead.
+        // Also the worst case for a first-element pivot — median-of-three's reason.
+        Self.assertMatchesReference(Array(repeating: Float(7), count: 5000), "constant non-zero")
+        Self.assertMatchesReference(Array(repeating: Float(0), count: 5000), "constant zero")
+    }
+
+    @Test func matchesReferenceOnSingleValue() {
+        // n == 1: both percentile indices resolve to 0 and the tail rule fires.
+        Self.assertMatchesReference([42], "single value")
+        Self.assertMatchesReference([-3.25], "single negative value")
+        // n == 1 after non-finite filtering, from a longer buffer.
+        Self.assertMatchesReference([.nan, .infinity, 17, -.infinity], "single finite among non-finite")
+    }
+
+    @Test func matchesReferenceOnSortedAndReversedInput() {
+        // Already-ordered input is the pathological case for a naive pivot.
+        let ascending = (0..<40_000).map { Float($0) }
+        Self.assertMatchesReference(ascending, "ascending")
+        Self.assertMatchesReference(ascending.reversed(), "descending")
+    }
+
+    @Test func matchesReferenceAcrossPercentilePairs() {
+        // The index arithmetic differs at the extremes (position lands exactly on an
+        // element, so the two indices coincide) and when both percentiles are equal.
+        var values = [Float]()
+        for i in 0..<20_000 {
+            values.append(i % 5 == 0 ? 0 : Float((i * 37 + 11) % 1000) - 500)
+        }
+        for (lo, hi) in [(0.0, 100.0), (50.0, 50.0), (1.0, 99.0), (25.0, 75.0), (99.0, 1.0)] {
+            Self.assertMatchesReference(values, lower: lo, upper: hi, "percentiles \(lo)/\(hi)")
+        }
+    }
+
+    @Test func matchesReferenceWithNonFiniteInterleaved() {
+        // Non-finite values must not reach the selection loops (their comparisons
+        // would let the partition scan run off the end of the buffer).
+        var values = [Float]()
+        for i in 0..<10_000 {
+            switch i % 11 {
+            case 0: values.append(.nan)
+            case 1: values.append(.infinity)
+            case 2: values.append(-.infinity)
+            default: values.append(Float((i * 17) % 2048) - 1024)
+            }
+        }
+        Self.assertMatchesReference(values, "non-finite interleaved")
     }
 }

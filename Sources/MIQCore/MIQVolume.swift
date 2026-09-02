@@ -190,7 +190,8 @@ public struct MIQVolume: Sendable {
         volumeIndex: Int = 0,
         options: RenderingOptions
     ) -> MIQIntensityWindowBounds? {
-        let bounds = prepareCenterSlices(planes: planes, volumeIndex: volumeIndex, options: options).bounds
+        let prepared = prepareCenterSlices(planes: planes, volumeIndex: volumeIndex, options: options)
+        let bounds = pooledBounds(from: prepared, options: options)
         return bounds.map { MIQIntensityWindowBounds(low: $0.low, high: $0.high) }
     }
 
@@ -203,10 +204,11 @@ public struct MIQVolume: Sendable {
     public func centerInteractiveState(
         options: RenderingOptions
     ) -> (windowBounds: MIQIntensityWindowBounds?, segmentationLut: SegmentationLut?) {
-        let (prepared, bounds) = prepareCenterSlices(planes: SlicePlane.allCases, volumeIndex: 0, options: options)
+        let prepared = prepareCenterSlices(planes: SlicePlane.allCases, volumeIndex: 0, options: options)
         if let lut = buildSegmentationLut(options: options, preparedCenterSlices: prepared) {
             return (nil, lut)
         }
+        let bounds = pooledBounds(from: prepared, options: options)
         return (bounds.map { MIQIntensityWindowBounds(low: $0.low, high: $0.high) }, nil)
     }
 
@@ -273,12 +275,14 @@ public struct MIQVolume: Sendable {
         // defined over volume 0's three center planes, so reuse only when this
         // preview is exactly that (the production cold-load call); any other
         // shape falls back to the self-decoding path. When a LUT is active it
-        // replaces percentile windowing entirely; the bounds are still computed
-        // for callers that need the window independently (non-label mode).
-        let (prepared, bounds) = prepareCenterSlices(planes: planes, volumeIndex: volumeIndex, options: options)
+        // replaces percentile windowing entirely, so resolve it *before* pooling
+        // and skip the percentile pass altogether — on a coloured segmentation
+        // that window was computed and then discarded on every cold load.
+        let prepared = prepareCenterSlices(planes: planes, volumeIndex: volumeIndex, options: options)
         let lut = (volumeIndex == 0 && planes == SlicePlane.allCases)
             ? buildSegmentationLut(options: options, preparedCenterSlices: prepared)
             : buildSegmentationLut(options: options)
+        let bounds = lut == nil ? pooledBounds(from: prepared, options: options) : nil
         var slices: [SlicePlane: SliceImage] = [:]
         slices.reserveCapacity(prepared.count)
         for entry in prepared {
@@ -301,28 +305,40 @@ public struct MIQVolume: Sendable {
         centerPreview(planes: planes, volumeIndex: volumeIndex, maxDimension: maxDimension, options: options).slices
     }
 
-    /// Decodes the center slice of each requested plane once and derives the shared
-    /// percentile window from the pooled grayscale voxels. Single source of truth for
-    /// "center slices + their shared window" — `fixedCenterWindow` stops at the bounds,
-    /// `centerPreview` continues to finalize the prepared slices.
+    /// Decodes the center slice of each requested plane exactly once. Single source
+    /// of truth for "the center slices" — every caller that also needs their shared
+    /// window passes the result to `pooledBounds`, and the callers where a
+    /// segmentation LUT replaces windowing skip that second step entirely.
     private func prepareCenterSlices(
         planes: [SlicePlane],
         volumeIndex: Int,
         options: RenderingOptions
-    ) -> (prepared: [(plane: SlicePlane, slice: PreparedSlice)], bounds: IntensityWindow.Bounds?) {
+    ) -> [(plane: SlicePlane, slice: PreparedSlice)] {
         let dims = [width, height, depth]
         var prepared: [(plane: SlicePlane, slice: PreparedSlice)] = []
         prepared.reserveCapacity(planes.count)
-        var pooledFloatCount = 0
 
         for plane in planes {
             let plan = orientation.plan(for: plane, mode: options.orientation)
             let center = max(0, dims[plan.sliceAxis] / 2)
-            let p = prepareSlice(plan: plan, index: center, volumeIndex: volumeIndex)
-            if case .grayscale(let values, _, _) = p {
+            prepared.append((plane, prepareSlice(plan: plan, index: center, volumeIndex: volumeIndex)))
+        }
+        return prepared
+    }
+
+    /// The shared percentile window over the pooled grayscale voxels of already
+    /// prepared slices (RGB planes contribute nothing). Split out from
+    /// `prepareCenterSlices` because it is the dominant CPU cost of a cold load and
+    /// is pure waste whenever a segmentation LUT is about to replace windowing.
+    private func pooledBounds(
+        from prepared: [(plane: SlicePlane, slice: PreparedSlice)],
+        options: RenderingOptions
+    ) -> IntensityWindow.Bounds? {
+        var pooledFloatCount = 0
+        for entry in prepared {
+            if case .grayscale(let values, _, _) = entry.slice {
                 pooledFloatCount += values.count
             }
-            prepared.append((plane, p))
         }
 
         var pooled = [Float]()
@@ -332,12 +348,11 @@ public struct MIQVolume: Sendable {
                 pooled.append(contentsOf: values)
             }
         }
-        let bounds = IntensityWindow.bounds(
+        return IntensityWindow.bounds(
             for: pooled,
             lowerPercentile: options.lowerPercentile,
             upperPercentile: options.upperPercentile
         )
-        return (prepared, bounds)
     }
 
     /// Returns a 3-letter storage orientation label (e.g. "RAS", "LAS") if determinable.

@@ -1,4 +1,3 @@
-import Accelerate
 import Foundation
 
 /// Percentile windowing for volumetric intensity data.
@@ -41,21 +40,19 @@ enum IntensityWindow {
         // Prefer a non-zero subset for windowing if it's substantial; otherwise fall back to all finite values.
         // The /20 ratio guards against rejecting legitimate dim regions when most voxels are background.
         let useNonZero = nonZeroValues.count >= max(64, finiteValues.count / 20)
-        // Sort in place via Accelerate's `vDSP_vsort` (ascending). The buffer is
-        // already filtered to finite values, so there are no NaNs to order; for a
-        // total sort of the same finite multiset the resulting sequence is
-        // element-for-element identical to `Array.sort()`. The only values that
-        // compare equal yet differ in bits are ±0.0, and reading either at a
-        // percentile index yields 0.0 — so the windowed preview stays bit-identical.
+        // Only four order statistics are ever read, so the buffer is *selected*
+        // rather than sorted (quickselect, below). The k-th smallest of a multiset
+        // is algorithm-independent, so this is bit-identical to the previous full
+        // sort, not merely close — `IntensityWindowSortTests` pins that against an
+        // `Array.sort()` reference. Mutate the chosen array directly (not a copy of
+        // it) so the selection stays in place.
+        let lower: Float
+        let upper: Float
         if useNonZero {
-            Self.sortAscending(&nonZeroValues)
+            (lower, upper) = percentileBounds(&nonZeroValues, lowerPercentile: lowerPercentile, upperPercentile: upperPercentile)
         } else {
-            Self.sortAscending(&finiteValues)
+            (lower, upper) = percentileBounds(&finiteValues, lowerPercentile: lowerPercentile, upperPercentile: upperPercentile)
         }
-        let sorted = useNonZero ? nonZeroValues : finiteValues
-
-        let lower = percentile(sorted, p: Float(lowerPercentile) / 100.0)
-        let upper = percentile(sorted, p: Float(upperPercentile) / 100.0)
         let windowLow = lower < upper ? lower : minV
         let windowHigh = lower < upper ? upper : maxV
         return Bounds(low: windowLow, high: windowHigh)
@@ -75,33 +72,110 @@ enum IntensityWindow {
         }
     }
 
-    /// In-place ascending sort via Accelerate. Empty buffers are a no-op
-    /// (`vDSP_vsort`'s count must be ≥ 1).
-    private static func sortAscending(_ values: inout [Float]) {
-        guard !values.isEmpty else { return }
-        values.withUnsafeMutableBufferPointer { buf in
-            vDSP_vsort(buf.baseAddress!, vDSP_Length(buf.count), 1)
+    // MARK: - Percentile selection
+
+    /// The two array positions a percentile interpolates between, and the weight
+    /// between them. Index arithmetic is shared by every path so they cannot drift.
+    private struct PercentilePosition {
+        let lowerIndex: Int
+        let upperIndex: Int
+        let fraction: Float
+    }
+
+    private static func position(count: Int, p: Float) -> PercentilePosition {
+        let clamped = max(0, min(1, p))
+        let position = clamped * Float(count - 1)
+        let lowerIndex = Int(position.rounded(.down))
+        let upperIndex = Int(position.rounded(.up))
+        return PercentilePosition(
+            lowerIndex: lowerIndex,
+            upperIndex: upperIndex,
+            fraction: position - Float(lowerIndex)
+        )
+    }
+
+    /// Resolves both percentiles of `buffer` in place. The buffer is left partially
+    /// ordered (only the positions actually read are placed), which is all the
+    /// percentile interpolation needs.
+    private static func percentileBounds(
+        _ buffer: inout [Float],
+        lowerPercentile: Double,
+        upperPercentile: Double
+    ) -> (Float, Float) {
+        guard !buffer.isEmpty else {
+            return (0, 0)
+        }
+
+        let lowerPosition = position(count: buffer.count, p: Float(lowerPercentile) / 100.0)
+        let upperPosition = position(count: buffer.count, p: Float(upperPercentile) / 100.0)
+
+        return buffer.withUnsafeMutableBufferPointer { buf -> (Float, Float) in
+            // Resolve the (at most four) needed indices in ascending order. After
+            // `select` fixes index k over [start, n), every element below k is ≤
+            // buf[k], so the next select only has to search above it — and buf[k]
+            // itself is never disturbed again.
+            var wanted = [
+                lowerPosition.lowerIndex, lowerPosition.upperIndex,
+                upperPosition.lowerIndex, upperPosition.upperIndex,
+            ]
+            wanted.sort()
+            var start = 0
+            for k in wanted {
+                if k < start { continue }  // duplicate index, already placed
+                select(buf, k: k, from: start)
+                start = k + 1
+            }
+            return (value(at: lowerPosition, in: buf), value(at: upperPosition, in: buf))
         }
     }
 
-    private static func percentile(_ sorted: [Float], p: Float) -> Float {
-        guard let first = sorted.first else {
-            return 0
+    private static func value(at position: PercentilePosition, in buf: UnsafeMutableBufferPointer<Float>) -> Float {
+        if position.lowerIndex == position.upperIndex {
+            return buf[position.lowerIndex]
         }
-        guard sorted.count > 1 else {
-            return first
+        let fraction = position.fraction
+        return buf[position.lowerIndex] * (1 - fraction) + buf[position.upperIndex] * fraction
+    }
+
+    /// Iterative Hoare quickselect: rearranges `buf[start...]` so `buf[k]` holds the
+    /// k-th smallest element of the whole buffer, given that everything below `start`
+    /// is already ≤ everything at or above it.
+    ///
+    /// The caller filters the buffer to finite values, so the scanning loops cannot
+    /// run off the ends on a NaN comparison. Iterative, so a pathological pivot
+    /// sequence costs time rather than stack.
+    private static func select(_ buf: UnsafeMutableBufferPointer<Float>, k: Int, from start: Int) {
+        var lo = start
+        var hi = buf.count - 1
+        while lo < hi {
+            placePivot(buf, lo, hi)
+            let pivot = buf[lo]
+            var i = lo - 1
+            var j = hi + 1
+            while true {
+                repeat { i += 1 } while buf[i] < pivot
+                repeat { j -= 1 } while buf[j] > pivot
+                if i >= j { break }
+                buf.swapAt(i, j)
+            }
+            // Hoare's invariant with a pivot taken from buf[lo] guarantees
+            // lo ≤ j < hi, so each iteration strictly shrinks the range.
+            if k <= j {
+                hi = j
+            } else {
+                lo = j + 1
+            }
         }
+    }
 
-        let clamped = max(0, min(1, p))
-        let position = clamped * Float(sorted.count - 1)
-        let lowerIndex = Int(position.rounded(.down))
-        let upperIndex = Int(position.rounded(.up))
-
-        if lowerIndex == upperIndex {
-            return sorted[lowerIndex]
-        }
-
-        let fraction = position - Float(lowerIndex)
-        return sorted[lowerIndex] * (1 - fraction) + sorted[upperIndex] * fraction
+    /// Median-of-three, left at `buf[lo]` for the partition to use as its pivot.
+    /// A first-element pivot degrades on sorted or constant input — the common
+    /// shape here, where most of a slice is identical background.
+    private static func placePivot(_ buf: UnsafeMutableBufferPointer<Float>, _ lo: Int, _ hi: Int) {
+        let mid = lo + (hi - lo) / 2
+        if buf[mid] < buf[lo] { buf.swapAt(mid, lo) }
+        if buf[hi] < buf[lo] { buf.swapAt(hi, lo) }
+        if buf[hi] < buf[mid] { buf.swapAt(hi, mid) }
+        buf.swapAt(lo, mid)
     }
 }
