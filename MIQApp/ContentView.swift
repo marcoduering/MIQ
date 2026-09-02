@@ -676,16 +676,7 @@ struct ContentView: View {
                             Text(mode.label).tag(mode)
                         }
                     } label: {
-                        HStack(spacing: 6) {
-                            Text("Segmentation colouring")
-                            Text("NEW in v1.1.0")
-                                .font(.caption2)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(.tint))
-                        }
+                        Text("Segmentation colouring")
                     }
                     Text("When a label file is detected, render in colour. Auto uses canonical FreeSurfer colours when a FreeSurfer parcellation is detected, otherwise assigns random colours.")
                         .font(.callout)
@@ -755,16 +746,7 @@ struct ContentView: View {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        HStack(spacing: 6) {
-                            Text("Defer large previews on network volumes")
-                            Text("NEW in v1.2.0")
-                                .font(.caption2)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(.tint))
-                        }
+                        Text("Defer large previews on network volumes")
                         Spacer()
                         Toggle("", isOn: $deferLargeNetworkPreviews)
                             .labelsHidden()
@@ -890,16 +872,7 @@ struct ContentView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        HStack(spacing: 6) {
-                            Text("Include network volumes")
-                            Text("NEW in v1.2.0")
-                                .font(.caption2)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(.tint))
-                        }
+                        Text("Include network volumes")
                         Spacer()
                         Toggle("", isOn: $showThumbnailsOnNetworkVolumes)
                             .labelsHidden()
