@@ -85,6 +85,68 @@ struct MIQCoreTests {
     }
 
     @Test
+    func niftiRejectsHeaderDeclaringAPayloadTheFileDoesNotContain() {
+        // A 548-byte NIfTI-2 declaring 2^20 x 2^21 x 2^21 uint8: the offset check
+        // alone only proves the payload *starts* inside the buffer, so the parse
+        // used to succeed with a 4-byte payload and the first center slice then
+        // allocated terabytes until jetsam killed the appex.
+        var data = TestMIQFactory.makeNii2HeaderOnly(
+            width: 1 << 20, height: 1 << 21, depth: 1 << 21, datatype: .uint8
+        )
+        data.append(Data(repeating: 0, count: 8))
+        #expect(data.count == 548)
+
+        #expect(throws: MIQError.self) {
+            _ = try MIQParser().parseNifti(data)
+        }
+    }
+
+    @Test
+    func niftiRejectsAPayloadTruncatedInsideVolumeZero() {
+        // Matches the other three formats: a file cut short mid-copy now reports
+        // truncation instead of rendering whatever bytes arrived.
+        var data = TestMIQFactory.makeNii(width: 8, height: 8, depth: 8, datatype: .int16)
+        #expect(throws: Never.self) { _ = try MIQParser().parseNifti(data) }
+
+        data.removeLast(2)
+        #expect(throws: MIQError.self) {
+            _ = try MIQParser().parseNifti(data)
+        }
+    }
+
+    @Test
+    func mghRejectsIntMaxPayloadWithoutTrapping() {
+        // 3577 x 42799 x 92737 x 649657 is the factorisation of 2^63 - 1, so the
+        // dims product passes `validateDimensionExtent` at exactly `Int.max` and the
+        // old `voxOffset + payloadBytes` guard trapped on the addition (SIGTRAP, not
+        // a thrown error). The mutation fuzzer cannot synthesise these dimension
+        // words, hence the explicit fixture.
+        let data = TestMIQFactory.makeMghHeaderOnly(
+            width: 3577, height: 42799, depth: 92737, frames: 649_657, datatype: .uint8
+        )
+        #expect(throws: MIQError.self) {
+            _ = try MIQParser().parseMgh(data)
+        }
+    }
+
+    @Test
+    func nrrdRejectsIntMaxPayloadWithoutTrapping() {
+        // Same `Int.max` dims product as the MGH case, against the NRRD payload guard.
+        let header = """
+        NRRD0004
+        type: uchar
+        dimension: 4
+        sizes: 3577 42799 92737 649657
+        endian: little
+        encoding: raw
+
+        """
+        #expect(throws: MIQError.self) {
+            _ = try MIQParser().parseNrrd(Data(header.utf8))
+        }
+    }
+
+    @Test
     func gunzipRejectsLyingIsizeTrailerWithoutTrustingItsClaim() throws {
         // Valid gzip whose 4-byte ISIZE trailer is then overwritten to claim ~4 GB.
         // The allocation must stay bounded by the compressed size (not the lie),

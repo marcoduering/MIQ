@@ -6,6 +6,15 @@ extension MIQParser {
         guard data.count >= header.voxOffset else {
             throw MIQError.truncatedData
         }
+        // Volume 0 must actually be present: the offset check above only proves the
+        // payload *starts* inside the buffer. Subtraction (not `voxOffset + volumeBytes`)
+        // so a header whose dims product lands near `Int.max` cannot trap; the offset is
+        // non-negative and `<= count` by the guard above. `validateDimensionExtent` already
+        // bounded the full dims product, of which `volumeBytes` is a factor.
+        let volumeBytes = header.width * header.height * header.depth * header.datatype.bytesPerVoxel
+        guard data.count - header.voxOffset >= volumeBytes else {
+            throw MIQError.truncatedData
+        }
         return MIQImage(header: header, storage: data, payloadOffset: header.voxOffset)
     }
 

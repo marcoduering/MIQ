@@ -25,7 +25,10 @@ extension MIQParser {
         guard payloadBytes > 0 else {
             throw MIQError.invalidDimensions
         }
-        guard data.count >= header.voxOffset + payloadBytes else {
+        // Subtraction form: `voxOffset + payloadBytes` traps when the validated dims
+        // product lands on `Int.max`. The offset is the 284-byte header constant, already
+        // covered by the length check in `parseMghHeader`.
+        guard data.count - header.voxOffset >= payloadBytes else {
             throw MIQError.truncatedData
         }
 
