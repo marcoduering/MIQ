@@ -97,7 +97,13 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
 
         let model = MIQPreviewModel(url: url)
         model.onChange = { [weak self, weak model] in
-            guard let self, let model else { return }
+            // Identity check, not just liveness: Quick Look reuses this controller
+            // for a new URL, and cancelling the previous `loadTask` does not stop a
+            // local mmap parse already running inside `runCancelableDetached` (only
+            // the chunked network reads poll cancellation). That parse still reaches
+            // `state = .ready; onChange?()`, so without this guard the old file's
+            // slices would land in the window now showing the new one.
+            guard let self, let model, self.model === model else { return }
             // Force a synchronous flush only for the initial display so QuickLook
             // sees the first frame quickly. Once the user has started interacting
             // the flush becomes a bottleneck: it blocks the main thread on every
@@ -138,8 +144,8 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
             logger.notice("starting async model load (forceFullRead=\(forceFullRead, privacy: .public))")
             await model.load(forceFullRead: forceFullRead)
             self.loadingIndicatorTask?.cancel()
-            guard !Task.isCancelled else {
-                self.logger.notice("load task canceled before UI update")
+            guard !Task.isCancelled, self.model === model else {
+                self.logger.notice("load task canceled or superseded before UI update")
                 return
             }
             self.refreshPreviewView(from: model, flushDisplay: false)

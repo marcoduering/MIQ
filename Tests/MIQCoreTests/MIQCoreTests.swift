@@ -680,6 +680,56 @@ struct MIQCoreTests {
         }
     }
 
+    /// Drives the chunked tail of `boundedUncompressedNiftiPrefix`: a volume-0
+    /// budget larger than the 64 KB header probe, so the read loops instead of
+    /// returning the probe prefix outright. Guards the loop's budget accounting
+    /// (exact prefix length, byte-identical to the full file's volume 0).
+    @Test
+    func boundedPrefixReadMatchesFullForLargeNiftiPlain() throws {
+        let w = 64
+        let h = 64
+        let d = 16   // volume 0 is 128 KB — past the 64 KB probe
+        let t = 3
+        let raw = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: t)
+        let url = Self.tempURL(suffix: ".nii")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try raw.write(to: url)
+
+        let prefix = try #require(try MIQParser().loadBoundedNiftiPrefix(url: url, kind: .nii))
+        let volumeBytes = w * h * d * MIQDatatype.int16.bytesPerVoxel
+        #expect(prefix.count > 64 * 1024)
+        #expect(prefix.count == raw.count - volumeBytes * (t - 1))
+        #expect(prefix == raw.prefix(prefix.count))
+    }
+
+    /// Both bounded reads poll cancellation, so a preview dismissed mid-pull stops
+    /// touching the (possibly network-mounted) file instead of running to
+    /// completion. The uncompressed path checks per tail chunk — hence the
+    /// over-probe fixture; the gz path checks per compressed input chunk.
+    @Test
+    func boundedPrefixReadsThrowWhenCanceled() async throws {
+        let raw = TestMIQFactory.makeNii(width: 64, height: 64, depth: 16, datatype: .int16, volumes: 3)
+        let plainURL = Self.tempURL(suffix: ".nii")
+        let gzURL = Self.tempURL(suffix: ".nii.gz")
+        defer {
+            try? FileManager.default.removeItem(at: plainURL)
+            try? FileManager.default.removeItem(at: gzURL)
+        }
+        try raw.write(to: plainURL)
+        try TestZlib.gzip(raw).write(to: gzURL)
+
+        for (url, kind) in [(plainURL, MIQFileKind.nii), (gzURL, MIQFileKind.niiGz)] {
+            let task = Task.detached {
+                // Cancellation lands before the body runs; the first per-chunk
+                // check must surface it.
+                try MIQParser().loadBoundedNiftiPrefix(url: url, kind: kind)
+            }
+            task.cancel()
+            let result = await task.result
+            #expect(throws: CancellationError.self) { try result.get() }
+        }
+    }
+
     /// `containsAllVolumes` distinguishes a volume-0-capped buffer from a full
     /// one — the signal the preview layer uses to decide a 4D buffer needs
     /// expansion (covers the bounded uncompressed `.nii` case the old kind-based

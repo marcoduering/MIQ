@@ -264,6 +264,11 @@ enum MIQBinaryReader {
     /// output; it returns `false` until the caller can compute its bound (e.g.
     /// once the header is present). When it never becomes `true`, the whole stream
     /// is decompressed and the output is byte-identical to `gunzip(_:)`.
+    ///
+    /// Cancellation is checked before each input chunk, so a dismissed preview
+    /// stops pulling compressed bytes off a slow mount instead of running the
+    /// stream to completion. Throws `CancellationError` in that case (callers
+    /// already treat it distinctly from `MIQError`).
     static func gunzip(
         from handle: FileHandle,
         inputChunkBytes: Int = 1 << 18,
@@ -282,6 +287,7 @@ enum MIQBinaryReader {
         var sawStreamEnd = false
 
         while !done {
+            try Task.checkCancellation()
             guard let input = try handle.read(upToCount: inputChunkBytes), !input.isEmpty else {
                 break // compressed input exhausted before `hasEnough` — full stream
             }
