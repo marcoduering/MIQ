@@ -2213,17 +2213,7 @@ enum TestMIQFactory {
         var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
 
         for i in 0..<voxelCount {
-            switch datatype {
-            case .uint8:
-                payload[i] = UInt8(i % 255)
-            case .int16:
-                var value = Int16(i % 1024).littleEndian
-                withUnsafeBytes(of: &value) { src in
-                    payload.replaceSubrange(i * 2..<(i * 2 + 2), with: src)
-                }
-            default:
-                payload[i * datatype.bytesPerVoxel] = UInt8(i % 255)
-            }
+            encodeSample(sampleValue(index: i, datatype: datatype), at: i, datatype: datatype, bigEndian: false, into: &payload)
         }
 
         return Data(bytes + payload)
@@ -2281,7 +2271,10 @@ enum TestMIQFactory {
         }
 
         let voxelCount = width * height * depth
-        let payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
+        var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
+        for i in 0..<voxelCount {
+            encodeSample(sampleValue(index: i, datatype: datatype), at: i, datatype: datatype, bigEndian: false, into: &payload)
+        }
         return Data(bytes + payload)
     }
 
@@ -2366,17 +2359,7 @@ enum TestMIQFactory {
         let voxelCount = width * height * depth
         var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
         for i in 0..<voxelCount {
-            switch datatype {
-            case .uint8:
-                payload[i] = UInt8(i % 255)
-            case .int16:
-                var value = Int16(i % 1024).littleEndian
-                withUnsafeBytes(of: &value) { src in
-                    payload.replaceSubrange(i * 2..<(i * 2 + 2), with: src)
-                }
-            default:
-                payload[i * datatype.bytesPerVoxel] = UInt8(i % 255)
-            }
+            encodeSample(sampleValue(index: i, datatype: datatype), at: i, datatype: datatype, bigEndian: false, into: &payload)
         }
 
         return Data(bytes + payload)
@@ -2461,28 +2444,7 @@ enum TestMIQFactory {
         var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
 
         for i in 0..<voxelCount {
-            switch datatype {
-            case .uint8:
-                payload[i] = UInt8(i % 255)
-            case .int16:
-                var value = Int16(i % 1024).bigEndian
-                withUnsafeBytes(of: &value) { src in
-                    payload.replaceSubrange(i * 2..<(i * 2 + 2), with: src)
-                }
-            case .int32:
-                var value = Int32(i % 4096).bigEndian
-                withUnsafeBytes(of: &value) { src in
-                    payload.replaceSubrange(i * 4..<(i * 4 + 4), with: src)
-                }
-            case .float32:
-                let f = Float32(i % 255)
-                var raw = f.bitPattern.bigEndian
-                withUnsafeBytes(of: &raw) { src in
-                    payload.replaceSubrange(i * 4..<(i * 4 + 4), with: src)
-                }
-            default:
-                payload[i * datatype.bytesPerVoxel] = UInt8(i % 255)
-            }
+            encodeSample(sampleValue(index: i, datatype: datatype), at: i, datatype: datatype, bigEndian: true, into: &payload)
         }
 
         return Data(bytes + payload)
@@ -2524,17 +2486,7 @@ enum TestMIQFactory {
                         + y * elementStrides[1]
                         + z * elementStrides[2]
 
-                    switch datatype {
-                    case .uint8:
-                        payload[voxelIndex] = UInt8(clamping: value)
-                    case .int16:
-                        var encoded = Int16(clamping: value).littleEndian
-                        withUnsafeBytes(of: &encoded) { src in
-                            payload.replaceSubrange(voxelIndex * 2..<(voxelIndex * 2 + 2), with: src)
-                        }
-                    default:
-                        payload[voxelIndex * datatype.bytesPerVoxel] = UInt8(clamping: value)
-                    }
+                    encodeSample(Double(value), at: voxelIndex, datatype: datatype, bigEndian: false, into: &payload)
                 }
             }
         }
@@ -2597,17 +2549,7 @@ END
                         + y * elementStrides[1]
                         + z * elementStrides[2]
 
-                    switch datatype {
-                    case .uint8:
-                        payload[voxelIndex] = UInt8(clamping: value)
-                    case .int16:
-                        var encoded = Int16(clamping: value).littleEndian
-                        withUnsafeBytes(of: &encoded) { src in
-                            payload.replaceSubrange(voxelIndex * 2..<(voxelIndex * 2 + 2), with: src)
-                        }
-                    default:
-                        payload[voxelIndex * datatype.bytesPerVoxel] = UInt8(clamping: value)
-                    }
+                    encodeSample(Double(value), at: voxelIndex, datatype: datatype, bigEndian: false, into: &payload)
                 }
             }
         }
@@ -2661,17 +2603,42 @@ END
         let voxelCount = width * height * depth
         var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
         for i in 0..<voxelCount {
-            switch datatype {
-            case .uint8:
-                payload[i] = UInt8(i % 255)
-            case .int16:
-                var encoded = Int16(i % 1024).littleEndian
-                withUnsafeBytes(of: &encoded) { src in
-                    payload.replaceSubrange(i * 2..<(i * 2 + 2), with: src)
-                }
-            default:
-                payload[i * datatype.bytesPerVoxel] = UInt8(i % 255)
-            }
+            encodeSample(sampleValue(index: i, datatype: datatype), at: i, datatype: datatype, bigEndian: false, into: &payload)
+        }
+
+        return Data(header.utf8) + Data(payload)
+    }
+
+    /// 4D NRRD whose **first** axis is the non-spatial one (`space directions: none …`),
+    /// so the parser cannot use the default x-fastest layout and stores custom
+    /// `payloadElementStrides` instead. That is the strided read path in the slice
+    /// decode loop; the plain `makeNrrd` fixture never reaches it.
+    static func makeNrrdWithLeadingListAxis(
+        volumes: Int,
+        width: Int,
+        height: Int,
+        depth: Int,
+        datatype: MIQDatatype
+    ) -> Data {
+        let typeLabel = nrrdTypeLabel(for: datatype)
+        let headerLines = [
+            "NRRD0004",
+            "type: \(typeLabel)",
+            "dimension: 4",
+            "space: right-anterior-superior",
+            "sizes: \(volumes) \(width) \(height) \(depth)",
+            "space directions: none (1,0,0) (0,1,0) (0,0,1)",
+            "kinds: list domain domain domain",
+            "endian: little",
+            "encoding: raw",
+            "space origin: (0,0,0)"
+        ]
+        let header = headerLines.joined(separator: "\n") + "\n\n"
+
+        let voxelCount = volumes * width * height * depth
+        var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
+        for i in 0..<voxelCount {
+            encodeSample(sampleValue(index: i, datatype: datatype), at: i, datatype: datatype, bigEndian: false, into: &payload)
         }
 
         return Data(header.utf8) + Data(payload)
@@ -2803,6 +2770,78 @@ END
             payload.replaceSubrange(0..<2, with: src)
         }
         return Data(bytes + payload)
+    }
+
+    /// Distinctive sample value for element `index` in `datatype`. Each arm picks a
+    /// magnitude, sign and fractional part only that datatype can carry — an unsigned
+    /// value above the signed range, a negative int8, a non-integral float — so a slice
+    /// rendered from the fixture pins the decode path for that type instead of only its
+    /// first byte. The `uint8`, `int16`, `int32` and `float32` magnitudes are the ones
+    /// the older fixtures already wrote, so existing value assertions are unchanged.
+    static func sampleValue(index: Int, datatype: MIQDatatype) -> Double {
+        switch datatype {
+        case .uint8, .rgb24, .rgba32:
+            return Double(index % 255)
+        case .int8:
+            return Double(index % 251 - 125)
+        case .int16:
+            return Double(index % 1024)
+        case .uint16:
+            return Double(40000 + index % 1024)
+        case .int32:
+            return Double(index % 4096)
+        case .uint32:
+            return Double(3_000_000_000 + index % 4096)
+        case .float32:
+            return Double(index % 255) + 0.5
+        case .float64:
+            return Double(index % 255) + 0.25
+        }
+    }
+
+    /// Writes `value` at element `elementIndex` in `datatype`'s own byte layout
+    /// (`bigEndian` for MGH, little-endian elsewhere). Integer conversions saturate, so
+    /// a caller's own value formula can never trap. The RGB arms write just the first
+    /// channel byte, as the fixtures always have — colour volumes decode through the
+    /// separate RGB path, not the grayscale one these fixtures exercise.
+    static func encodeSample(
+        _ value: Double,
+        at elementIndex: Int,
+        datatype: MIQDatatype,
+        bigEndian: Bool,
+        into payload: inout [UInt8]
+    ) {
+        let base = elementIndex * datatype.bytesPerVoxel
+        switch datatype {
+        case .uint8, .rgb24, .rgba32:
+            payload[base] = UInt8(clamping: Int(value))
+        case .int8:
+            payload[base] = UInt8(bitPattern: Int8(clamping: Int(value)))
+        case .int16:
+            writeBits(UInt16(bitPattern: Int16(clamping: Int(value))), at: base, bigEndian: bigEndian, into: &payload)
+        case .uint16:
+            writeBits(UInt16(clamping: Int(value)), at: base, bigEndian: bigEndian, into: &payload)
+        case .int32:
+            writeBits(UInt32(bitPattern: Int32(clamping: Int(value))), at: base, bigEndian: bigEndian, into: &payload)
+        case .uint32:
+            writeBits(UInt32(clamping: Int(value)), at: base, bigEndian: bigEndian, into: &payload)
+        case .float32:
+            writeBits(Float32(value).bitPattern, at: base, bigEndian: bigEndian, into: &payload)
+        case .float64:
+            writeBits(value.bitPattern, at: base, bigEndian: bigEndian, into: &payload)
+        }
+    }
+
+    private static func writeBits<T: FixedWidthInteger>(
+        _ bits: T,
+        at offset: Int,
+        bigEndian: Bool,
+        into payload: inout [UInt8]
+    ) {
+        var encoded = bigEndian ? bits.bigEndian : bits.littleEndian
+        withUnsafeBytes(of: &encoded) { src in
+            payload.replaceSubrange(offset..<(offset + MemoryLayout<T>.size), with: src)
+        }
     }
 
     private static func nrrdTypeLabel(for datatype: MIQDatatype) -> String {

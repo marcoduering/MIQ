@@ -413,6 +413,30 @@ public struct MIQVolume: Sendable {
         return finalize(prepared: prepared, bounds: bounds, maxDimension: maxDimension, lut: lut)
     }
 
+    /// The raw grayscale buffer `prepareSlice` decodes for one slice, before
+    /// windowing and resampling — row-major, `sliceGeometry(for:options:)`'s
+    /// `width` × `height`, `nil` for the RGB datatypes (which decode to pixel
+    /// triples, not scalars).
+    ///
+    /// Internal on purpose: it exists so the suite can pin the hot decode loop
+    /// bit-identical to the public `voxel()` reference (the correctness contract
+    /// documented on `prepareSlice`) without exposing `PreparedSlice` or
+    /// `SliceConfig`. Index clamping matches `slice(plan:…)`.
+    func sliceValues(
+        plane: SlicePlane,
+        index: Int,
+        volumeIndex: Int = 0,
+        options: RenderingOptions
+    ) -> [Float]? {
+        let plan = orientation.plan(for: plane, mode: options.orientation)
+        let dims = [width, height, depth]
+        let safeIndex = Self.clamp(index, min: 0, max: max(0, dims[plan.sliceAxis] - 1))
+        guard case .grayscale(let values, _, _) = prepareSlice(plan: plan, index: safeIndex, volumeIndex: volumeIndex) else {
+            return nil
+        }
+        return values
+    }
+
     /// Reads voxel data for a single slice. For grayscale datatypes the buffer is raw
     /// floats (windowing happens later); RGB datatypes produce 8-bit pixel triples directly.
     private enum PreparedSlice {
