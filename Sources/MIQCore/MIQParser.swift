@@ -47,9 +47,18 @@ public struct MIQParser {
         // (canonical NIfTI), read only that prefix from disk instead. Local disk
         // keeps the proven mmap + demand-paging path unchanged (zero perf risk),
         // and the 4D `fullyDecompress: true` re-parse always uses it.
-        if !fullyDecompress, kind == .nii || kind == .niiGz, !isLocal,
-           let bounded = try? loadBoundedNiftiPrefix(url: url, kind: kind) {
-            return (bounded, kind)
+        if !fullyDecompress, kind == .nii || kind == .niiGz, !isLocal {
+            do {
+                if let bounded = try loadBoundedNiftiPrefix(url: url, kind: kind) {
+                    return (bounded, kind)
+                }
+            } catch is CancellationError {
+                // The bounded reads poll cancellation; don't let the fallback
+                // below restart the pull the dismissed preview just abandoned.
+                throw CancellationError()
+            } catch {
+                // Any other bounded-read failure falls back to the full read.
+            }
         }
 
         // Local disk: keep the proven mmap + demand-paging fast path (zero perf
@@ -147,18 +156,30 @@ public struct MIQParser {
     private func boundedUncompressedNiftiPrefix(url: URL) throws -> Data? {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
-        guard let probe = try handle.read(upToCount: Self.headerProbeBytes), !probe.isEmpty,
-              let budget = niftiBudget(fromHeaderProbe: probe) else {
-            return nil
+        return try withThrottledIO {
+            guard let probe = try handle.read(upToCount: Self.headerProbeBytes), !probe.isEmpty,
+                  let budget = niftiBudget(fromHeaderProbe: probe) else {
+                return nil
+            }
+            if budget <= probe.count {
+                return Data(probe.prefix(budget))
+            }
+            // Chunked rather than one `read(upToCount: budget - probe.count)`: for a
+            // 3D `.nii` the volume-0 budget *is* the whole file, so on a slow mount
+            // that single read is exactly the uncancelable full pull this path
+            // exists to avoid. Cancellation is checked per chunk, as in
+            // `readCancelable`.
+            var data = probe
+            while data.count < budget {
+                try Task.checkCancellation()
+                let want = Swift.min(Self.networkReadChunkBytes, budget - data.count)
+                guard let chunk = try handle.read(upToCount: want), !chunk.isEmpty else {
+                    break // file shorter than the budget — parser's zero backstop covers it
+                }
+                data.append(chunk)
+            }
+            return data
         }
-        if budget <= probe.count {
-            return Data(probe.prefix(budget))
-        }
-        var data = probe
-        if let more = try handle.read(upToCount: budget - probe.count) {
-            data.append(more)
-        }
-        return data
     }
 
     /// Compressed `.nii.gz`: stream-inflate from disk, stopping once the header is
@@ -170,13 +191,17 @@ public struct MIQParser {
         defer { try? handle.close() }
         var budget: Int?
         var budgetResolved = false
-        let prefix = try MIQBinaryReader.gunzip(from: handle) { produced in
-            if !budgetResolved, produced.count >= Self.headerProbeBytes {
-                budget = self.niftiBudget(fromHeaderProbe: produced)
-                budgetResolved = true
+        // `gunzip(from:)` checks cancellation per input chunk, so a dismissed
+        // preview stops pulling compressed bytes off the wire.
+        let prefix = try withThrottledIO {
+            try MIQBinaryReader.gunzip(from: handle) { produced in
+                if !budgetResolved, produced.count >= Self.headerProbeBytes {
+                    budget = self.niftiBudget(fromHeaderProbe: produced)
+                    budgetResolved = true
+                }
+                if let budget { return produced.count >= budget }
+                return false
             }
-            if let budget { return produced.count >= budget }
-            return false
         }
         return prefix.isEmpty ? nil : prefix
     }
@@ -191,31 +216,36 @@ public struct MIQParser {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 
-        // Deprioritize this thread's I/O while pulling the file off the wire so
-        // Finder's foreground filesystem calls on the same network mount aren't
-        // starved (the freeze symptom). Per-thread policy is safe here: the read
-        // runs to completion on one cooperative-pool thread (no `await` inside),
-        // and `defer` restores the prior policy on that same thread. Best-effort —
-        // throttling biases the *local* I/O scheduler, so it eases contention more
-        // than it cures a fully network-bound stall.
+        return try withThrottledIO {
+            var data = Data()
+            if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 0 {
+                data.reserveCapacity(size)
+            }
+            while true {
+                try Task.checkCancellation()
+                guard let chunk = try handle.read(upToCount: Self.networkReadChunkBytes), !chunk.isEmpty else {
+                    break
+                }
+                data.append(chunk)
+            }
+            return data
+        }
+    }
+
+    /// Runs `body` with this thread's disk I/O deprioritized, so that pulling a
+    /// file off a network mount doesn't starve Finder's foreground filesystem
+    /// calls on the same mount (the freeze symptom). Per-thread policy is safe
+    /// here: every caller reads to completion on one cooperative-pool thread with
+    /// no `await` inside, and `defer` restores the prior policy on that same
+    /// thread. Best-effort — throttling biases the *local* I/O scheduler, so it
+    /// eases contention more than it cures a fully network-bound stall.
+    private func withThrottledIO<T>(_ body: () throws -> T) rethrows -> T {
         let previousPolicy = getiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD)
         setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, IOPOL_THROTTLE)
         defer {
             setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, previousPolicy >= 0 ? previousPolicy : IOPOL_DEFAULT)
         }
-
-        var data = Data()
-        if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 0 {
-            data.reserveCapacity(size)
-        }
-        while true {
-            try Task.checkCancellation()
-            guard let chunk = try handle.read(upToCount: Self.networkReadChunkBytes), !chunk.isEmpty else {
-                break
-            }
-            data.append(chunk)
-        }
-        return data
+        return try body()
     }
 
     /// Rejects a header whose declared voxel extent (`dims` product × bytes per

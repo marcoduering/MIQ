@@ -1,4 +1,3 @@
-import Accelerate
 import Compression
 import Foundation
 import Testing
@@ -263,14 +262,14 @@ struct PerformanceBaselineTests {
         print("")
     }
 
-    // MARK: - Window percentile sort A/B
+    // MARK: - Window percentile A/B
 
-    /// Times the in-place sort `IntensityWindow.bounds` runs to find percentile
-    /// window bounds — the dominant CPU stage of cold load after gunzip, and the
-    /// per-step cost in per-volume windowing mode. The optimization swapped
-    /// `Array.sort()` for Accelerate's `vDSP_vsort`; both sort the same finite
-    /// multiset, so `bounds` output is bit-identical (asserted in
-    /// `IntensityWindowSortTests`). Reports the speedup at slice scale.
+    /// Times `IntensityWindow.bounds` — the dominant CPU stage of cold load after
+    /// gunzip, and the per-step cost in per-volume windowing mode — against a
+    /// reference that reaches the same four order statistics by fully sorting the
+    /// pooled buffer, which is what it used to do. Both read the same order
+    /// statistics of the same multiset, so the bounds are bit-identical (asserted
+    /// in `IntensityWindowSortTests`); this reports what selection saves.
     @Test(.enabled(if: PerformanceBaselineTests.perfEnabled))
     func windowPercentileSort() {
         // One in-plane slice's worth of voxels (the pooled center-slice buffer is
@@ -281,34 +280,74 @@ struct PerformanceBaselineTests {
             seed = seed &* 6364136223846793005 &+ 1442695040888963407
             return Float(seed >> 40) / Float(1 << 24) * 4000 - 2000
         }
-        let source = (0..<count).map { _ in nextFloat() }
+        // A background of zeros plus signal, the shape a real center slice has.
+        let source = (0..<count).map { i in i % 3 == 0 ? Float(0) : nextFloat() }
 
-        let vdspMs = Self.measure(iterations: 30) {
-            var buf = source
-            buf.withUnsafeMutableBufferPointer { p in
-                vDSP_vsort(p.baseAddress!, vDSP_Length(p.count), 1)
-            }
-            Self.blackHole(buf)
+        let selectMs = Self.measure(iterations: 30) {
+            let b = IntensityWindow.bounds(for: source, lowerPercentile: 2, upperPercentile: 98)
+            Self.blackHole(b)
         }
-        let swiftMs = Self.measure(iterations: 30) {
-            var buf = source
-            buf.sort()
-            Self.blackHole(buf)
+        let sortMs = Self.measure(iterations: 30) {
+            let b = Self.sortBasedBounds(for: source, lowerPercentile: 2, upperPercentile: 98)
+            Self.blackHole(b)
         }
 
         print("")
-        print("=== Window percentile sort A/B (\(count) floats = \(Self.maxDimension)² slice) ===")
+        print("=== IntensityWindow.bounds A/B (\(count) floats = \(Self.maxDimension)² slice) ===")
         print(Self.row2("path", "median ms (min)", ""))
-        print(Self.row2("Array.sort() (old)", Self.fmt(swiftMs), ""))
-        print(Self.row2("vDSP_vsort (new)", Self.fmt(vdspMs),
-                        String(format: "%.2fx", swiftMs.medianMs / max(vdspMs.medianMs, 0.0001))))
+        print(Self.row2("full sort (old)", Self.fmt(sortMs), ""))
+        print(Self.row2("quickselect (new)", Self.fmt(selectMs),
+                        String(format: "%.2fx", sortMs.medianMs / max(selectMs.medianMs, 0.0001))))
         print("")
     }
 
+    /// The pre-optimization algorithm: same fused collection pass and subset rule,
+    /// but a full sort to reach the percentile indices.
+    private static func sortBasedBounds(
+        for values: [Float],
+        lowerPercentile: Double,
+        upperPercentile: Double
+    ) -> (low: Float, high: Float)? {
+        var finite = [Float]()
+        finite.reserveCapacity(values.count)
+        var nonZero = [Float]()
+        nonZero.reserveCapacity(values.count)
+        var minV = Float.greatestFiniteMagnitude
+        var maxV = -Float.greatestFiniteMagnitude
+        for v in values where v.isFinite {
+            finite.append(v)
+            if v < minV { minV = v }
+            if v > maxV { maxV = v }
+            if abs(v) > 1e-6 { nonZero.append(v) }
+        }
+        guard !finite.isEmpty else { return nil }
+        let useNonZero = nonZero.count >= max(64, finite.count / 20)
+        if useNonZero { nonZero.sort() } else { finite.sort() }
+        let sorted = useNonZero ? nonZero : finite
+        func percentile(_ p: Float) -> Float {
+            guard sorted.count > 1 else { return sorted[0] }
+            let pos = max(0, min(1, p)) * Float(sorted.count - 1)
+            let lo = Int(pos.rounded(.down))
+            let hi = Int(pos.rounded(.up))
+            if lo == hi { return sorted[lo] }
+            let frac = pos - Float(lo)
+            return sorted[lo] * (1 - frac) + sorted[hi] * frac
+        }
+        let lower = percentile(Float(lowerPercentile) / 100)
+        let upper = percentile(Float(upperPercentile) / 100)
+        return lower < upper ? (lower, upper) : (minV, maxV)
+    }
+
     @inline(never)
-    private static func blackHole(_ buf: [Float]) {
-        // Prevent the optimizer from eliding the sort: touch one element.
-        if buf.isEmpty { fatalError("unreachable") }
+    private static func blackHole(_ bounds: (low: Float, high: Float)?) {
+        // Prevent the optimizer from eliding the work: the fixture always has
+        // finite values, so this never fires.
+        if bounds == nil { fatalError("unreachable") }
+    }
+
+    @inline(never)
+    private static func blackHole(_ bounds: IntensityWindow.Bounds?) {
+        if bounds == nil { fatalError("unreachable") }
     }
 
     // MARK: - Segmentation center-decode reuse A/B

@@ -85,6 +85,68 @@ struct MIQCoreTests {
     }
 
     @Test
+    func niftiRejectsHeaderDeclaringAPayloadTheFileDoesNotContain() {
+        // A 548-byte NIfTI-2 declaring 2^20 x 2^21 x 2^21 uint8: the offset check
+        // alone only proves the payload *starts* inside the buffer, so the parse
+        // used to succeed with a 4-byte payload and the first center slice then
+        // allocated terabytes until jetsam killed the appex.
+        var data = TestMIQFactory.makeNii2HeaderOnly(
+            width: 1 << 20, height: 1 << 21, depth: 1 << 21, datatype: .uint8
+        )
+        data.append(Data(repeating: 0, count: 8))
+        #expect(data.count == 548)
+
+        #expect(throws: MIQError.self) {
+            _ = try MIQParser().parseNifti(data)
+        }
+    }
+
+    @Test
+    func niftiRejectsAPayloadTruncatedInsideVolumeZero() {
+        // Matches the other three formats: a file cut short mid-copy now reports
+        // truncation instead of rendering whatever bytes arrived.
+        var data = TestMIQFactory.makeNii(width: 8, height: 8, depth: 8, datatype: .int16)
+        #expect(throws: Never.self) { _ = try MIQParser().parseNifti(data) }
+
+        data.removeLast(2)
+        #expect(throws: MIQError.self) {
+            _ = try MIQParser().parseNifti(data)
+        }
+    }
+
+    @Test
+    func mghRejectsIntMaxPayloadWithoutTrapping() {
+        // 3577 x 42799 x 92737 x 649657 is the factorisation of 2^63 - 1, so the
+        // dims product passes `validateDimensionExtent` at exactly `Int.max` and the
+        // old `voxOffset + payloadBytes` guard trapped on the addition (SIGTRAP, not
+        // a thrown error). The mutation fuzzer cannot synthesise these dimension
+        // words, hence the explicit fixture.
+        let data = TestMIQFactory.makeMghHeaderOnly(
+            width: 3577, height: 42799, depth: 92737, frames: 649_657, datatype: .uint8
+        )
+        #expect(throws: MIQError.self) {
+            _ = try MIQParser().parseMgh(data)
+        }
+    }
+
+    @Test
+    func nrrdRejectsIntMaxPayloadWithoutTrapping() {
+        // Same `Int.max` dims product as the MGH case, against the NRRD payload guard.
+        let header = """
+        NRRD0004
+        type: uchar
+        dimension: 4
+        sizes: 3577 42799 92737 649657
+        endian: little
+        encoding: raw
+
+        """
+        #expect(throws: MIQError.self) {
+            _ = try MIQParser().parseNrrd(Data(header.utf8))
+        }
+    }
+
+    @Test
     func gunzipRejectsLyingIsizeTrailerWithoutTrustingItsClaim() throws {
         // Valid gzip whose 4-byte ISIZE trailer is then overwritten to claim ~4 GB.
         // The allocation must stay bounded by the compressed size (not the lie),
@@ -95,6 +157,102 @@ struct MIQCoreTests {
         #expect(throws: MIQError.self) {
             _ = try MIQBinaryReader.gunzip(bomb)
         }
+    }
+
+    @Test
+    func inflateCapacityFromIsizeIsAHintNotABound() {
+        // ISIZE is the uncompressed size *mod 2^32*. Above 4 GiB it reports a wrapped
+        // remainder, so it can never bound the output — a stream sized from it inflated
+        // short, rendering a wrong image with no error. It only seeds the allocation now.
+        let fourGiB = 1 << 32
+
+        // The wrap: a 5 GiB stream whose trailer honestly reports 1 GiB. The hint is
+        // the wrapped value, so the buffer must be allowed to grow past it.
+        let wrapped = MIQBinaryReader.initialInflateCapacity(compressedCount: fourGiB / 4, isize: UInt32(1 << 30))
+        #expect(wrapped == 1 << 30)
+        #expect(wrapped < 5 * fourGiB / 4)
+
+        // An exact multiple of 4 GiB wraps to 0 — previously rejected outright.
+        #expect(MIQBinaryReader.initialInflateCapacity(compressedCount: 1 << 20, isize: 0)
+                == MIQBinaryReader.inflateCapacityFloor)
+
+        // A lying trailer still can't hand inflate a wildly oversized first window:
+        // the ratio bound keeps it proportionate to the input.
+        #expect(MIQBinaryReader.initialInflateCapacity(compressedCount: 1000, isize: .max) == 1_100_000)
+    }
+
+    @Test
+    func cappedGunzipFillsItsBudgetWhenIsizeUnderstatesTheStream() throws {
+        // The capped path stops before the trailer by design, so zlib never gets to
+        // validate ISIZE — sizing the buffer from it silently returned a short payload
+        // (measured: 99648 bytes of a 524288-byte volume, corner voxel 0 instead of
+        // 1023). Patching the trailer low reproduces the >4 GiB wrap exactly, with no
+        // multi-gigabyte fixture.
+        let raw = TestMIQFactory.makeNii(width: 32, height: 32, depth: 32, datatype: .int16, volumes: 4)
+        #expect(raw.count > MIQBinaryReader.inflateCapacityFloor)  // or the floor masks the lie
+        var gz = try TestZlib.gzip(raw)
+        gz.replaceSubrange((gz.count - 4)..<gz.count, with: [0xE8, 0x03, 0x00, 0x00])   // ISIZE = 1000
+
+        // Growth stays bounded by the caller's budget, which it now fills exactly.
+        let budget = 1 << 17
+        let capped = try MIQBinaryReader.gunzip(gz, maxOutputBytes: budget)
+        #expect(capped.count == budget)
+        #expect(capped == raw.prefix(budget))
+
+        // Whole-stream reads still run to Z_STREAM_END, where zlib checks the trailer —
+        // so a *patched* trailer is a hard error, while a genuine >4 GiB stream (whose
+        // ISIZE is truthful mod 2^32) passes and is now decompressed in full.
+        #expect(throws: MIQError.self) {
+            _ = try MIQBinaryReader.gunzip(gz)
+        }
+    }
+
+    @Test
+    func cappedGunzipAcceptsAZeroIsizeTrailer() throws {
+        // ISIZE wraps to exactly 0 for a stream that is a whole multiple of 4 GiB. The
+        // old `guard isize > 0` rejected those outright.
+        let raw = Data("hello, volume preview".utf8)
+        var gz = try TestZlib.gzip(raw)
+        gz.replaceSubrange((gz.count - 4)..<gz.count, with: [0, 0, 0, 0])
+        #expect(try MIQBinaryReader.gunzip(gz, maxOutputBytes: raw.count) == raw)
+    }
+
+    @Test
+    func niftiGzWithUnderstatedIsizeParsesVolumeZeroInFull() throws {
+        // The same wrap through the cold parse path, which is where a user would see it:
+        // volume 0 must come back whole, not clipped to the wrapped hint.
+        let w = 32
+        let h = 32
+        let d = 32
+        let raw = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: 4)
+        var gz = try TestZlib.gzip(raw)
+        gz.replaceSubrange((gz.count - 4)..<gz.count, with: [0xE8, 0x03, 0x00, 0x00])   // ISIZE = 1000
+
+        let plainURL = Self.tempURL(suffix: ".nii")
+        let gzURL = Self.tempURL(suffix: ".nii.gz")
+        defer {
+            try? FileManager.default.removeItem(at: plainURL)
+            try? FileManager.default.removeItem(at: gzURL)
+        }
+        try raw.write(to: plainURL)
+        try gz.write(to: gzURL)
+
+        let plainImg = try MIQParser().parse(url: plainURL)
+        let coldImg = try MIQParser().parse(url: gzURL)
+        #expect(coldImg.payloadCount == w * h * d * MIQDatatype.int16.bytesPerVoxel)
+
+        let plain = MIQVolume(image: plainImg)
+        let cold = MIQVolume(image: coldImg)
+        for z in stride(from: 0, to: d, by: 3) {
+            for y in stride(from: 0, to: h, by: 3) {
+                for x in stride(from: 0, to: w, by: 3) {
+                    #expect(cold.voxel(x: x, y: y, z: z, t: 0) == plain.voxel(x: x, y: y, z: z, t: 0))
+                }
+            }
+        }
+        // The far corner is the one the wrap used to zero out.
+        #expect(cold.voxel(x: w - 1, y: h - 1, z: d - 1, t: 0)
+                == plain.voxel(x: w - 1, y: h - 1, z: d - 1, t: 0))
     }
 
     /// Mutation fuzzer: every format parser must respond to corrupted input with a
@@ -519,6 +677,56 @@ struct MIQCoreTests {
                     #expect(partial.voxel(x: x, y: y, z: z, t: 0) == fullVol.voxel(x: x, y: y, z: z, t: 0))
                 }
             }
+        }
+    }
+
+    /// Drives the chunked tail of `boundedUncompressedNiftiPrefix`: a volume-0
+    /// budget larger than the 64 KB header probe, so the read loops instead of
+    /// returning the probe prefix outright. Guards the loop's budget accounting
+    /// (exact prefix length, byte-identical to the full file's volume 0).
+    @Test
+    func boundedPrefixReadMatchesFullForLargeNiftiPlain() throws {
+        let w = 64
+        let h = 64
+        let d = 16   // volume 0 is 128 KB — past the 64 KB probe
+        let t = 3
+        let raw = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: t)
+        let url = Self.tempURL(suffix: ".nii")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try raw.write(to: url)
+
+        let prefix = try #require(try MIQParser().loadBoundedNiftiPrefix(url: url, kind: .nii))
+        let volumeBytes = w * h * d * MIQDatatype.int16.bytesPerVoxel
+        #expect(prefix.count > 64 * 1024)
+        #expect(prefix.count == raw.count - volumeBytes * (t - 1))
+        #expect(prefix == raw.prefix(prefix.count))
+    }
+
+    /// Both bounded reads poll cancellation, so a preview dismissed mid-pull stops
+    /// touching the (possibly network-mounted) file instead of running to
+    /// completion. The uncompressed path checks per tail chunk — hence the
+    /// over-probe fixture; the gz path checks per compressed input chunk.
+    @Test
+    func boundedPrefixReadsThrowWhenCanceled() async throws {
+        let raw = TestMIQFactory.makeNii(width: 64, height: 64, depth: 16, datatype: .int16, volumes: 3)
+        let plainURL = Self.tempURL(suffix: ".nii")
+        let gzURL = Self.tempURL(suffix: ".nii.gz")
+        defer {
+            try? FileManager.default.removeItem(at: plainURL)
+            try? FileManager.default.removeItem(at: gzURL)
+        }
+        try raw.write(to: plainURL)
+        try TestZlib.gzip(raw).write(to: gzURL)
+
+        for (url, kind) in [(plainURL, MIQFileKind.nii), (gzURL, MIQFileKind.niiGz)] {
+            let task = Task.detached {
+                // Cancellation lands before the body runs; the first per-chunk
+                // check must surface it.
+                try MIQParser().loadBoundedNiftiPrefix(url: url, kind: kind)
+            }
+            task.cancel()
+            let result = await task.result
+            #expect(throws: CancellationError.self) { try result.get() }
         }
     }
 
@@ -2055,17 +2263,7 @@ enum TestMIQFactory {
         var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
 
         for i in 0..<voxelCount {
-            switch datatype {
-            case .uint8:
-                payload[i] = UInt8(i % 255)
-            case .int16:
-                var value = Int16(i % 1024).littleEndian
-                withUnsafeBytes(of: &value) { src in
-                    payload.replaceSubrange(i * 2..<(i * 2 + 2), with: src)
-                }
-            default:
-                payload[i * datatype.bytesPerVoxel] = UInt8(i % 255)
-            }
+            encodeSample(sampleValue(index: i, datatype: datatype), at: i, datatype: datatype, bigEndian: false, into: &payload)
         }
 
         return Data(bytes + payload)
@@ -2123,7 +2321,10 @@ enum TestMIQFactory {
         }
 
         let voxelCount = width * height * depth
-        let payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
+        var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
+        for i in 0..<voxelCount {
+            encodeSample(sampleValue(index: i, datatype: datatype), at: i, datatype: datatype, bigEndian: false, into: &payload)
+        }
         return Data(bytes + payload)
     }
 
@@ -2208,17 +2409,7 @@ enum TestMIQFactory {
         let voxelCount = width * height * depth
         var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
         for i in 0..<voxelCount {
-            switch datatype {
-            case .uint8:
-                payload[i] = UInt8(i % 255)
-            case .int16:
-                var value = Int16(i % 1024).littleEndian
-                withUnsafeBytes(of: &value) { src in
-                    payload.replaceSubrange(i * 2..<(i * 2 + 2), with: src)
-                }
-            default:
-                payload[i * datatype.bytesPerVoxel] = UInt8(i % 255)
-            }
+            encodeSample(sampleValue(index: i, datatype: datatype), at: i, datatype: datatype, bigEndian: false, into: &payload)
         }
 
         return Data(bytes + payload)
@@ -2303,28 +2494,7 @@ enum TestMIQFactory {
         var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
 
         for i in 0..<voxelCount {
-            switch datatype {
-            case .uint8:
-                payload[i] = UInt8(i % 255)
-            case .int16:
-                var value = Int16(i % 1024).bigEndian
-                withUnsafeBytes(of: &value) { src in
-                    payload.replaceSubrange(i * 2..<(i * 2 + 2), with: src)
-                }
-            case .int32:
-                var value = Int32(i % 4096).bigEndian
-                withUnsafeBytes(of: &value) { src in
-                    payload.replaceSubrange(i * 4..<(i * 4 + 4), with: src)
-                }
-            case .float32:
-                let f = Float32(i % 255)
-                var raw = f.bitPattern.bigEndian
-                withUnsafeBytes(of: &raw) { src in
-                    payload.replaceSubrange(i * 4..<(i * 4 + 4), with: src)
-                }
-            default:
-                payload[i * datatype.bytesPerVoxel] = UInt8(i % 255)
-            }
+            encodeSample(sampleValue(index: i, datatype: datatype), at: i, datatype: datatype, bigEndian: true, into: &payload)
         }
 
         return Data(bytes + payload)
@@ -2366,17 +2536,7 @@ enum TestMIQFactory {
                         + y * elementStrides[1]
                         + z * elementStrides[2]
 
-                    switch datatype {
-                    case .uint8:
-                        payload[voxelIndex] = UInt8(clamping: value)
-                    case .int16:
-                        var encoded = Int16(clamping: value).littleEndian
-                        withUnsafeBytes(of: &encoded) { src in
-                            payload.replaceSubrange(voxelIndex * 2..<(voxelIndex * 2 + 2), with: src)
-                        }
-                    default:
-                        payload[voxelIndex * datatype.bytesPerVoxel] = UInt8(clamping: value)
-                    }
+                    encodeSample(Double(value), at: voxelIndex, datatype: datatype, bigEndian: false, into: &payload)
                 }
             }
         }
@@ -2439,17 +2599,7 @@ END
                         + y * elementStrides[1]
                         + z * elementStrides[2]
 
-                    switch datatype {
-                    case .uint8:
-                        payload[voxelIndex] = UInt8(clamping: value)
-                    case .int16:
-                        var encoded = Int16(clamping: value).littleEndian
-                        withUnsafeBytes(of: &encoded) { src in
-                            payload.replaceSubrange(voxelIndex * 2..<(voxelIndex * 2 + 2), with: src)
-                        }
-                    default:
-                        payload[voxelIndex * datatype.bytesPerVoxel] = UInt8(clamping: value)
-                    }
+                    encodeSample(Double(value), at: voxelIndex, datatype: datatype, bigEndian: false, into: &payload)
                 }
             }
         }
@@ -2503,17 +2653,42 @@ END
         let voxelCount = width * height * depth
         var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
         for i in 0..<voxelCount {
-            switch datatype {
-            case .uint8:
-                payload[i] = UInt8(i % 255)
-            case .int16:
-                var encoded = Int16(i % 1024).littleEndian
-                withUnsafeBytes(of: &encoded) { src in
-                    payload.replaceSubrange(i * 2..<(i * 2 + 2), with: src)
-                }
-            default:
-                payload[i * datatype.bytesPerVoxel] = UInt8(i % 255)
-            }
+            encodeSample(sampleValue(index: i, datatype: datatype), at: i, datatype: datatype, bigEndian: false, into: &payload)
+        }
+
+        return Data(header.utf8) + Data(payload)
+    }
+
+    /// 4D NRRD whose **first** axis is the non-spatial one (`space directions: none …`),
+    /// so the parser cannot use the default x-fastest layout and stores custom
+    /// `payloadElementStrides` instead. That is the strided read path in the slice
+    /// decode loop; the plain `makeNrrd` fixture never reaches it.
+    static func makeNrrdWithLeadingListAxis(
+        volumes: Int,
+        width: Int,
+        height: Int,
+        depth: Int,
+        datatype: MIQDatatype
+    ) -> Data {
+        let typeLabel = nrrdTypeLabel(for: datatype)
+        let headerLines = [
+            "NRRD0004",
+            "type: \(typeLabel)",
+            "dimension: 4",
+            "space: right-anterior-superior",
+            "sizes: \(volumes) \(width) \(height) \(depth)",
+            "space directions: none (1,0,0) (0,1,0) (0,0,1)",
+            "kinds: list domain domain domain",
+            "endian: little",
+            "encoding: raw",
+            "space origin: (0,0,0)"
+        ]
+        let header = headerLines.joined(separator: "\n") + "\n\n"
+
+        let voxelCount = volumes * width * height * depth
+        var payload = [UInt8](repeating: 0, count: voxelCount * datatype.bytesPerVoxel)
+        for i in 0..<voxelCount {
+            encodeSample(sampleValue(index: i, datatype: datatype), at: i, datatype: datatype, bigEndian: false, into: &payload)
         }
 
         return Data(header.utf8) + Data(payload)
@@ -2645,6 +2820,78 @@ END
             payload.replaceSubrange(0..<2, with: src)
         }
         return Data(bytes + payload)
+    }
+
+    /// Distinctive sample value for element `index` in `datatype`. Each arm picks a
+    /// magnitude, sign and fractional part only that datatype can carry — an unsigned
+    /// value above the signed range, a negative int8, a non-integral float — so a slice
+    /// rendered from the fixture pins the decode path for that type instead of only its
+    /// first byte. The `uint8`, `int16`, `int32` and `float32` magnitudes are the ones
+    /// the older fixtures already wrote, so existing value assertions are unchanged.
+    static func sampleValue(index: Int, datatype: MIQDatatype) -> Double {
+        switch datatype {
+        case .uint8, .rgb24, .rgba32:
+            return Double(index % 255)
+        case .int8:
+            return Double(index % 251 - 125)
+        case .int16:
+            return Double(index % 1024)
+        case .uint16:
+            return Double(40000 + index % 1024)
+        case .int32:
+            return Double(index % 4096)
+        case .uint32:
+            return Double(3_000_000_000 + index % 4096)
+        case .float32:
+            return Double(index % 255) + 0.5
+        case .float64:
+            return Double(index % 255) + 0.25
+        }
+    }
+
+    /// Writes `value` at element `elementIndex` in `datatype`'s own byte layout
+    /// (`bigEndian` for MGH, little-endian elsewhere). Integer conversions saturate, so
+    /// a caller's own value formula can never trap. The RGB arms write just the first
+    /// channel byte, as the fixtures always have — colour volumes decode through the
+    /// separate RGB path, not the grayscale one these fixtures exercise.
+    static func encodeSample(
+        _ value: Double,
+        at elementIndex: Int,
+        datatype: MIQDatatype,
+        bigEndian: Bool,
+        into payload: inout [UInt8]
+    ) {
+        let base = elementIndex * datatype.bytesPerVoxel
+        switch datatype {
+        case .uint8, .rgb24, .rgba32:
+            payload[base] = UInt8(clamping: Int(value))
+        case .int8:
+            payload[base] = UInt8(bitPattern: Int8(clamping: Int(value)))
+        case .int16:
+            writeBits(UInt16(bitPattern: Int16(clamping: Int(value))), at: base, bigEndian: bigEndian, into: &payload)
+        case .uint16:
+            writeBits(UInt16(clamping: Int(value)), at: base, bigEndian: bigEndian, into: &payload)
+        case .int32:
+            writeBits(UInt32(bitPattern: Int32(clamping: Int(value))), at: base, bigEndian: bigEndian, into: &payload)
+        case .uint32:
+            writeBits(UInt32(clamping: Int(value)), at: base, bigEndian: bigEndian, into: &payload)
+        case .float32:
+            writeBits(Float32(value).bitPattern, at: base, bigEndian: bigEndian, into: &payload)
+        case .float64:
+            writeBits(value.bitPattern, at: base, bigEndian: bigEndian, into: &payload)
+        }
+    }
+
+    private static func writeBits<T: FixedWidthInteger>(
+        _ bits: T,
+        at offset: Int,
+        bigEndian: Bool,
+        into payload: inout [UInt8]
+    ) {
+        var encoded = bigEndian ? bits.bigEndian : bits.littleEndian
+        withUnsafeBytes(of: &encoded) { src in
+            payload.replaceSubrange(offset..<(offset + MemoryLayout<T>.size), with: src)
+        }
     }
 
     private static func nrrdTypeLabel(for datatype: MIQDatatype) -> String {

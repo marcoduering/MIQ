@@ -64,6 +64,42 @@ enum MIQBinaryReader {
         return data[data.startIndex] == 0x1F && data[data.startIndex + 1] == 0x8B
     }
 
+    /// Initial output capacity for an in-memory inflate.
+    ///
+    /// The gzip trailer's ISIZE field is the uncompressed size **mod 2^32**, so it
+    /// wraps for any stream over 4 GiB — it is a sizing hint only and can never
+    /// bound the output. (Trusting it as a bound silently produced a short payload:
+    /// a >4 GiB volume rendered with missing data and no error.) The stream's real
+    /// end is what zlib validates the trailer against at `Z_STREAM_END`.
+    ///
+    /// The ratio bound keeps `avail_out` proportionate to the input so a bogus hint
+    /// can't hand inflate a wildly oversized first window — DEFLATE expands at most
+    /// ~1032:1, so 1100 is never under-allocated for a legitimate stream. The floor
+    /// keeps a hint that wrapped to zero (a stream whose size is an exact multiple
+    /// of 4 GiB) from starting at nothing.
+    ///
+    /// Over-allocating is cheap: measured Aug 2026, `Data(count:)` is demand-zeroed,
+    /// so even `Data(count: 4 GB)` moves `phys_footprint` (what jetsam reads) by
+    /// 0.0 MB; pages cost only what inflate actually writes. A lying trailer
+    /// therefore buys an attacker virtual address space and nothing else.
+    ///
+    /// Not defended against: a *genuine* bomb (~4 MB inflating to ~4 GB), which does
+    /// commit every page. That is deliberate — real sparse volumes (a mostly-zero
+    /// segmentation mask) reach comparable ratios, so any bound tight enough to
+    /// catch a bomb would reject legitimate data. The failure mode is a
+    /// jetsam-killed short-lived preview extension: no data loss, no code execution,
+    /// system recovers.
+    static let inflateCapacityFloor = 1 << 16
+
+    static func initialInflateCapacity(compressedCount: Int, isize: UInt32) -> Int {
+        var capacity = Int(isize)
+        let ratioBound = compressedCount.multipliedReportingOverflow(by: 1100)
+        if !ratioBound.overflow {
+            capacity = Swift.min(capacity, ratioBound.partialValue)
+        }
+        return Swift.max(capacity, inflateCapacityFloor)
+    }
+
     static func gunzip(_ data: Foundation.Data) throws -> Foundation.Data {
         guard data.count >= 18 else {
             throw MIQError.decompressionFailed
@@ -75,56 +111,60 @@ enum MIQBinaryReader {
         }
         defer { inflateEnd(&stream) }
 
-        // Gzip trailer: last 4 bytes = ISIZE (uncompressed size mod 2^32, little-endian).
-        // Use it to pre-allocate the exact output buffer and decompress in one inflate call.
+        // Gzip trailer: last 4 bytes = ISIZE (uncompressed size mod 2^32,
+        // little-endian). It seeds the first allocation and nothing else — see
+        // `initialInflateCapacity`. The buffer grows until zlib reports the stream
+        // end, so a wrapped or patched trailer costs a realloc, never a short read.
         let isize = data.withUnsafeBytes { bytes -> UInt32 in
             bytes.loadUnaligned(fromByteOffset: data.count - 4, as: UInt32.self)
         }.littleEndian
-        guard isize > 0 else {
-            throw MIQError.decompressionFailed
-        }
 
-        // ISIZE is attacker-controlled (inflate only validates the trailer *after*
-        // decompressing), and the broad gzip UTIs spawn this appex on any
-        // *.nii.gz / *.mif.gz / *.mgh.gz. The clamp below is a tidiness bound, not
-        // an OOM defense — measured Aug 2026, `Data(count:)` is demand-zeroed, so
-        // even `Data(count: 4 GB)` moves `phys_footprint` (what jetsam reads) by
-        // 0.0 MB; pages cost only what inflate actually writes. A lying trailer
-        // therefore buys an attacker virtual address space and nothing else.
-        // What the clamp does buy: `avail_out` stays proportionate to the input,
-        // so a bogus ISIZE can't hand inflate a wildly oversized output window.
-        // DEFLATE expands at most ~1032:1, so a legitimate stream's output never
-        // exceeds compressed size × that ratio — 1100 keeps headroom above it and
-        // is never under-allocated, leaving valid output byte-identical.
-        //
-        // Not defended against: a *genuine* bomb (~4 MB inflating to ~4 GB), which
-        // does commit every page. That is deliberate — real sparse volumes (a
-        // mostly-zero segmentation mask) reach comparable ratios, so any bound
-        // tight enough to catch a bomb would reject legitimate data. The failure
-        // mode is a jetsam-killed short-lived preview extension: no data loss, no
-        // code execution, system recovers. Tightening this trades a graceful
-        // failure for false rejections of real files.
-        let ratioBound = data.count.multipliedReportingOverflow(by: 1100)
-        let allocCount = ratioBound.overflow ? Int(isize) : Swift.min(Int(isize), ratioBound.partialValue)
-        var output = Data(count: allocCount)
+        var capacity = initialInflateCapacity(compressedCount: data.count, isize: isize)
+        var output = Data(count: capacity)
         var produced = 0
-        let result = data.withUnsafeBytes { inBuf in
-            output.withUnsafeMutableBytes { outBuf -> Int32 in
-                guard let inBase = inBuf.bindMemory(to: Bytef.self).baseAddress,
-                      let outBase = outBuf.bindMemory(to: Bytef.self).baseAddress else {
-                    return Z_DATA_ERROR
+        var status: Int32 = Z_OK
+
+        data.withUnsafeBytes { inBuf in
+            guard let inBase = inBuf.bindMemory(to: Bytef.self).baseAddress else {
+                status = Z_DATA_ERROR
+                return
+            }
+            stream.next_in = UnsafeMutablePointer(mutating: inBase)
+            stream.avail_in = UInt32(data.count)
+
+            while true {
+                status = output.withUnsafeMutableBytes { outBuf -> Int32 in
+                    guard let outBase = outBuf.bindMemory(to: Bytef.self).baseAddress else {
+                        return Z_DATA_ERROR
+                    }
+                    // `avail_out` is a UInt32, so a buffer past 4 GiB is filled in windows.
+                    let window = Swift.min(capacity - produced, Int(UInt32.max))
+                    stream.next_out = outBase + produced
+                    stream.avail_out = UInt32(window)
+                    let ret = inflate(&stream, Z_NO_FLUSH)
+                    produced += window - Int(stream.avail_out)
+                    return ret
                 }
-                stream.next_in = UnsafeMutablePointer(mutating: inBase)
-                stream.avail_in = UInt32(data.count)
-                stream.next_out = outBase
-                stream.avail_out = UInt32(allocCount)
-                let r = inflate(&stream, Z_FINISH)
-                produced = allocCount - Int(stream.avail_out)
-                return r
+                if status == Z_STREAM_END { break }
+                if status != Z_OK && status != Z_BUF_ERROR { break }
+                if stream.avail_out > 0 {
+                    // Output space left but no stream end: the compressed input ran
+                    // out first, so the file is truncated.
+                    status = Z_DATA_ERROR
+                    break
+                }
+                if produced < capacity { continue }  // buffer has room, just refill the window
+                let grown = capacity.multipliedReportingOverflow(by: 2)
+                guard !grown.overflow else {
+                    status = Z_MEM_ERROR
+                    break
+                }
+                capacity = grown.partialValue
+                output.count = capacity              // growth is what guarantees forward progress
             }
         }
 
-        guard result == Z_STREAM_END else {
+        guard status == Z_STREAM_END else {
             throw MIQError.decompressionFailed
         }
 
@@ -156,38 +196,53 @@ enum MIQBinaryReader {
         let isize = data.withUnsafeBytes { bytes -> UInt32 in
             bytes.loadUnaligned(fromByteOffset: data.count - 4, as: UInt32.self)
         }.littleEndian
-        guard isize > 0 else {
-            throw MIQError.decompressionFailed
-        }
 
-        // Never allocate (or produce) more than the stream actually holds.
-        let cap = Swift.min(Int(isize), maxOutputBytes)
-        var output = Data(count: cap)
+        // ISIZE only seeds the allocation (it wraps at 4 GiB — see
+        // `initialInflateCapacity`). `maxOutputBytes` is the caller's contract and
+        // the sole hard ceiling on what this produces.
+        var capacity = Swift.min(
+            initialInflateCapacity(compressedCount: data.count, isize: isize),
+            maxOutputBytes
+        )
+        var output = Data(count: capacity)
         var produced = 0
-        let status: Int32 = data.withUnsafeBytes { inBuf -> Int32 in
-            output.withUnsafeMutableBytes { outBuf -> Int32 in
-                guard let inBase = inBuf.bindMemory(to: Bytef.self).baseAddress,
-                      let outBase = outBuf.bindMemory(to: Bytef.self).baseAddress else {
-                    return Z_DATA_ERROR
-                }
-                stream.next_in = UnsafeMutablePointer(mutating: inBase)
-                stream.avail_in = UInt32(data.count)
-                var ret: Int32 = Z_OK
-                while produced < cap {
+        var status: Int32 = Z_OK
+
+        data.withUnsafeBytes { inBuf in
+            guard let inBase = inBuf.bindMemory(to: Bytef.self).baseAddress else {
+                status = Z_DATA_ERROR
+                return
+            }
+            stream.next_in = UnsafeMutablePointer(mutating: inBase)
+            stream.avail_in = UInt32(data.count)
+
+            while true {
+                status = output.withUnsafeMutableBytes { outBuf -> Int32 in
+                    guard let outBase = outBuf.bindMemory(to: Bytef.self).baseAddress else {
+                        return Z_DATA_ERROR
+                    }
+                    let window = Swift.min(capacity - produced, Int(UInt32.max))
                     stream.next_out = outBase + produced
-                    stream.avail_out = UInt32(cap - produced)
-                    ret = inflate(&stream, Z_NO_FLUSH)
-                    produced = cap - Int(stream.avail_out)
-                    if ret != Z_OK { break }   // Z_STREAM_END, Z_BUF_ERROR, or hard error
+                    stream.avail_out = UInt32(window)
+                    let ret = inflate(&stream, Z_NO_FLUSH)
+                    produced += window - Int(stream.avail_out)
+                    return ret
                 }
-                return ret
+                if status == Z_STREAM_END { break }
+                if status != Z_OK && status != Z_BUF_ERROR { break }
+                if stream.avail_out > 0 { break }       // input ended before the stream did
+                if produced < capacity { continue }     // buffer has room, refill the window
+                if capacity == maxOutputBytes { break } // requested prefix produced: deliberate stop
+                let grown = capacity.multipliedReportingOverflow(by: 2)
+                capacity = grown.overflow ? maxOutputBytes : Swift.min(grown.partialValue, maxOutputBytes)
+                output.count = capacity
             }
         }
 
         // Success: the whole stream decompressed, OR we filled the requested cap
         // (a deliberate early stop). Z_BUF_ERROR with a filled cap is expected —
         // it means "no output space left", which is exactly why we stopped.
-        guard status == Z_STREAM_END || produced == cap else {
+        guard status == Z_STREAM_END || produced == maxOutputBytes else {
             throw MIQError.decompressionFailed
         }
         if produced < output.count {
@@ -209,6 +264,11 @@ enum MIQBinaryReader {
     /// output; it returns `false` until the caller can compute its bound (e.g.
     /// once the header is present). When it never becomes `true`, the whole stream
     /// is decompressed and the output is byte-identical to `gunzip(_:)`.
+    ///
+    /// Cancellation is checked before each input chunk, so a dismissed preview
+    /// stops pulling compressed bytes off a slow mount instead of running the
+    /// stream to completion. Throws `CancellationError` in that case (callers
+    /// already treat it distinctly from `MIQError`).
     static func gunzip(
         from handle: FileHandle,
         inputChunkBytes: Int = 1 << 18,
@@ -227,6 +287,7 @@ enum MIQBinaryReader {
         var sawStreamEnd = false
 
         while !done {
+            try Task.checkCancellation()
             guard let input = try handle.read(upToCount: inputChunkBytes), !input.isEmpty else {
                 break // compressed input exhausted before `hasEnough` — full stream
             }

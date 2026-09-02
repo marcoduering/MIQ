@@ -226,7 +226,10 @@ extension MIQParser {
         let totalElements = nrrd.sizes.reduce(1, *)
         let payloadBytes = totalElements * nrrd.datatype.bytesPerVoxel
         guard payloadBytes > 0 else { throw MIQError.invalidDimensions }
-        guard storage.count >= payloadOffset + payloadBytes else { throw MIQError.truncatedData }
+        // Subtraction form: `payloadOffset + payloadBytes` traps when the validated dims
+        // product lands on `Int.max`. The offset is 0 for the gzip branch and the
+        // header-split index (`<= count`) for raw, so the left side cannot go negative.
+        guard storage.count - payloadOffset >= payloadBytes else { throw MIQError.truncatedData }
 
         let descriptor = try buildNrrdMIQHeader(nrrd: nrrd, payloadOffset: payloadOffset)
 
