@@ -97,6 +97,102 @@ struct MIQCoreTests {
         }
     }
 
+    @Test
+    func inflateCapacityFromIsizeIsAHintNotABound() {
+        // ISIZE is the uncompressed size *mod 2^32*. Above 4 GiB it reports a wrapped
+        // remainder, so it can never bound the output — a stream sized from it inflated
+        // short, rendering a wrong image with no error. It only seeds the allocation now.
+        let fourGiB = 1 << 32
+
+        // The wrap: a 5 GiB stream whose trailer honestly reports 1 GiB. The hint is
+        // the wrapped value, so the buffer must be allowed to grow past it.
+        let wrapped = MIQBinaryReader.initialInflateCapacity(compressedCount: fourGiB / 4, isize: UInt32(1 << 30))
+        #expect(wrapped == 1 << 30)
+        #expect(wrapped < 5 * fourGiB / 4)
+
+        // An exact multiple of 4 GiB wraps to 0 — previously rejected outright.
+        #expect(MIQBinaryReader.initialInflateCapacity(compressedCount: 1 << 20, isize: 0)
+                == MIQBinaryReader.inflateCapacityFloor)
+
+        // A lying trailer still can't hand inflate a wildly oversized first window:
+        // the ratio bound keeps it proportionate to the input.
+        #expect(MIQBinaryReader.initialInflateCapacity(compressedCount: 1000, isize: .max) == 1_100_000)
+    }
+
+    @Test
+    func cappedGunzipFillsItsBudgetWhenIsizeUnderstatesTheStream() throws {
+        // The capped path stops before the trailer by design, so zlib never gets to
+        // validate ISIZE — sizing the buffer from it silently returned a short payload
+        // (measured: 99648 bytes of a 524288-byte volume, corner voxel 0 instead of
+        // 1023). Patching the trailer low reproduces the >4 GiB wrap exactly, with no
+        // multi-gigabyte fixture.
+        let raw = TestMIQFactory.makeNii(width: 32, height: 32, depth: 32, datatype: .int16, volumes: 4)
+        #expect(raw.count > MIQBinaryReader.inflateCapacityFloor)  // or the floor masks the lie
+        var gz = try TestZlib.gzip(raw)
+        gz.replaceSubrange((gz.count - 4)..<gz.count, with: [0xE8, 0x03, 0x00, 0x00])   // ISIZE = 1000
+
+        // Growth stays bounded by the caller's budget, which it now fills exactly.
+        let budget = 1 << 17
+        let capped = try MIQBinaryReader.gunzip(gz, maxOutputBytes: budget)
+        #expect(capped.count == budget)
+        #expect(capped == raw.prefix(budget))
+
+        // Whole-stream reads still run to Z_STREAM_END, where zlib checks the trailer —
+        // so a *patched* trailer is a hard error, while a genuine >4 GiB stream (whose
+        // ISIZE is truthful mod 2^32) passes and is now decompressed in full.
+        #expect(throws: MIQError.self) {
+            _ = try MIQBinaryReader.gunzip(gz)
+        }
+    }
+
+    @Test
+    func cappedGunzipAcceptsAZeroIsizeTrailer() throws {
+        // ISIZE wraps to exactly 0 for a stream that is a whole multiple of 4 GiB. The
+        // old `guard isize > 0` rejected those outright.
+        let raw = Data("hello, volume preview".utf8)
+        var gz = try TestZlib.gzip(raw)
+        gz.replaceSubrange((gz.count - 4)..<gz.count, with: [0, 0, 0, 0])
+        #expect(try MIQBinaryReader.gunzip(gz, maxOutputBytes: raw.count) == raw)
+    }
+
+    @Test
+    func niftiGzWithUnderstatedIsizeParsesVolumeZeroInFull() throws {
+        // The same wrap through the cold parse path, which is where a user would see it:
+        // volume 0 must come back whole, not clipped to the wrapped hint.
+        let w = 32
+        let h = 32
+        let d = 32
+        let raw = TestMIQFactory.makeNii(width: w, height: h, depth: d, datatype: .int16, volumes: 4)
+        var gz = try TestZlib.gzip(raw)
+        gz.replaceSubrange((gz.count - 4)..<gz.count, with: [0xE8, 0x03, 0x00, 0x00])   // ISIZE = 1000
+
+        let plainURL = Self.tempURL(suffix: ".nii")
+        let gzURL = Self.tempURL(suffix: ".nii.gz")
+        defer {
+            try? FileManager.default.removeItem(at: plainURL)
+            try? FileManager.default.removeItem(at: gzURL)
+        }
+        try raw.write(to: plainURL)
+        try gz.write(to: gzURL)
+
+        let plainImg = try MIQParser().parse(url: plainURL)
+        let coldImg = try MIQParser().parse(url: gzURL)
+        #expect(coldImg.payloadCount == w * h * d * MIQDatatype.int16.bytesPerVoxel)
+
+        let plain = MIQVolume(image: plainImg)
+        let cold = MIQVolume(image: coldImg)
+        for z in stride(from: 0, to: d, by: 3) {
+            for y in stride(from: 0, to: h, by: 3) {
+                for x in stride(from: 0, to: w, by: 3) {
+                    #expect(cold.voxel(x: x, y: y, z: z, t: 0) == plain.voxel(x: x, y: y, z: z, t: 0))
+                }
+            }
+        }
+        // The far corner is the one the wrap used to zero out.
+        #expect(cold.voxel(x: w - 1, y: h - 1, z: d - 1, t: 0)
+                == plain.voxel(x: w - 1, y: h - 1, z: d - 1, t: 0))
+    }
+
     /// Mutation fuzzer: every format parser must respond to corrupted input with a
     /// value or a thrown `MIQError` — never a trap (overflow / out-of-bounds /
     /// precondition), which `do/catch` can't intercept and which would instead
