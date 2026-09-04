@@ -9,8 +9,9 @@ set -euo pipefail
 #   ./scripts/release_appcast.sh <path.zip>   # use a specific stapled zip
 #
 # Run AFTER release_notarize.sh (needs the stapled zip) and AFTER
-# release_github.sh (the item's release-notes link points at the GitHub release
-# page, which must exist for the link to resolve). Then commit and push
+# release_github.sh, with the release notes already written on the GitHub
+# release: this script pulls that body into the feed as the item's embedded
+# release notes and refuses to run without it. Then commit and push
 # docs/appcast.xml — nothing is published until GitHub Pages serves it.
 # The full sequence is in RELEASING.md.
 #
@@ -148,56 +149,76 @@ cp "$DIST_ZIP" "$ARCHIVES_DIR/$ARCHIVE_NAME"
 # write. GitHub renders its own Markdown, so there is no local converter to
 # install or to drift from what the release page shows.
 NOTES_HTML="$ARCHIVES_DIR/MIQ-$SHORT_VERSION.html"
+
+# One gh call serves both the notes here and the draft check at the end. The
+# --jq expression folds the draft flag into the first line so no jq binary is
+# needed; a body-less release yields just that one line.
+if ! command -v gh >/dev/null 2>&1; then
+  echo "ERROR: gh is required to read the $TAG release notes (brew install gh)." >&2
+  exit 1
+fi
+if ! RELEASE_VIEW="$(gh release view "$TAG" --json body,isDraft \
+       --jq '(if .isDraft then "draft" else "published" end) + "\n" + .body' 2>&1)"; then
+  echo "ERROR: could not read the GitHub release $TAG: $RELEASE_VIEW" >&2
+  echo "       Run ./scripts/release_github.sh first, then write its notes." >&2
+  exit 1
+fi
+RELEASE_STATE="${RELEASE_VIEW%%$'\n'*}"
 RELEASE_BODY=""
-if command -v gh >/dev/null 2>&1; then
-  RELEASE_BODY="$(gh release view "$TAG" --json body --jq .body 2>/dev/null || true)"
+if [[ "$RELEASE_VIEW" == *$'\n'* ]]; then
+  RELEASE_BODY="${RELEASE_VIEW#*$'\n'}"
 fi
 
-if [[ -n "$RELEASE_BODY" ]]; then
-  printf '%s' "$RELEASE_BODY" > "$STAGING/notes.md"
-  if gh api --method POST /markdown -f mode=gfm -F text=@"$STAGING/notes.md" \
-       > "$STAGING/notes-fragment.html" 2>/dev/null && [[ -s "$STAGING/notes-fragment.html" ]]; then
-    # Sparkle renders this in a bare WebView with no stylesheet of its own, so
-    # without this block the notes come out as default-size serif. Only colors
-    # are set; `color-scheme` lets WebKit paint the canvas to match the OS, so
-    # the pane still looks native in both appearances.
-    cat > "$NOTES_HTML" <<'CSS'
+# Without notes generate_appcast strips any <description> the item already
+# has, so a re-run on a bad day would silently blank a good feed. Fail instead.
+if [[ -z "${RELEASE_BODY//[[:space:]]/}" ]]; then
+  echo "ERROR: the GitHub release $TAG has no body — this item would ship without release notes." >&2
+  echo "       Write the notes on the release first, then re-run this script." >&2
+  exit 1
+fi
+# release_github.sh seeds the body with headings over empty "-" bullets. A
+# non-empty check cannot tell that template from real notes, but no real notes
+# contain a bare "-" line.
+if grep -qxE -- '-[[:space:]]*' <<<"$RELEASE_BODY"; then
+  echo "ERROR: the GitHub release $TAG still contains the unedited notes template (a bare '-' bullet)." >&2
+  echo "       Fill in or delete every section, then re-run this script." >&2
+  exit 1
+fi
+
+# context= makes GitHub auto-link #issues and short SHAs the way the release
+# page does; without it they render as plain text.
+printf '%s' "$RELEASE_BODY" > "$STAGING/notes.md"
+if ! gh api --method POST /markdown -f mode=gfm -f context="$REPO" -F text=@"$STAGING/notes.md" \
+       > "$STAGING/notes-fragment.html" 2>"$STAGING/notes-error.txt" \
+   || [[ ! -s "$STAGING/notes-fragment.html" ]]; then
+  echo "ERROR: GitHub could not render the release notes to HTML:" >&2
+  cat "$STAGING/notes-error.txt" >&2
+  exit 1
+fi
+
+# Sparkle's release-notes WebView already injects a stylesheet (SUWKWebView.m):
+# body gets the system font at the system size, and ReleaseNotesColorStyle.css
+# supplies the dark-appearance text and link colours. Setting any of those here
+# would override the user's system size or lose to Sparkle's `:link` rules, so
+# this block adds only the spacing its stylesheet lacks. Sizes are relative so
+# they follow the injected system size.
+cat > "$NOTES_HTML" <<'CSS'
 <style>
-body {
-  color-scheme: light dark;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
-  font-size: 12px;
-  line-height: 1.45;
-  color: #1d1d1f;
-  margin: 10px 12px;
-}
-h1, h2, h3 { font-size: 12.5px; font-weight: 600; margin: 14px 0 4px; }
+body { line-height: 1.45; margin: 10px 12px; }
+h1, h2, h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
 h1:first-child, h2:first-child, h3:first-child, p:first-child { margin-top: 0; }
 p { margin: 0 0 8px; }
 ul, ol { margin: 0 0 10px; padding-left: 20px; }
 li { margin: 2px 0; }
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px; background: rgba(128,128,128,.14);
+  font-size: 0.92em; background: rgba(128,128,128,.14);
   border-radius: 3px; padding: 1px 4px;
-}
-a { color: #0068da; }
-@media (prefers-color-scheme: dark) {
-  body { color: #e8e8ed; }
-  a { color: #6ba9ff; }
 }
 </style>
 CSS
-    cat "$STAGING/notes-fragment.html" >> "$NOTES_HTML"
-    echo "==> Release notes: embedded from the $TAG release body ($(wc -c < "$NOTES_HTML" | tr -d ' ') bytes)"
-  else
-    echo "WARNING: GitHub could not render the release notes; this item will ship without any." >&2
-    rm -f "$NOTES_HTML"
-  fi
-else
-  echo "WARNING: no release body found for $TAG — this item will ship without release notes." >&2
-  echo "         Write the notes on the GitHub release first, then re-run this script." >&2
-fi
+cat "$STAGING/notes-fragment.html" >> "$NOTES_HTML"
+echo "==> Release notes: embedded from the $TAG release body ($(wc -c < "$NOTES_HTML" | tr -d ' ') bytes)"
 
 # Seed with the published feed so generate_appcast appends to the real history
 # instead of starting a fresh one-item feed. First release: no feed yet.
@@ -252,9 +273,9 @@ if target.find(f"{{{SPARKLE}}}releaseNotesLink") is not None:
 
 description = target.find("description")
 if description is None or not (description.text or "").strip():
-    print("    WARNING: this item has no embedded release notes.", file=sys.stderr)
-else:
-    print(f"    release notes embedded ({len(description.text)} chars)")
+    sys.exit("ERROR: the item has no embedded release notes even though a notes "
+             "file was staged next to the archive.")
+print(f"    release notes embedded ({len(description.text)} chars)")
 
 tree.write(path, encoding="utf-8", xml_declaration=True)
 print("    rewrote enclosure URL")
@@ -278,7 +299,7 @@ echo "SUCCESS"
 echo "Appcast written: $APPCAST"
 echo
 echo "Items now in the feed:"
-grep -E "<sparkle:version>|<enclosure|<description" "$APPCAST" | sed 's/^[[:space:]]*/    /'
+grep -E "<sparkle:version>|<enclosure" "$APPCAST" | sed 's/^[[:space:]]*/    /'
 echo
 
 # The one ordering rule that matters: the GitHub release must be PUBLISHED
@@ -286,12 +307,8 @@ echo
 # draft release's asset URL 404s for everyone but the maintainer — a live feed
 # in front of a draft release means Sparkle offers an update it cannot
 # download. release_github.sh (the preceding step) creates the release as a
-# draft, so check the state rather than assume it.
-RELEASE_STATE="unknown"
-if command -v gh >/dev/null 2>&1; then
-  RELEASE_STATE="$(gh release view "$TAG" --json isDraft --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "missing")"
-fi
-
+# draft, so check the state (read together with the notes above) rather than
+# assume it.
 case "$RELEASE_STATE" in
   published)
     echo "GitHub release $TAG: published — its asset URL is live."
@@ -302,13 +319,9 @@ case "$RELEASE_STATE" in
     echo "         update whose download URL returns 404:"
     echo "           gh release edit $TAG --draft=false"
     ;;
-  missing)
-    echo "WARNING: no GitHub release found for $TAG."
-    echo "         Run ./scripts/release_github.sh and publish it BEFORE pushing $APPCAST."
-    ;;
   *)
-    echo "NOTE: gh not installed — confirm the GitHub release $TAG is published"
-    echo "      (not a draft) before pushing $APPCAST."
+    echo "ERROR: unexpected release state '$RELEASE_STATE' for $TAG." >&2
+    exit 1
     ;;
 esac
 
