@@ -411,45 +411,15 @@ struct ContentView: View {
     @State private var draggedMetadataField: MetadataField?
     @State private var presentedMetadataInfoField: MetadataField?
     @State private var selectedTab: SettingsTab = .about
-    @State private var updateState: UpdateState = .idle
-    @State private var showUpdateAlert: Bool = false
     @State private var showThumbnailRefreshInfo = false
     @State private var didCopyRefreshCommand = false
-    #if DEBUG
-    // Mirrors the @AppStorage in MIQApp so the About pane updates when the
-    // Debug menu's "Simulate update available" toggle flips. Same key, no
-    // `store:`, shared via UserDefaults.standard.
-    @AppStorage(DebugFlags.simulateUpdateAvailableKey) private var simulateUpdateAvailable = false
-    #endif
-
-    private enum UpdateState: Equatable {
-        case idle
-        case checking
-        case upToDate
-        case available(UpdateCheckResult)
-        /// `prominent` is set only for a user-initiated check — the automatic
-        /// launch check reports quietly rather than opening Settings in red.
-        case error(message: String, prominent: Bool)
-
-        var availableResult: UpdateCheckResult? {
-            if case .available(let r) = self { return r }
-            return nil
-        }
-    }
-
-    private static let homebrewCommand = "brew update --cask miq"
+    /// Supplied by `MIQApp`. Sparkle owns the check → download → install →
+    /// relaunch flow; this view only offers the entry points.
+    @EnvironmentObject private var updater: UpdaterController
 
     private static var currentVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "–"
     }
-
-    #if DEBUG
-    private static let simulatedUpdateResult = UpdateCheckResult(
-        tagName: "v999.0.0",
-        version: "999.0.0",
-        releaseURL: URL(string: "https://github.com/marcoduering/MIQ/releases/tag/v999.0.0")!
-    )
-    #endif
 
     private static let disclaimerText = """
         MIQ is **not a medical device** and is **not intended for diagnostic use**. It is a developer and researcher convenience tool only; do not use it for clinical decisions.
@@ -483,42 +453,7 @@ struct ContentView: View {
         } message: {
             Text(Self.disclaimerText + "\n\nBy hiding the disclaimer in previews, you confirm that you understand and accept these terms.")
         }
-        .alert("Update available", isPresented: $showUpdateAlert, presenting: updateState.availableResult) { result in
-            Button("Download latest version") {
-                NSWorkspace.shared.open(UpdateChecker.latestAppDownloadURL)
-            }
-            .keyboardShortcut(.defaultAction)
-            Button("Open Changelog on GitHub") {
-                NSWorkspace.shared.open(result.releaseURL)
-            }
-            Button("Cancel", role: .cancel) { /* sheet dismissed by .cancel role */ }
-        } message: { result in
-            Text("MIQ \(result.version) is available.\nYou are running \(Self.currentVersion).\n\nDownload the latest release from GitHub.\n\nOr if you installed via Homebrew, run in Terminal:\n\(Self.homebrewCommand)")
-        }
         .frame(minWidth: 550, idealWidth: 550, maxWidth: 550, minHeight: 587, idealHeight: 587, maxHeight: 587)
-        .onAppear {
-            // No element is focused on launch (matching the state after switching
-            // tabs back to About). AppKit would otherwise auto-focus the first
-            // key view (the GitHub link); SettingsToolbarInstaller suppresses that
-            // and clears the first responder once the window is up.
-            #if DEBUG
-            if simulateUpdateAvailable {
-                updateState = .available(Self.simulatedUpdateResult)
-                return
-            }
-            #endif
-            primeUpdateStateFromCache()
-            Task { await runUpdateCheck(force: false) }
-        }
-        #if DEBUG
-        .onChange(of: simulateUpdateAvailable) { _, newValue in
-            if newValue {
-                updateState = .available(Self.simulatedUpdateResult)
-            } else {
-                Task { await runUpdateCheck(force: true) }
-            }
-        }
-        #endif
         #if DEBUG
         .safeAreaInset(edge: .bottom, spacing: 0) {
             let appDate = BuildDate.formatted(for: Bundle.main.executableURL) ?? "unknown"
@@ -554,12 +489,13 @@ struct ContentView: View {
                     Link("github.com/marcoduering/MIQ",
                          destination: URL(string: "https://github.com/marcoduering/MIQ")!)
                         .font(.callout)
-                    HStack(spacing: 8) {
-                        Text("Version \(Self.currentVersion)")
-                            .foregroundStyle(.secondary)
-                        updateBadge
-                    }
-                    .font(.callout)
+                    // On-demand checking lives in the MIQ menu ("Check for
+                    // Updates…"), the conventional macOS location; Sparkle also
+                    // checks on its own schedule. A second entry point here was
+                    // just clutter on the pane the user sees first.
+                    Text("Version \(Self.currentVersion)")
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 5)
@@ -573,6 +509,12 @@ struct ContentView: View {
             }
 
             Section("General") {
+                // Not part of `restoreDefaults()` — that resets rendering
+                // settings in the App Group suite, whereas this lives in the
+                // app's own defaults and is Sparkle's to own.
+                Toggle("Automatically check for updates",
+                       isOn: $updater.automaticallyChecksForUpdates)
+
                 HStack {
                     Text("Restore default settings")
                     Spacer()
@@ -965,118 +907,6 @@ struct ContentView: View {
                 presentedMetadataInfoField = isPresented ? field : nil
             }
         )
-    }
-
-    @ViewBuilder
-    private var updateBadge: some View {
-        switch updateState {
-        case .idle:
-            Button("Check for Updates") {
-                Task { await runUpdateCheck(force: true) }
-            }
-            .buttonStyle(.link)
-            .font(.callout)
-
-        case .checking:
-            HStack(spacing: 6) {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .controlSize(.small)
-                Text("Checking for updates…")
-            }
-            .font(.callout)
-            .foregroundStyle(.secondary)
-
-        case .upToDate:
-            Button {
-                Task { await runUpdateCheck(force: true) }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "checkmark.circle")
-                    Text("You're up to date")
-                }
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-
-        case .available:
-            Button {
-                showUpdateAlert = true
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.down.circle.fill")
-                    Text("Update available")
-                }
-                .font(.callout.weight(.semibold))
-                .foregroundStyle(.orange)
-            }
-            .buttonStyle(.plain)
-
-        case .error(let message, let prominent):
-            HStack(spacing: 6) {
-                Text(message)
-                    .foregroundStyle(prominent ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
-                Button("Try again") {
-                    Task { await runUpdateCheck(force: true) }
-                }
-                .buttonStyle(.link)
-            }
-            .font(.callout)
-        }
-    }
-
-    private func primeUpdateStateFromCache() {
-        if case .available = updateState { return }
-        if case .checking = updateState { return }
-        if let cached = MIQConfig.lastKnownLatestVersion,
-           UpdateChecker.isNewer(latest: cached, than: Self.currentVersion) {
-            updateState = .available(UpdateCheckResult(
-                tagName: "v" + cached,
-                version: cached,
-                releaseURL: UpdateChecker.latestReleasePageURL
-            ))
-        }
-    }
-
-    private func runUpdateCheck(force: Bool) async {
-        if case .checking = updateState { return }
-        // A failed check must not erase a cache-primed "update available" badge —
-        // that primed state is exactly what `primeUpdateStateFromCache` is for
-        // when the network is unreachable.
-        let cachedAvailable = updateState.availableResult
-        updateState = .checking
-        let started = Date()
-
-        let nextState: UpdateState
-        do {
-            let result = try await UpdateChecker.fetchLatestRelease()
-            MIQConfig.lastKnownLatestVersion = result.version
-            if UpdateChecker.isNewer(latest: result.version, than: Self.currentVersion) {
-                nextState = .available(result)
-            } else {
-                nextState = .upToDate
-            }
-        } catch {
-            let description = (error as? LocalizedError)?.errorDescription ?? "Couldn't check for updates."
-            // The on-launch check reports failures too — reverting to idle made an
-            // offline launch look identical to never having checked.
-            nextState = cachedAvailable.map(UpdateState.available)
-                ?? .error(message: description, prominent: force)
-        }
-
-        // Keep the spinner visible long enough that a manual click feels
-        // acknowledged — otherwise a sub-300ms request flashes through and the
-        // user thinks the button is dead and clicks again.
-        if force {
-            let minimumDisplay: TimeInterval = 1.5
-            let elapsed = Date().timeIntervalSince(started)
-            if elapsed < minimumDisplay {
-                try? await Task.sleep(nanoseconds: UInt64((minimumDisplay - elapsed) * 1_000_000_000))
-            }
-        }
-
-        updateState = nextState
     }
 
     private func restoreDefaults() {

@@ -166,6 +166,28 @@ if [[ ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
+# --- Sparkle: the feed URL baked into this build must be the production one --
+# scripts/dev/sparkle_local_test.sh rewrites SUFeedURL in MIQApp/Info.plist to
+# a localhost feed while it builds and restores it afterwards. If that restore
+# was skipped (interrupted run) and this script ran on the dirty tree, the
+# notarized app would point at localhost and never see a real update. Check
+# before spending a notarization round-trip on it.
+echo "==> Verifying Sparkle feed URL"
+PROD_FEED_URL="https://miq.marco-duering.net/appcast.xml"
+BUILT_FEED_URL="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+if [[ "$BUILT_FEED_URL" != "$PROD_FEED_URL" ]]; then
+  echo "ERROR: exported app's SUFeedURL is '${BUILT_FEED_URL:-<missing>}', expected $PROD_FEED_URL." >&2
+  echo "       Restore MIQApp/Info.plist (git diff -- MIQApp/Info.plist) and rerun." >&2
+  exit 1
+fi
+BUILT_BUNDLE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+if [[ -z "$BUILT_BUNDLE_VERSION" || "$BUILT_BUNDLE_VERSION" == "1" ]]; then
+  echo "ERROR: exported app's CFBundleVersion is '${BUILT_BUNDLE_VERSION:-<missing>}'. Sparkle compares this" >&2
+  echo "       value, so it must track MARKETING_VERSION (see Config/Shared.xcconfig)." >&2
+  exit 1
+fi
+echo "    ok: $BUILT_FEED_URL (CFBundleVersion $BUILT_BUNDLE_VERSION)"
+
 # Delete intermediate build products — ArchiveIntermediates and regular build
 # products in DerivedData — so they don't compete with the exported app for
 # lsregister/pluginkit registration on this machine.
@@ -188,6 +210,78 @@ run_logged "Validating stapled ticket" "$VALIDATE_LOG" xcrun stapler validate "$
 run_logged "Gatekeeper assessment" "$GATEKEEPER_LOG" spctl --assess --type execute --verbose=4 "$APP_PATH"
 
 run_logged "Code signature verification" "$CODESIGN_VERIFY_LOG" codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+# --- Sparkle: the nested helper code must each be independently valid ---------
+# Sparkle's updater is not one binary: Autoupdate and Updater.app run after MIQ
+# has quit, and Installer.xpc runs OUTSIDE the app sandbox (that is the whole
+# point of it — a sandboxed app cannot write /Applications). Gatekeeper checks
+# each of them on its own at that moment, long after the app's own signature was
+# verified, so a nested item that failed to re-sign during export surfaces as an
+# update that dies mid-install rather than as a build error.
+echo "==> Verifying nested Sparkle code"
+SPARKLE_VERSION_DIR="$APP_PATH/Contents/Frameworks/Sparkle.framework/Versions/Current"
+if [[ -d "$SPARKLE_VERSION_DIR" ]]; then
+  for nested in Autoupdate Updater.app XPCServices/Installer.xpc; do
+    nested_path="$SPARKLE_VERSION_DIR/$nested"
+    if [[ ! -e "$nested_path" ]]; then
+      echo "ERROR: Sparkle component missing from the exported app: $nested" >&2
+      exit 1
+    fi
+    if ! codesign --verify --strict "$nested_path" 2>&1; then
+      echo "ERROR: Sparkle component failed signature verification: $nested" >&2
+      exit 1
+    fi
+    echo "    ok: $nested"
+  done
+else
+  echo "ERROR: Sparkle.framework is not embedded in the exported app." >&2
+  echo "       In-app updates would silently not exist in this release." >&2
+  exit 1
+fi
+
+# The two mach-lookup exceptions are what let the sandboxed app reach the
+# installer service. Without them the update downloads and then fails to
+# install, with no error until the user tries.
+echo "==> Verifying Sparkle installer entitlements"
+APP_ENTITLEMENTS="$(codesign -d --entitlements - --xml "$APP_PATH" 2>/dev/null | plutil -convert xml1 -o - - 2>/dev/null || true)"
+for service in "-spks" "-spki"; do
+  if ! grep -q "net.marco-duering.miq${service}" <<< "$APP_ENTITLEMENTS"; then
+    echo "ERROR: missing mach-lookup entitlement net.marco-duering.miq${service}" >&2
+    exit 1
+  fi
+  echo "    ok: net.marco-duering.miq${service}"
+done
+
+# --- App Group: the failure this project has actually been bitten by ----------
+# `codesign --verify` does NOT catch a profile/certificate mismatch. If the
+# embedded provisioning profile does not AUTHORIZE the app group, the sandbox
+# drops the entitlement at runtime with no error and no crash — the thumbnail
+# extension just silently reads MIQConfig.Defaults instead of the user's
+# settings. Check the profile itself, not the signature.
+echo "==> Verifying App Group is authorized by the embedded profiles"
+APP_GROUP="group.net.marco-duering.miq"
+for bundle in \
+  "$APP_PATH" \
+  "$APP_PATH/Contents/PlugIns/MIQQuickLookExtension.appex" \
+  "$APP_PATH/Contents/PlugIns/MIQThumbnailExtension.appex"
+do
+  profile="$bundle/Contents/embedded.provisionprofile"
+  if [[ ! -f "$profile" ]]; then
+    echo "ERROR: no embedded.provisionprofile in $(basename "$bundle")" >&2
+    exit 1
+  fi
+  # plutil splits a key path on dots, so it cannot address the dotted
+  # com.apple.security.application-groups key directly — extract Entitlements
+  # and grep instead.
+  if ! security cms -D -i "$profile" 2>/dev/null \
+       | plutil -extract Entitlements xml1 -o - - 2>/dev/null \
+       | grep -q "$APP_GROUP"; then
+    echo "ERROR: $(basename "$bundle") — embedded profile does NOT authorize $APP_GROUP." >&2
+    echo "       The extension would silently fall back to MIQConfig.Defaults." >&2
+    exit 1
+  fi
+  echo "    ok: $(basename "$bundle")"
+done
 
 # The ZIP submitted for notarization was created before stapling, so it lacks
 # the embedded ticket. Create the distribution zip from the stapled app now.

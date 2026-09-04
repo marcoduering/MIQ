@@ -10,5 +10,15 @@
 	<array>
 		<string>$(APP_GROUP_ID)</string>
 	</array>
+	<!-- Sparkle's Installer XPC service. A sandboxed app cannot write /Applications
+	     itself, and anything it spawns inherits the sandbox; these two mach services
+	     (-spks = installer launcher, -spki = installer connection) are how Sparkle
+	     hands the install off to a launchd-managed service outside it. Required by
+	     SUEnableInstallerLauncherService in Info.plist. -->
+	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+	<array>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)-spks</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)-spki</string>
+	</array>
 </dict>
 </plist>

@@ -11,7 +11,7 @@
 *.swiftmodule
 *.xcuserstate
 **/xcuserdata/
-**/xcshareddata/swiftpm/
+**/xcshareddata/swiftpm/configuration/
 **/xcshareddata/WorkspaceSettings.xcsettings
 build/
 AGENTS.md

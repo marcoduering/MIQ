@@ -44,9 +44,9 @@ The app and extension can be installed manually or via the package manager [Home
 4. Press **Space** on any supported file in Finder.
 5. Optional: **Customize the preview** in the MIQ app.
 
-#### Manual update
+#### Updating
 
-MIQ checks for updates when you open the app, so open it occasionally to catch alerts for new releases. When a new version is available, download it and replace MIQ.app in `/Applications` manually.
+MIQ updates itself. Open the MIQ app and choose **MIQ → Check for Updates…**, or leave **Automatically check for updates** enabled in Settings → About. MIQ only runs while its window is open, so checks happen when you open it; when a new version is available, MIQ downloads and installs it in place and relaunches. No manual download or replacing of `MIQ.app` is needed.
 
 ### Installation via Homebrew
 
@@ -64,9 +64,11 @@ MIQ checks for updates when you open the app, so open it occasionally to catch a
 
 #### Updating via Homebrew
 
+The cask is marked `auto_updates`, so the app updates itself via **MIQ → Check for Updates…** (see above). To update through Homebrew instead:
+
 ```bash
 brew update
-brew upgrade --cask miq
+brew upgrade --cask miq --greedy
 ```
 
 ## Usage

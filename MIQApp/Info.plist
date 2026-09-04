@@ -28,6 +28,12 @@
 	<string>Licensed under the MIT License</string>
 	<key>NSQuitAlwaysKeepsWindows</key>
 	<false/>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://miq.marco-duering.net/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>zMEpcrCUdLsdNOGJkcIeuJtolubF25q1savnb+nk1To=</string>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>

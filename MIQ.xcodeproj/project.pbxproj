@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		00B97D85B148478FBA844F26 /* MIQImageBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45FE4A9B7D1340FBAA8AEB29 /* MIQImageBridge.swift */; };
+		0F5A0000000000000000A005 /* UpdaterController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F5A0000000000000000A004 /* UpdaterController.swift */; };
+		0F5A0000000000000000A003 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 0F5A0000000000000000A002 /* Sparkle */; };
 		0701E1F39439EE434DE78D66 /* MIQQuickLookExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DEACD5BFB1B39E6BB6A9F28F /* MIQQuickLookExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		1525C5A90753349409A6DC7B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FF4BD21CCF016F9EE93B3D /* ContentView.swift */; };
 		1F7BAF3D389C4B31A8A8EA6E /* MIQPreviewCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 827A41D521B17E9ABFF27BF5 /* MIQPreviewCache.swift */; };
@@ -79,6 +81,7 @@
 		BB100000000000000000A009 /* MIQThumbnailProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQThumbnailProvider.swift; sourceTree = "<group>"; };
 		C034A78ADECC902D98B3BF2F /* MIQPreviewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQPreviewController.swift; sourceTree = "<group>"; };
 		C35E6221C4BB0043A82D4EA0 /* MIQApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQApp.swift; sourceTree = "<group>"; };
+		0F5A0000000000000000A004 /* UpdaterController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdaterController.swift; sourceTree = "<group>"; };
 		DD43E5703AD6ABBED64F738F /* MIQ.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MIQ.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DEACD5BFB1B39E6BB6A9F28F /* MIQQuickLookExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MIQQuickLookExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -97,6 +100,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA00BB00CC00DD00EE00FF01 /* MIQCore in Frameworks */,
+				0F5A0000000000000000A003 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -126,6 +130,7 @@
 				1069830D6ED40B3AB5757858 /* Info.plist */,
 				38D75F862B31E42F5A44BD93 /* MIQ.entitlements */,
 				C35E6221C4BB0043A82D4EA0 /* MIQApp.swift */,
+				0F5A0000000000000000A004 /* UpdaterController.swift */,
 				4CFCB7FD2FAD03EF00715102 /* AppIcon.icon */,
 			);
 			path = MIQApp;
@@ -207,6 +212,7 @@
 			name = MIQ;
 			packageProductDependencies = (
 				AA00BB00CC00DD00EE00FF02 /* MIQCore */,
+				0F5A0000000000000000A002 /* Sparkle */,
 			);
 			productName = MIQ;
 			productReference = DD43E5703AD6ABBED64F738F /* MIQ.app */;
@@ -270,6 +276,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				BC8AC16CCF49B3F013C78483 /* XCLocalSwiftPackageReference "." */,
+				0F5A0000000000000000A001 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 46F873B00B4816F59C2C4223 /* Products */;
@@ -301,6 +308,7 @@
 			files = (
 				1525C5A90753349409A6DC7B /* ContentView.swift in Sources */,
 				E9D1739EF930782E62D9FE97 /* MIQApp.swift in Sources */,
+				0F5A0000000000000000A005 /* UpdaterController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -493,6 +501,17 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		0F5A0000000000000000A001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		0D703866A54AAA65D0773EF7 /* MIQCore */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -505,6 +524,11 @@
 		BB100000000000000000A007 /* MIQCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MIQCore;
+		};
+		0F5A0000000000000000A002 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0F5A0000000000000000A001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

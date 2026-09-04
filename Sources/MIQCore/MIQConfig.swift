@@ -40,7 +40,6 @@ public enum MIQConfig {
         public static let thumbnailImageOrientation      = "thumbnailImageOrientation"
         public static let thumbnailWindowLowerPercentile = "thumbnailWindowLowerPercentile"
         public static let thumbnailWindowUpperPercentile = "thumbnailWindowUpperPercentile"
-        public static let lastKnownLatestVersion  = "lastKnownLatestVersion"
         #if DEBUG
         public static let debugShowLayoutBorders  = "debugShowLayoutBorders"
         #endif
@@ -208,11 +207,6 @@ public enum MIQConfig {
     public static var thumbnailWindowUpperPercentile: Double {
         let d = defaults
         return d.object(forKey: Keys.thumbnailWindowUpperPercentile) as? Double ?? Defaults.thumbnailWindowUpperPercentile
-    }
-
-    public static var lastKnownLatestVersion: String? {
-        get { defaults.string(forKey: Keys.lastKnownLatestVersion) }
-        set { defaults.set(newValue, forKey: Keys.lastKnownLatestVersion) }
     }
 
     #if DEBUG
