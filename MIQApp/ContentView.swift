@@ -216,7 +216,8 @@ private struct SettingsToolbarInstaller: NSViewRepresentable {
         // the toolbar during the first layout pass, before the window displays —
         // otherwise it appears a tick late and shifts the settings content down.
         let view = InstallerView()
-        view.onMoveToWindow = { [coordinator = context.coordinator] window in
+        let coordinator = context.coordinator
+        view.onMoveToWindow = { [coordinator] window in
             coordinator.install(into: window)
         }
         return view
