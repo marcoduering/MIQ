@@ -11,6 +11,49 @@
             <sparkle:shortVersionString>1.4.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.4.0/MIQ.app.zip" length="4223306" type="application/octet-stream" sparkle:edSignature="6PcVeTxbS3f70s8VC6aLw8xg2Hd8+67F7LJLR8r6jrOn6yFhWv1Gc4OBjcr4s/l8fQIDzqu7BlAhB4i6eX2eAg==" />
-        <sparkle:releaseNotesLink>https://github.com/marcoduering/MIQ/releases/tag/v1.4.0</sparkle:releaseNotesLink></item>
+            <description>&lt;style&gt;
+body {
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #1d1d1f;
+  margin: 10px 12px;
+}
+h1, h2, h3 { font-size: 12.5px; font-weight: 600; margin: 14px 0 4px; }
+h1:first-child, h2:first-child, h3:first-child, p:first-child { margin-top: 0; }
+p { margin: 0 0 8px; }
+ul, ol { margin: 0 0 10px; padding-left: 20px; }
+li { margin: 2px 0; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; background: rgba(128,128,128,.14);
+  border-radius: 3px; padding: 1px 4px;
+}
+a { color: #0068da; }
+@media (prefers-color-scheme: dark) {
+  body { color: #e8e8ed; }
+  a { color: #6ba9ff; }
+}
+&lt;/style&gt;
+&lt;p&gt;&lt;strong&gt;New features:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;(Automatic) in-place app updates using Sparkle&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;&lt;strong&gt;Improvements:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Enhanced label file detection to minimize false-positives. Greyscale integer images with a narrow intensity range should now no longer be rendered as labels.&lt;/li&gt;
+&lt;li&gt;Improved FreeSurfer LUT detection.&lt;/li&gt;
+&lt;li&gt;Faster percentile windowing on large volumes&lt;/li&gt;
+&lt;li&gt;Further tweaks for the upcoming macOS 27&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;&lt;strong&gt;Fixes:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Fixed error handling when Github is not reachable for checking updates.&lt;/li&gt;
+&lt;li&gt;Corrected large gzip decompression that could mis-render volumes over 4 GiB&lt;/li&gt;
+&lt;li&gt;Fixed malformed headers that could crash instead of showing an error&lt;/li&gt;
+&lt;li&gt;Fixed stale renders when a preview is dismissed mid-load&lt;/li&gt;
+&lt;/ul&gt;</description>
+        </item>
     </channel>
 </rss>

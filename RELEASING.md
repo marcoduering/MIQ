@@ -16,7 +16,7 @@ Maintainer-only. This is the running order; the reasoning behind each rule lives
 2. **Test.** `cd /tmp && swift test --package-path /path/to/MIQ --scratch-path /tmp/miq-build`
 3. **Commit and tag** with a clean tree and `Package.resolved` committed: `git tag vX.Y.Z && git push origin main vX.Y.Z`
 4. **Notarize.** `NOTARY_PROFILE=<profile> ./scripts/release_notarize.sh` produces `build/release-<timestamp>/MIQ.app.zip`. It fails on a bad Sparkle signature, missing mach-lookup entitlements, an unauthorized App Group, a non-production feed URL, or an unbumped version.
-5. **GitHub release.** `./scripts/release_github.sh` creates a draft. Write the notes and publish it. The asset must stay named `MIQ.app.zip`. Keep the printed sha256 for step 7.
+5. **GitHub release.** `./scripts/release_github.sh` creates a draft. Write the notes and publish it. The asset must stay named `MIQ.app.zip`. Keep the printed sha256 for step 7. The notes are not just for the web page: step 6 pulls this body into the appcast, so write them before running it or the update window will have nothing to show.
 6. **Appcast.** `./scripts/release_appcast.sh`, then `git add docs/appcast.xml && git commit -m "Appcast X.Y.Z" && git push`. Never push the feed while the release is still a draft; the script checks and warns. Confirm with `curl -fsSL https://miq.marco-duering.net/appcast.xml | grep -c "<item>"`.
 7. **Cask.** In the tap checkout set `version` and `sha256` in `Casks/miq.rb`, then audit by name against the installed tap clone and restore it:
    ```bash

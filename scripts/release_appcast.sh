@@ -112,7 +112,6 @@ fi
 
 TAG="v$SHORT_VERSION"
 DOWNLOAD_PREFIX="https://github.com/$REPO/releases/download/$TAG/"
-RELEASE_PAGE="https://github.com/$REPO/releases/tag/$TAG"
 
 echo "==> Version:      $SHORT_VERSION (CFBundleVersion $BUNDLE_VERSION)"
 echo "==> Feed URL:     $FEED_URL"
@@ -135,6 +134,71 @@ fi
 ARCHIVE_NAME="MIQ-$SHORT_VERSION.zip"
 cp "$DIST_ZIP" "$ARCHIVES_DIR/$ARCHIVE_NAME"
 
+# --- Release notes: embedded in the feed, not linked --------------------------
+# Sparkle treats <sparkle:releaseNotesLink> as a URL to LOAD, so pointing it at
+# a GitHub release page renders the entire github.com page — global nav, repo
+# header, sidebar — around a few lines of notes. SUAppcastItem documents the
+# alternative: an embedded <description>. generate_appcast builds one from any
+# file sharing the archive's basename, and embeds it as CDATA when the file is
+# HTML with no "<!DOCTYPE" or "<body" in it (ArchiveItem.getReleaseNotesAsFragment).
+# It must be .html — a .md sibling is classified as markdown and linked, not
+# embedded, unless --embed-release-notes is passed.
+#
+# The notes themselves stay in one place: the GitHub release body you already
+# write. GitHub renders its own Markdown, so there is no local converter to
+# install or to drift from what the release page shows.
+NOTES_HTML="$ARCHIVES_DIR/MIQ-$SHORT_VERSION.html"
+RELEASE_BODY=""
+if command -v gh >/dev/null 2>&1; then
+  RELEASE_BODY="$(gh release view "$TAG" --json body --jq .body 2>/dev/null || true)"
+fi
+
+if [[ -n "$RELEASE_BODY" ]]; then
+  printf '%s' "$RELEASE_BODY" > "$STAGING/notes.md"
+  if gh api --method POST /markdown -f mode=gfm -F text=@"$STAGING/notes.md" \
+       > "$STAGING/notes-fragment.html" 2>/dev/null && [[ -s "$STAGING/notes-fragment.html" ]]; then
+    # Sparkle renders this in a bare WebView with no stylesheet of its own, so
+    # without this block the notes come out as default-size serif. Only colors
+    # are set; `color-scheme` lets WebKit paint the canvas to match the OS, so
+    # the pane still looks native in both appearances.
+    cat > "$NOTES_HTML" <<'CSS'
+<style>
+body {
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #1d1d1f;
+  margin: 10px 12px;
+}
+h1, h2, h3 { font-size: 12.5px; font-weight: 600; margin: 14px 0 4px; }
+h1:first-child, h2:first-child, h3:first-child, p:first-child { margin-top: 0; }
+p { margin: 0 0 8px; }
+ul, ol { margin: 0 0 10px; padding-left: 20px; }
+li { margin: 2px 0; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; background: rgba(128,128,128,.14);
+  border-radius: 3px; padding: 1px 4px;
+}
+a { color: #0068da; }
+@media (prefers-color-scheme: dark) {
+  body { color: #e8e8ed; }
+  a { color: #6ba9ff; }
+}
+</style>
+CSS
+    cat "$STAGING/notes-fragment.html" >> "$NOTES_HTML"
+    echo "==> Release notes: embedded from the $TAG release body ($(wc -c < "$NOTES_HTML" | tr -d ' ') bytes)"
+  else
+    echo "WARNING: GitHub could not render the release notes; this item will ship without any." >&2
+    rm -f "$NOTES_HTML"
+  fi
+else
+  echo "WARNING: no release body found for $TAG — this item will ship without release notes." >&2
+  echo "         Write the notes on the GitHub release first, then re-run this script." >&2
+fi
+
 # Seed with the published feed so generate_appcast appends to the real history
 # instead of starting a fresh one-item feed. First release: no feed yet.
 if [[ -f "$APPCAST" ]]; then
@@ -154,36 +218,46 @@ echo "==> Generating appcast"
   -o "$ARCHIVES_DIR/appcast.xml" \
   "$ARCHIVES_DIR"
 
-# Rewrite this release's enclosure URL to the asset's real name (see above),
-# and point its release notes at the GitHub release page whose body is the
-# changelog. Only the item for the staged archive can match, so older items
-# are provably untouched here.
-python3 - "$ARCHIVES_DIR/appcast.xml" "$ARCHIVE_NAME" "$RELEASE_PAGE" <<'PY'
+# Rewrite this release's enclosure URL to the asset's real name (see above).
+# Only the item for the staged archive can match, so older items are provably
+# untouched here. This also asserts the notes ended up embedded rather than
+# linked: a leftover <sparkle:releaseNotesLink> would send Sparkle back to
+# loading a whole web page in its release-notes pane.
+python3 - "$ARCHIVES_DIR/appcast.xml" "$ARCHIVE_NAME" <<'PY'
 import sys, xml.etree.ElementTree as ET
 
-path, archive_name, release_page = sys.argv[1], sys.argv[2], sys.argv[3]
+path, archive_name = sys.argv[1], sys.argv[2]
 SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 ET.register_namespace("sparkle", SPARKLE)
 ET.register_namespace("dc", "http://purl.org/dc/elements/1.1/")
 
 tree = ET.parse(path)
-changed = False
+target = None
 for item in tree.getroot().iter("item"):
     enclosure = item.find("enclosure")
     if enclosure is None:
         continue
     url = enclosure.get("url", "")
-    if not url.endswith("/" + archive_name):
-        continue
-    enclosure.set("url", url[: -len(archive_name)] + "MIQ.app.zip")
-    if item.find(f"{{{SPARKLE}}}releaseNotesLink") is None:
-        ET.SubElement(item, f"{{{SPARKLE}}}releaseNotesLink").text = release_page
-    changed = True
+    if url.endswith("/" + archive_name):
+        enclosure.set("url", url[: -len(archive_name)] + "MIQ.app.zip")
+        target = item
+        break
 
-if not changed:
+if target is None:
     sys.exit(f"ERROR: no appcast item found for {archive_name}")
+
+if target.find(f"{{{SPARKLE}}}releaseNotesLink") is not None:
+    sys.exit("ERROR: the item still carries a sparkle:releaseNotesLink. Sparkle would "
+             "load that URL instead of showing the embedded notes.")
+
+description = target.find("description")
+if description is None or not (description.text or "").strip():
+    print("    WARNING: this item has no embedded release notes.", file=sys.stderr)
+else:
+    print(f"    release notes embedded ({len(description.text)} chars)")
+
 tree.write(path, encoding="utf-8", xml_declaration=True)
-print("    rewrote enclosure URL and added releaseNotesLink")
+print("    rewrote enclosure URL")
 PY
 
 # Post-condition: every enclosure in the feed must still point at a
@@ -204,7 +278,7 @@ echo "SUCCESS"
 echo "Appcast written: $APPCAST"
 echo
 echo "Items now in the feed:"
-grep -E "<sparkle:version>|<enclosure" "$APPCAST" | sed 's/^[[:space:]]*/    /'
+grep -E "<sparkle:version>|<enclosure|<description" "$APPCAST" | sed 's/^[[:space:]]*/    /'
 echo
 
 # The one ordering rule that matters: the GitHub release must be PUBLISHED
