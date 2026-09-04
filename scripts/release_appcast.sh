@@ -206,9 +206,40 @@ echo
 echo "Items now in the feed:"
 grep -E "<sparkle:version>|<enclosure" "$APPCAST" | sed 's/^[[:space:]]*/    /'
 echo
-echo "Next steps:"
-echo "  1. Publish the GitHub release for $TAG (release_github.sh creates it as a draft)."
-echo "     The asset MUST be named MIQ.app.zip — the enclosure URL above points at it."
-echo "  2. Commit and push $APPCAST so GitHub Pages serves it at $FEED_URL:"
-echo "       git add $APPCAST && git commit -m \"Appcast $SHORT_VERSION\" && git push"
-echo "  3. Confirm it is live: curl -fsSL $FEED_URL | grep -c '<item>'"
+
+# The one ordering rule that matters: the GitHub release must be PUBLISHED
+# before this feed goes live. The enclosure points at the release asset, and a
+# draft release's asset URL 404s for everyone but the maintainer — a live feed
+# in front of a draft release means Sparkle offers an update it cannot
+# download. release_github.sh (the preceding step) creates the release as a
+# draft, so check the state rather than assume it.
+RELEASE_STATE="unknown"
+if command -v gh >/dev/null 2>&1; then
+  RELEASE_STATE="$(gh release view "$TAG" --json isDraft --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "missing")"
+fi
+
+case "$RELEASE_STATE" in
+  published)
+    echo "GitHub release $TAG: published — its asset URL is live."
+    ;;
+  draft)
+    echo "WARNING: the GitHub release $TAG is still a DRAFT."
+    echo "         Publish it BEFORE pushing $APPCAST, or Sparkle will offer an"
+    echo "         update whose download URL returns 404:"
+    echo "           gh release edit $TAG --draft=false"
+    ;;
+  missing)
+    echo "WARNING: no GitHub release found for $TAG."
+    echo "         Run ./scripts/release_github.sh and publish it BEFORE pushing $APPCAST."
+    ;;
+  *)
+    echo "NOTE: gh not installed — confirm the GitHub release $TAG is published"
+    echo "      (not a draft) before pushing $APPCAST."
+    ;;
+esac
+
+echo
+echo "Remaining step — publish the feed:"
+echo "  git add $APPCAST && git commit -m \"Appcast $SHORT_VERSION\" && git push"
+echo "Then confirm GitHub Pages is serving it:"
+echo "  curl -fsSL $FEED_URL | grep -c '<item>'"

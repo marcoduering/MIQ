@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>MIQ</title>
+        <item>
+            <title>1.4.0</title>
+            <pubDate>Sat, 05 Sep 2026 00:33:16 +0200</pubDate>
+            <link>https://miq.marco-duering.net/</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/marcoduering/MIQ/releases</sparkle:fullReleaseNotesLink>
+            <sparkle:version>1.4.0</sparkle:version>
+            <sparkle:shortVersionString>1.4.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.4.0/MIQ.app.zip" length="4223306" type="application/octet-stream" sparkle:edSignature="6PcVeTxbS3f70s8VC6aLw8xg2Hd8+67F7LJLR8r6jrOn6yFhWv1Gc4OBjcr4s/l8fQIDzqu7BlAhB4i6eX2eAg==" />
+        <sparkle:releaseNotesLink>https://github.com/marcoduering/MIQ/releases/tag/v1.4.0</sparkle:releaseNotesLink></item>
+    </channel>
+</rss>
