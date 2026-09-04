@@ -4,8 +4,8 @@ MIQ is a lightweight **macOS QuickLook extension** for medical volume images. Pr
 
 <div align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_screenshot_dark.webp">
-    <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_screenshot.webp" width="65%" alt="MIQ Quick Look preview of a brain MRI named Test.nii, showing coronal, sagittal and axial slices in a 2x2 grid with red anatomical edge labels, and a metadata panel listing format NIfTI-1, dimensions 211 x 215 x 175, spacing 1.00 mm isotropic, orientation RAS, datatype int16 and 1 volume.">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_Bento_dark.webp">
+    <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_Bento.webp" width="65%" alt="Bento-style feature grid for MIQ: press Space in Finder for an interactive Quick Look preview; supports NIfTI, FreeSurfer, MRtrix and NRRD formats; the center tile shows a brain MRI in a coronal/sagittal/axial 2x2 grid with a metadata panel listing format NIfTI-1, dimensions 211 x 215 x 175, spacing 1.00 mm isotropic, orientation RAS, datatype int16 and 1 volume; other tiles show FreeSurfer LUT segmentation coloring, color label files, Finder thumbnails, 4D file support, full configurability, and availability on macOS and Windows.">
   </picture>
 </div>
 
