@@ -86,7 +86,7 @@ private func metadataLabel(_ field: MetadataField) -> String {
 private func metadataHelpText(_ field: MetadataField) -> String? {
     switch field {
     case .scaling:
-        return "Shows the intensity scaling from the file header as x slope +/- intercept. Hidden when the scaling is identity (x 1 + 0, meaning voxel values are used as stored) or unavailable."
+        return "Shows the intensity scaling from the file header as x slope +/- intercept, or just x slope when the intercept is zero. Hidden when the scaling is identity (x 1 + 0, meaning voxel values are used as stored) or unavailable."
     case .value:
         return "Shows the image intensity at the crosshair voxel, updating live as you move the crosshair. Appears only while interacting (when the crosshair is visible), not on the initial preview."
     default:
@@ -486,16 +486,17 @@ struct ContentView: View {
                         .frame(width: 60, height: 60)
                     Text("MIQ: Medical Image Quick Look")
                         .font(.title2.weight(.semibold))
-                    Link("github.com/marcoduering/MIQ",
-                         destination: URL(string: "https://github.com/marcoduering/MIQ")!)
-                        .font(.callout)
                     // On-demand checking lives in the MIQ menu ("Check for
                     // Updates…"), the conventional macOS location; Sparkle also
                     // checks on its own schedule. A second entry point here was
                     // just clutter on the pane the user sees first.
-                    Text("Version \(Self.currentVersion)")
-                        .foregroundStyle(.secondary)
-                        .font(.callout)
+                    HStack(spacing: 6) {
+                        Link("github.com/marcoduering/MIQ",
+                             destination: URL(string: "https://github.com/marcoduering/MIQ")!)
+                        Text("Version \(Self.currentVersion)")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.callout)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 5)
@@ -581,7 +582,7 @@ struct ContentView: View {
                 InteractionRow(
                     title: "Change volume",
                     icon: "square.stack.3d.down.forward",
-                    note: "For 4D image series, a slider appears next to Volume in the metadata panel. Drag the slider or click anywhere on it to change volumes.\nOr use ⌥ **Option-scroll**:",
+                    note: "For 4D image series, a slider appears next to Volumes in the metadata panel. Drag the slider or click anywhere on it to change volumes.\nOr use ⌥ **Option-scroll** over any slice or the metadata panel:",
                     mouse: "⌥ Option key + scroll wheel",
                     trackpad: "⌥ Option key + two-finger scroll"
                 )
@@ -924,6 +925,7 @@ struct ContentView: View {
         showMetadataDatatype    = MIQConfig.Defaults.showMetadataDatatype
         showMetadataVolumes     = MIQConfig.Defaults.showMetadataVolumes
         showMetadataScaling     = MIQConfig.Defaults.showMetadataScaling
+        showMetadataValue       = MIQConfig.Defaults.showMetadataValue
         metadataOrder           = StoredMetadataOrder.defaultValue
         hideDisclaimerInPreview = MIQConfig.Defaults.hideDisclaimerInPreview
         deferLargeNetworkPreviews = MIQConfig.Defaults.deferLargeNetworkPreviews

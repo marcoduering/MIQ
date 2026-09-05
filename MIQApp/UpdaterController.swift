@@ -32,10 +32,13 @@ final class UpdaterController: ObservableObject {
     /// the sandboxed extensions can read the app's rendering settings — has any
     /// use for it.
     ///
-    /// Two-way: Sparkle changes this itself — its first-launch permission
-    /// prompt sets it *after* we've started — so the value is also mirrored
-    /// back from Sparkle via KVO (in `init`). A one-time snapshot left the
-    /// Settings toggle showing the pre-prompt value until relaunch.
+    /// Defaults to on, via `SUEnableAutomaticChecks` in MIQApp/Info.plist —
+    /// which also means Sparkle never shows its permission prompt, so this
+    /// toggle in Settings is the only place the user grants or revokes it.
+    ///
+    /// Two-way: Sparkle owns the stored value and can change it without us, so
+    /// it is mirrored back via KVO (in `init`) rather than snapshotted once —
+    /// a one-time read left the Settings toggle stale until relaunch.
     @Published var automaticallyChecksForUpdates: Bool {
         didSet {
             // Skip the write-back when the value already matches (the KVO

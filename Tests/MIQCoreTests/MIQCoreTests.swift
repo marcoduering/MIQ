@@ -519,6 +519,43 @@ struct MIQCoreTests {
 
         #expect(!MIQMetadata(header: identityHeader).asDisplayLines().contains(where: { $0.field == .scaling }))
         #expect(!MIQMetadata(header: unavailableHeader).asDisplayLines().contains(where: { $0.field == .scaling }))
+
+        // Non-identity slope with a zero intercept: the row still shows (the
+        // scaling is real), but the "+ 0" term is dropped as noise.
+        let zeroInterceptHeader = MIQHeader(
+            littleEndian: true,
+            dimensions: [16, 8, 4, 1],
+            pixdim: [1, 0.8, 0.8, 1.4],
+            datatype: .int16,
+            voxOffset: 352,
+            sclSlope: 2,
+            sclInter: 0,
+            qformCode: 0,
+            sformCode: 0,
+            srowX: [],
+            srowY: [],
+            srowZ: []
+        )
+        let zeroInterceptLines = MIQMetadata(header: zeroInterceptHeader).asDisplayLines()
+        #expect(zeroInterceptLines.contains(where: { $0.field == .scaling && $0.value == "\u{00D7} 2" }))
+
+        // A negative intercept keeps the two-term form with a minus sign.
+        let negativeInterceptHeader = MIQHeader(
+            littleEndian: true,
+            dimensions: [16, 8, 4, 1],
+            pixdim: [1, 0.8, 0.8, 1.4],
+            datatype: .int16,
+            voxOffset: 352,
+            sclSlope: 2,
+            sclInter: -5,
+            qformCode: 0,
+            sformCode: 0,
+            srowX: [],
+            srowY: [],
+            srowZ: []
+        )
+        let negativeInterceptLines = MIQMetadata(header: negativeInterceptHeader).asDisplayLines()
+        #expect(negativeInterceptLines.contains(where: { $0.field == .scaling && $0.value == "\u{00D7} 2 - 5" }))
     }
 
     @Test

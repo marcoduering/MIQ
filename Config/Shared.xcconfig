@@ -15,7 +15,7 @@
 
 // The single place the app version is defined; both Info.plists read it as
 // $(MARKETING_VERSION). Bump here for a release.
-MARKETING_VERSION = 1.4.0
+MARKETING_VERSION = 1.4.1
 
 // Sparkle decides whether an update is newer by comparing CFBundleVersion —
 // $(CURRENT_PROJECT_VERSION) — NOT the marketing version, which it only

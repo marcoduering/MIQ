@@ -88,6 +88,13 @@ public struct MIQMetadata: Sendable {
         guard abs(slope) > epsilon else { return nil }
         guard !(abs(slope - 1) <= epsilon && abs(intercept) <= epsilon) else { return nil }
 
+        // A zero intercept contributes nothing — "x 2 + 0" is just noise, so the
+        // term is dropped and the row reads "x 2". Only the identity case above
+        // hides the row entirely.
+        guard abs(intercept) > epsilon else {
+            return String(format: "\(Self.separator) %.6g", slope)
+        }
+
         let sign = intercept < 0 ? "-" : "+"
         return String(format: "\(Self.separator) %.6g %@ %.6g", slope, sign, abs(intercept))
     }
