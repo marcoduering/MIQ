@@ -3,6 +3,38 @@
     <channel>
         <title>MIQ</title>
         <item>
+            <title>1.4.1</title>
+            <pubDate>Sat, 05 Sep 2026 17:02:12 +0200</pubDate>
+            <link>https://miq.marco-duering.net/</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/marcoduering/MIQ/releases</sparkle:fullReleaseNotesLink>
+            <sparkle:version>1.4.1</sparkle:version>
+            <sparkle:shortVersionString>1.4.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description>&lt;style&gt;
+body { line-height: 1.45; margin: 10px 12px; }
+h1, h2, h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
+h1:first-child, h2:first-child, h3:first-child, p:first-child { margin-top: 0; }
+p { margin: 0 0 8px; }
+ul, ol { margin: 0 0 10px; padding-left: 20px; }
+li { margin: 2px 0; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em; background: rgba(128,128,128,.14);
+  border-radius: 3px; padding: 1px 4px;
+}
+&lt;/style&gt;
+&lt;p dir="auto"&gt;&lt;strong&gt;Fixes:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul dir="auto"&gt;
+&lt;li&gt;“Restore default settings” did not cover the “Voxel value” metadata setting.&lt;/li&gt;
+&lt;li&gt;Multiple minor bug fixes&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p dir="auto"&gt;&lt;strong&gt;Other:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul dir="auto"&gt;
+&lt;li&gt;Automatic update is now the default&lt;/li&gt;
+&lt;/ul&gt;</description>
+            <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.4.1/MIQ.app.zip" length="4224125" type="application/octet-stream" sparkle:edSignature="wFypR7x4RzIM08jlikxEqRYUg+DUUvQHvZiYR12jRDrynQKTEC8cIHfwGiFznvOOMi99+KljXiCOHHc4GK5bBw==" />
+        </item>
+        <item>
             <title>1.4.0</title>
             <pubDate>Sat, 05 Sep 2026 00:33:16 +0200</pubDate>
             <link>https://miq.marco-duering.net/</link>
