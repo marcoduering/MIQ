@@ -17,6 +17,11 @@ public struct MIQHeader: Sendable {
     /// `MIQFileKind.displayName`. Set by parsers that detect compression at parse time (e.g. NRRD,
     /// where `.nrrd` covers both raw and gzipped payloads).
     public let formatLabel: String?
+    /// Optional override for the displayed datatype name. When `nil`, callers fall back to
+    /// `datatype.label`. Set by parsers whose on-disk datatype has no `MIQDatatype` equivalent and
+    /// is normalised at parse time (MIF `bit`, expanded to one `uint8` per voxel) so the metadata
+    /// panel still reports what the file actually says.
+    public let datatypeLabel: String?
     /// Authoritative anatomical orientation, when derivable from the file's header.
     /// Populated at parse time by each format-specific parser. `nil` means orientation
     /// is genuinely unknown (no usable sform, qform, MIF layout, or MGH direction cosines).
@@ -42,6 +47,7 @@ public struct MIQHeader: Sendable {
         srowY: [Float],
         srowZ: [Float],
         formatLabel: String? = nil,
+        datatypeLabel: String? = nil,
         orientationFrame: OrientationFrame? = nil
     ) {
         self.littleEndian = littleEndian
@@ -57,6 +63,7 @@ public struct MIQHeader: Sendable {
         self.srowY = srowY
         self.srowZ = srowZ
         self.formatLabel = formatLabel
+        self.datatypeLabel = datatypeLabel
         self.orientationFrame = orientationFrame
     }
 }

@@ -63,14 +63,22 @@ final class MIQThumbnailProvider: QLThumbnailProvider {
             let options = RenderingOptions(
                 lowerPercentile: MIQConfig.thumbnailWindowLowerPercentile,
                 upperPercentile: MIQConfig.thumbnailWindowUpperPercentile,
-                orientation: MIQConfig.thumbnailImageOrientation
+                orientation: MIQConfig.thumbnailImageOrientation,
+                segmentationColoring: MIQConfig.thumbnailSegmentationColoring
             )
 
+            // Detection self-decodes volume 0's three center planes, so it only
+            // runs when colouring is enabled (`segmentationDetectionEligible`
+            // returns false for `.off`) — a grayscale thumbnail still decodes
+            // exactly one slice. With a LUT active, windowing is replaced.
+            let lut = volume.buildSegmentationLut(options: options)
             let slice = volume.centerSlice(
                 plane: .axial,
                 volumeIndex: 0,
                 maxDimension: thumbnailPixelBudget(for: request),
-                options: options
+                options: options,
+                windowBounds: nil,
+                lut: lut
             )
 
             guard let nsImage = MIQImageBridge.makeNSImage(from: slice) else {

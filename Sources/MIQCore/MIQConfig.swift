@@ -38,6 +38,7 @@ public enum MIQConfig {
         public static let showThumbnails                 = "showThumbnails"
         public static let showThumbnailsOnNetworkVolumes = "showThumbnailsOnNetworkVolumes"
         public static let thumbnailImageOrientation      = "thumbnailImageOrientation"
+        public static let thumbnailSegmentationColoring  = "thumbnailSegmentationColoring"
         public static let thumbnailWindowLowerPercentile = "thumbnailWindowLowerPercentile"
         public static let thumbnailWindowUpperPercentile = "thumbnailWindowUpperPercentile"
         #if DEBUG
@@ -61,7 +62,7 @@ public enum MIQConfig {
         public static let showMetadataScaling     = true
         public static let showMetadataValue       = true
         public static let metadataOrder           = "format,dimensions,spacing,orientation,datatype,volumes,scaling,value"
-        public static let segmentationColoring           = "off"
+        public static let segmentationColoring           = "auto"
         public static let hideDisclaimerInPreview = false
         public static let deferLargeNetworkPreviews = true
         /// Size (MB) above which `deferLargeNetworkPreviews` defers a network
@@ -70,6 +71,7 @@ public enum MIQConfig {
         public static let showThumbnails                 = false
         public static let showThumbnailsOnNetworkVolumes = false
         public static let thumbnailImageOrientation      = "stored"
+        public static let thumbnailSegmentationColoring  = "auto"
         public static let thumbnailWindowLowerPercentile = 2.0
         public static let thumbnailWindowUpperPercentile = 98.0
     }
@@ -165,7 +167,7 @@ public enum MIQConfig {
 
     public static var segmentationColoring: SegmentationColoring {
         let raw = defaults.string(forKey: Keys.segmentationColoring) ?? Defaults.segmentationColoring
-        return SegmentationColoring(rawValue: raw) ?? .off
+        return SegmentationColoring(rawValue: raw) ?? .auto
     }
 
     public static var hideDisclaimerInPreview: Bool {
@@ -211,6 +213,11 @@ public enum MIQConfig {
     public static var thumbnailImageOrientation: ViewOrientation {
         let raw = defaults.string(forKey: Keys.thumbnailImageOrientation) ?? Defaults.thumbnailImageOrientation
         return ViewOrientation(rawValue: raw) ?? .stored
+    }
+
+    public static var thumbnailSegmentationColoring: SegmentationColoring {
+        let raw = defaults.string(forKey: Keys.thumbnailSegmentationColoring) ?? Defaults.thumbnailSegmentationColoring
+        return SegmentationColoring(rawValue: raw) ?? .auto
     }
 
     public static var thumbnailWindowLowerPercentile: Double {

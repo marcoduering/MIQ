@@ -7,6 +7,8 @@ extension MIQParser {
         let layout: [MIFLayoutComponent]
         let datatype: MIQDatatype
         let littleEndian: Bool
+        /// MRtrix `bit`: one voxel per bit on disk, expanded to one `uint8` per voxel at parse time.
+        let bitPacked: Bool
         let dataFile: String
         let dataOffset: Int
         let scale: Float
@@ -97,8 +99,10 @@ extension MIQParser {
             throw MIQError.invalidDimensions
         }
 
-        let (datatype, littleEndian) = try parseMifDatatype(datatypeString)
-        try validateDimensionExtent(dim, bytesPerVoxel: datatype.bytesPerVoxel)
+        let spec = try parseMifDatatype(datatypeString)
+        // `bytesPerVoxel` here is the *unpacked* size (1 for `bit`), which is what
+        // bounds the buffer this parser hands downstream.
+        try validateDimensionExtent(dim, bytesPerVoxel: spec.datatype.bytesPerVoxel)
         let (dataFile, dataOffset) = try parseMifFileSpec(fileString)
 
         let scalingValues = keyValues["scaling"]?.last.flatMap { try? parseMifFloatList($0) }
@@ -109,8 +113,9 @@ extension MIQParser {
             dim: dim,
             vox: vox,
             layout: layout,
-            datatype: datatype,
-            littleEndian: littleEndian,
+            datatype: spec.datatype,
+            littleEndian: spec.littleEndian,
+            bitPacked: spec.bitPacked,
             dataFile: dataFile,
             dataOffset: dataOffset,
             scale: scale,
@@ -170,6 +175,7 @@ extension MIQParser {
             srowX: [],
             srowY: [],
             srowZ: [],
+            datatypeLabel: header.bitPacked ? "bit" : nil,
             orientationFrame: OrientationFrame.fromMifLabel(orientationLabel)
         )
 
@@ -182,7 +188,12 @@ extension MIQParser {
     private func buildMifImage(data: Data, dataOffset: Int, header: MifHeader) throws -> MIQImage {
         let elementCount = header.dim.reduce(1, *)
         let bytesPerVoxel = header.datatype.bytesPerVoxel
-        let payloadBytes = elementCount * bytesPerVoxel
+        // A `bit` payload occupies ceil(n/8) bytes on disk, not one byte per voxel.
+        // Written as division rather than `(elementCount + 7) / 8`: `validateDimensionExtent`
+        // permits a dims product of exactly `Int.max`, where the `+ 7` would trap.
+        let payloadBytes = header.bitPacked
+            ? elementCount / 8 + (elementCount % 8 == 0 ? 0 : 1)
+            : elementCount * bytesPerVoxel
 
         guard elementCount > 0, payloadBytes > 0 else {
             throw MIQError.invalidDimensions
@@ -198,6 +209,18 @@ extension MIQParser {
 
         let descriptor = try buildMifMIQHeader(dataOffset: dataOffset, header: header)
 
+        if header.bitPacked {
+            // The unpacked buffer holds the payload alone, in the same element order,
+            // so the layout-derived strides carry over unchanged and the offset is 0.
+            // `descriptor.header.voxOffset` still reports the offset *in the file*.
+            return MIQImage(
+                header: descriptor.header,
+                storage: unpackMifBits(data, offset: dataOffset, voxelCount: elementCount),
+                payloadOffset: 0,
+                payloadElementStrides: descriptor.strides4
+            )
+        }
+
         return MIQImage(
             header: descriptor.header,
             storage: data,
@@ -206,20 +229,72 @@ extension MIQParser {
         )
     }
 
+    /// Expands an MRtrix `bit` payload to one `uint8` (0 or 1) per voxel.
+    ///
+    /// Bits run MSB-first within each byte — voxel *i* is bit `0x80 >> (i % 8)` of byte
+    /// `i / 8` — matching MRtrix3's `BITMASK (0x01U << 7)` in `core/fetch_store.cpp`.
+    ///
+    /// Every downstream reader (`prepareSlice`, `voxel()`, the segmentation scans) addresses
+    /// voxels as `elementIndex * bytesPerVoxel`, so a sub-byte datatype has no place in that
+    /// model. Expanding once here — rather than threading bit addressing through the hot
+    /// decode loop for one rare datatype — is the deliberate exception to the payload-offset
+    /// convention: this is the only MIF path that copies instead of slicing the mapped file in
+    /// place. A mask costs 8× its packed size (a 120×120×78 example: 141 KB → 1.1 MB), which is
+    /// immaterial next to the slice render it feeds, and `bit` only ever appears on masks.
+    private func unpackMifBits(_ data: Data, offset: Int, voxelCount: Int) -> Data {
+        var unpacked = Data(count: voxelCount)
+        unpacked.withUnsafeMutableBytes { (dst: UnsafeMutableRawBufferPointer) in
+            data.withUnsafeBytes { (src: UnsafeRawBufferPointer) in
+                var voxel = 0
+                var byteIndex = offset
+                while voxel + 8 <= voxelCount {
+                    let packed = src.loadUnaligned(fromByteOffset: byteIndex, as: UInt8.self)
+                    dst[voxel] = (packed >> 7) & 1
+                    dst[voxel + 1] = (packed >> 6) & 1
+                    dst[voxel + 2] = (packed >> 5) & 1
+                    dst[voxel + 3] = (packed >> 4) & 1
+                    dst[voxel + 4] = (packed >> 3) & 1
+                    dst[voxel + 5] = (packed >> 2) & 1
+                    dst[voxel + 6] = (packed >> 1) & 1
+                    dst[voxel + 7] = packed & 1
+                    voxel += 8
+                    byteIndex += 1
+                }
+                if voxel < voxelCount {
+                    let packed = src.loadUnaligned(fromByteOffset: byteIndex, as: UInt8.self)
+                    var bit = 7
+                    while voxel < voxelCount {
+                        dst[voxel] = (packed >> UInt8(bit)) & 1
+                        voxel += 1
+                        bit -= 1
+                    }
+                }
+            }
+        }
+        return unpacked
+    }
+
     // MARK: - Field parsers
 
-    private func parseMifDatatype(_ value: String) throws -> (MIQDatatype, Bool) {
+    private func parseMifDatatype(
+        _ value: String
+    ) throws -> (datatype: MIQDatatype, littleEndian: Bool, bitPacked: Bool) {
         let lowered = value.lowercased()
         let isLittleEndian = !lowered.hasSuffix("be")
 
-        if lowered.hasPrefix("uint8") { return (.uint8, true) }
-        if lowered.hasPrefix("int8") { return (.int8, true) }
-        if lowered.hasPrefix("uint16") { return (.uint16, isLittleEndian) }
-        if lowered.hasPrefix("int16") { return (.int16, isLittleEndian) }
-        if lowered.hasPrefix("uint32") { return (.uint32, isLittleEndian) }
-        if lowered.hasPrefix("int32") { return (.int32, isLittleEndian) }
-        if lowered.hasPrefix("float32") { return (.float32, isLittleEndian) }
-        if lowered.hasPrefix("float64") { return (.float64, isLittleEndian) }
+        // MRtrix writes a bare "Bit" — no byte order to speak of — so this is an exact
+        // match, not the `hasPrefix` the sized types use to absorb their LE/BE suffix.
+        // Presented as `uint8` because the payload is expanded to one byte per voxel
+        // (see `unpackMifBits`).
+        if lowered == "bit" { return (.uint8, true, true) }
+        if lowered.hasPrefix("uint8") { return (.uint8, true, false) }
+        if lowered.hasPrefix("int8") { return (.int8, true, false) }
+        if lowered.hasPrefix("uint16") { return (.uint16, isLittleEndian, false) }
+        if lowered.hasPrefix("int16") { return (.int16, isLittleEndian, false) }
+        if lowered.hasPrefix("uint32") { return (.uint32, isLittleEndian, false) }
+        if lowered.hasPrefix("int32") { return (.int32, isLittleEndian, false) }
+        if lowered.hasPrefix("float32") { return (.float32, isLittleEndian, false) }
+        if lowered.hasPrefix("float64") { return (.float64, isLittleEndian, false) }
 
         throw MIQError.malformedFile("unrecognised MIF datatype '\(value)'")
     }

@@ -5,26 +5,42 @@ import MIQCore
 
 extension ViewOrientation {
     static let defaultValue = ViewOrientation(rawValue: MIQConfig.Defaults.imageOrientation)!
+    static let thumbnailDefaultValue = ViewOrientation(rawValue: MIQConfig.Defaults.thumbnailImageOrientation)!
 
     var label: String {
         switch self {
-        case .stored:        return "As stored (default)"
+        case .stored:        return "As stored"
         case .neurological:  return "Neurological view"
         case .radiological:  return "Radiological view"
         }
     }
+
+    /// See `markDefault(_:isDefault:)`.
+    func label(default defaultCase: Self) -> String { markDefault(label, isDefault: self == defaultCase) }
 }
 
 extension SegmentationColoring {
     static let defaultValue = SegmentationColoring(rawValue: MIQConfig.Defaults.segmentationColoring)!
+    static let thumbnailDefaultValue = SegmentationColoring(rawValue: MIQConfig.Defaults.thumbnailSegmentationColoring)!
 
     var label: String {
         switch self {
-        case .off:    return "Off (default)"
+        case .off:    return "Off"
         case .auto:   return "Auto (FreeSurfer or random)"
         case .random: return "Random colours"
         }
     }
+
+    /// See `markDefault(_:isDefault:)`.
+    func label(default defaultCase: Self) -> String { markDefault(label, isDefault: self == defaultCase) }
+}
+
+/// The "(default)" marker on a picker row is *derived* from the pane's own
+/// default, never spelled into the case's label. The preview and the thumbnail
+/// each carry their own default for both of these settings, and a marker baked
+/// into one case silently became a lie the moment that default changed.
+private func markDefault(_ label: String, isDefault: Bool) -> String {
+    isDefault ? "\(label) (default)" : label
 }
 
 // Persists a Color as a comma-separated sRGB string for @AppStorage.
@@ -401,7 +417,9 @@ struct ContentView: View {
     @AppStorage(MIQConfig.Keys.showThumbnailsOnNetworkVolumes, store: Self.store)
     private var showThumbnailsOnNetworkVolumes: Bool = MIQConfig.Defaults.showThumbnailsOnNetworkVolumes
     @AppStorage(MIQConfig.Keys.thumbnailImageOrientation, store: Self.store)
-    private var thumbnailImageOrientation: ViewOrientation = ViewOrientation.defaultValue
+    private var thumbnailImageOrientation: ViewOrientation = ViewOrientation.thumbnailDefaultValue
+    @AppStorage(MIQConfig.Keys.thumbnailSegmentationColoring, store: Self.store)
+    private var thumbnailSegmentationColoring: SegmentationColoring = SegmentationColoring.thumbnailDefaultValue
     @AppStorage(MIQConfig.Keys.thumbnailWindowLowerPercentile, store: Self.store)
     private var thumbnailLowerPercentile: Double = MIQConfig.Defaults.thumbnailWindowLowerPercentile
     @AppStorage(MIQConfig.Keys.thumbnailWindowUpperPercentile, store: Self.store)
@@ -605,7 +623,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Picker("Orientation", selection: $imageOrientation) {
                         ForEach(ViewOrientation.allCases, id: \.rawValue) { orientation in
-                            Text(orientation.label).tag(orientation)
+                            Text(orientation.label(default: .defaultValue)).tag(orientation)
                         }
                     }
                     Text("By default, images are rendered as stored. For a standardized view, use neurological (patient right on right) or radiological (patient right on left).")
@@ -617,7 +635,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Picker(selection: $segmentationColoring) {
                         ForEach(SegmentationColoring.allCases, id: \.rawValue) { mode in
-                            Text(mode.label).tag(mode)
+                            Text(mode.label(default: .defaultValue)).tag(mode)
                         }
                     } label: {
                         Text("Segmentation colouring")
@@ -649,7 +667,7 @@ struct ContentView: View {
                             .labelsHidden()
                     }
 
-                    Text("Initial intensity range, percentile thresholds for non-zero voxels (default: 2% - 98%).")
+                    Text("Initial intensity range, percentile thresholds for non-zero voxels (default: \(Int(MIQConfig.Defaults.windowLowerPercentile))% - \(Int(MIQConfig.Defaults.windowUpperPercentile))%).")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -833,10 +851,24 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Picker("Orientation", selection: $thumbnailImageOrientation) {
                         ForEach(ViewOrientation.allCases, id: \.rawValue) { orientation in
-                            Text(orientation.label).tag(orientation)
+                            Text(orientation.label(default: .thumbnailDefaultValue)).tag(orientation)
                         }
                     }
                     Text("Same options as Image Display, applied independently to thumbnails.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Picker(selection: $thumbnailSegmentationColoring) {
+                        ForEach(SegmentationColoring.allCases, id: \.rawValue) { mode in
+                            Text(mode.label(default: .thumbnailDefaultValue)).tag(mode)
+                        }
+                    } label: {
+                        Text("Segmentation colouring")
+                    }
+                    Text("When a label file is detected, render the thumbnail in colour.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -863,7 +895,7 @@ struct ContentView: View {
                             .labelsHidden()
                     }
 
-                    Text("Grayscale intensity range, as percentiles of non-zero voxels (default 2–98%).")
+                    Text("Grayscale intensity range, as percentiles of non-zero voxels (default \(Int(MIQConfig.Defaults.thumbnailWindowLowerPercentile))–\(Int(MIQConfig.Defaults.thumbnailWindowUpperPercentile))%).")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -931,7 +963,8 @@ struct ContentView: View {
         deferLargeNetworkPreviews = MIQConfig.Defaults.deferLargeNetworkPreviews
         showThumbnails            = MIQConfig.Defaults.showThumbnails
         showThumbnailsOnNetworkVolumes = MIQConfig.Defaults.showThumbnailsOnNetworkVolumes
-        thumbnailImageOrientation = ViewOrientation.defaultValue
+        thumbnailImageOrientation = ViewOrientation.thumbnailDefaultValue
+        thumbnailSegmentationColoring = SegmentationColoring.thumbnailDefaultValue
         thumbnailLowerPercentile  = MIQConfig.Defaults.thumbnailWindowLowerPercentile
         thumbnailUpperPercentile  = MIQConfig.Defaults.thumbnailWindowUpperPercentile
     }

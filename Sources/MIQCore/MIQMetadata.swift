@@ -55,7 +55,7 @@ public struct MIQMetadata: Sendable {
         let z = header.pixdim[safe: 3] ?? 1
         spacing = String(format: "%.2f\(sep)%.2f\(sep)%.2f mm", x, y, z)
 
-        datatype = header.datatype.label
+        datatype = header.datatypeLabel ?? header.datatype.label
         volumes = header.volumes
         sclSlope = header.sclSlope
         sclInter = header.sclInter

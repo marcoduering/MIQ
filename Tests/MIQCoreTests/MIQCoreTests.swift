@@ -1117,6 +1117,99 @@ struct MIQCoreTests {
     }
 
     @Test
+    func parsesMifBitDatatype() throws {
+        // Dimensions deliberately not a multiple of 8 on the fastest axis, so the
+        // packing crosses byte boundaries mid-row and the final byte is partial.
+        let width = 5
+        let height = 3
+        let depth = 2
+        let predicate: (Int, Int, Int) -> Bool = { x, y, z in (x + y + z) % 3 == 0 }
+        let mifData = TestMIQFactory.makeMifBit(width: width, height: height, depth: depth, predicate: predicate)
+
+        let image = try parseTemporaryMif(mifData)
+        let volume = MIQVolume(image: image)
+
+        #expect(image.header.dimensions == [width, height, depth, 1])
+        // Presented as uint8 (one byte per voxel after expansion) but reported as "bit".
+        #expect(image.header.datatype == .uint8)
+        #expect(image.header.datatypeLabel == "bit")
+        #expect(MIQMetadata(header: image.header).datatype == "bit")
+        #expect(image.payloadOffset == 0)
+        #expect(image.payloadCount == width * height * depth)
+
+        for z in 0..<depth {
+            for y in 0..<height {
+                for x in 0..<width {
+                    #expect(volume.voxel(x: x, y: y, z: z) == (predicate(x, y, z) ? 1 : 0))
+                }
+            }
+        }
+    }
+
+    @Test
+    func unpacksMifBitMsbFirstWithinEachByte() throws {
+        // 0x96 = 1001 0110. MSB-first (MRtrix's order) takes voxel 0 from bit 7, so the
+        // elements read left-to-right as written; LSB-first would reverse each byte,
+        // which on a real mask combs every boundary at an 8-voxel period.
+        let mifData = TestMIQFactory.makeMifBit(width: 4, height: 2, depth: 1, packedPayload: [0x96])
+        let image = try parseTemporaryMif(mifData)
+        let volume = MIQVolume(image: image)
+
+        let values = (0..<2).flatMap { y in (0..<4).map { x in Int(volume.voxel(x: x, y: y, z: 0)) } }
+        #expect(values == [1, 0, 0, 1, 0, 1, 1, 0])
+    }
+
+    @Test
+    func dropsTrailingMifBitPaddingBits() throws {
+        // 9 voxels = 2 bytes, so the final byte holds 1 real bit and 7 of padding.
+        // Padding must not become voxels: 0xFF would otherwise add 7 stray foreground
+        // values, which on a mask reads as a bright smear past the last real voxel.
+        let mifData = TestMIQFactory.makeMifBit(width: 3, height: 3, depth: 1, packedPayload: [0x00, 0xFF])
+        let image = try parseTemporaryMif(mifData)
+        let volume = MIQVolume(image: image)
+
+        #expect(image.payloadCount == 9)
+        let values = (0..<3).flatMap { y in (0..<3).map { x in Int(volume.voxel(x: x, y: y, z: 0)) } }
+        #expect(values == [0, 0, 0, 0, 0, 0, 0, 0, 1])
+    }
+
+    @Test
+    func leavesNonBitMifDatatypeUnchanged() throws {
+        // The other half of the datatype change: an ordinary MIF still reports its own
+        // datatype, keeps the file-backed payload offset, and sets no label override.
+        let mifData = TestMIQFactory.makeMif(width: 2, height: 2, depth: 2, datatype: .uint16, layout: [0, 1, 2])
+        let image = try parseTemporaryMif(mifData)
+
+        #expect(image.header.datatype == .uint16)
+        #expect(image.header.datatypeLabel == nil)
+        #expect(image.payloadOffset > 0)
+    }
+
+    @Test
+    func rejectsTruncatedMifBitPayload() throws {
+        let mifData = TestMIQFactory.makeMifBit(width: 8, height: 8, depth: 8) { _, _, _ in true }
+
+        // 512 voxels = 64 packed bytes; drop one so the declared payload is short.
+        #expect(throws: MIQError.self) {
+            _ = try parseTemporaryMif(mifData.dropLast(1))
+        }
+        // The accept half of the same guard: sizing the payload as one byte per voxel
+        // (the datatype now reports uint8) would demand 512 bytes and reject every real
+        // bit file.
+        #expect(try parseTemporaryMif(mifData).payloadCount == 512)
+    }
+
+    /// MIQParser's only entry point is URL-based, so in-memory MIF fixtures round-trip
+    /// through a temporary file.
+    private func parseTemporaryMif(_ data: Data) throws -> MIQImage {
+        let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let fileURL = tmpDir.appendingPathComponent("miq-test-\(UUID().uuidString).mif")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try data.write(to: fileURL)
+        return try MIQParser().parse(url: fileURL)
+    }
+
+    @Test
     func parsesMifFromFileURL() throws {
         let mifData = TestMIQFactory.makeMif(width: 4, height: 3, depth: 2, datatype: .uint8, layout: [0, 1, 2])
         let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -2588,6 +2681,61 @@ dim: \(width),\(height),\(depth)
 vox: 1.0,1.0,1.0
 layout: \(mifLayoutLabel(layout))
 datatype: \(datatypeLabel)
+file: . \(offset)
+END
+"""
+            let newOffset = header.utf8.count
+            if newOffset == offset {
+                break
+            }
+            offset = newOffset
+        }
+
+        return Data(header.utf8 + payload)
+    }
+
+    /// Builds a `datatype: Bit` MIF whose voxels are `predicate(x, y, z)`, packed one voxel
+    /// per bit, MSB-first within each byte (MRtrix's order).
+    static func makeMifBit(
+        width: Int,
+        height: Int,
+        depth: Int,
+        predicate: (Int, Int, Int) -> Bool
+    ) -> Data {
+        let voxelCount = width * height * depth
+        var payload = [UInt8](repeating: 0, count: (voxelCount + 7) / 8)
+
+        for z in 0..<depth {
+            for y in 0..<height {
+                for x in 0..<width {
+                    guard predicate(x, y, z) else { continue }
+                    let index = x + width * y + width * height * z
+                    payload[index / 8] |= 0x80 >> UInt8(index % 8)
+                }
+            }
+        }
+
+        return makeMifBit(width: width, height: height, depth: depth, packedPayload: payload)
+    }
+
+    /// `datatype: Bit` MIF with the packed payload supplied verbatim, so a test can pin
+    /// the bit order (or the padding bits) against a known byte.
+    static func makeMifBit(
+        width: Int,
+        height: Int,
+        depth: Int,
+        packedPayload: [UInt8]
+    ) -> Data {
+        let payload = packedPayload
+        var offset = 0
+        var header = ""
+        while true {
+            header = """
+mrtrix image
+dim: \(width),\(height),\(depth)
+vox: 1.0,1.0,1.0
+layout: +0,+1,+2
+datatype: Bit
 file: . \(offset)
 END
 """
