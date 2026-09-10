@@ -33,7 +33,7 @@ All formats are supported uncompressed and gzip-compressed. The extension relies
 
 The app and extension can be installed manually or via the package manager [Homebrew](https://brew.sh).
 
-> The app is a universal binary for Apple Silicon (arm64) and Intel (x86_64) Macs and has been tested on macOS 14 (Sonoma), 15 (Sequoia), and 26 (Tahoe).
+> The app is a universal binary for Apple Silicon (arm64) and Intel (x86_64) Macs and has been tested on macOS 14 (Sonoma), 15 (Sequoia), 26 (Tahoe) and 27 (Golden Gate).
 
 ### Manual installation
 
