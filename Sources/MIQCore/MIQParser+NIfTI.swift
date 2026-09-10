@@ -48,8 +48,10 @@ extension MIQParser {
 
         let pixdim = MIQBinaryReader.float32Array(data, 76, count: 8, littleEndian: littleEndian)
         let voxOffset = MIQBinaryReader.safeInt(MIQBinaryReader.float32(data, 108, littleEndian: littleEndian))
-        let sclSlope = MIQBinaryReader.float32(data, 112, littleEndian: littleEndian)
-        let sclInter = MIQBinaryReader.float32(data, 116, littleEndian: littleEndian)
+        let (sclSlope, sclInter) = normalizedScaling(
+            slope: MIQBinaryReader.float32(data, 112, littleEndian: littleEndian),
+            inter: MIQBinaryReader.float32(data, 116, littleEndian: littleEndian)
+        )
         let qformCode = Int(MIQBinaryReader.int16(data, 252, littleEndian: littleEndian))
         let sformCode = Int(MIQBinaryReader.int16(data, 254, littleEndian: littleEndian))
         let quaternB = MIQBinaryReader.float32(data, 256, littleEndian: littleEndian)
@@ -95,8 +97,10 @@ extension MIQParser {
 
         let pixdim = MIQBinaryReader.float64Array(data, 104, count: 4, littleEndian: littleEndian).map { Float($0) }
         let voxOffset = Int(MIQBinaryReader.int64(data, 168, littleEndian: littleEndian))
-        let sclSlope = Float(MIQBinaryReader.float64(data, 176, littleEndian: littleEndian))
-        let sclInter = Float(MIQBinaryReader.float64(data, 184, littleEndian: littleEndian))
+        let (sclSlope, sclInter) = normalizedScaling(
+            slope: Float(MIQBinaryReader.float64(data, 176, littleEndian: littleEndian)),
+            inter: Float(MIQBinaryReader.float64(data, 184, littleEndian: littleEndian))
+        )
         let qformCode = Int(MIQBinaryReader.int32(data, 344, littleEndian: littleEndian))
         let sformCode = Int(MIQBinaryReader.int32(data, 348, littleEndian: littleEndian))
         let quaternB = Float(MIQBinaryReader.float64(data, 352, littleEndian: littleEndian))

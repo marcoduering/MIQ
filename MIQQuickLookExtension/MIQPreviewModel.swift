@@ -33,6 +33,10 @@ final class MIQPreviewModel {
         /// display name and on-disk size for the placeholder. `forceFullRead`
         /// (the "Load preview" button) bypasses the gate and parses normally.
         case deferred(name: String, sizeBytes: Int)
+        /// A well-formed scalar volume with no finite voxel in its center slices.
+        /// Not `.failed` — nothing went wrong, there is just nothing to render, and
+        /// the resulting black grid is otherwise indistinguishable from a bug.
+        case noFiniteVoxels
     }
 
     /// Result of the cold detached load: either the parsed preview, or a signal
@@ -199,11 +203,19 @@ final class MIQPreviewModel {
                 logger.notice("load() deferred large network preview: \(sizeBytes / (1024 * 1024), privacy: .public)MB")
                 onChange?()
             case .loaded(let raw):
-                let bundle = makeBundle(from: raw)
-                MIQPreviewCache.insert(bundle, for: cacheKey)
+                // Applied either way — metadata and orientation are valid even with
+                // nothing to window.
                 apply(raw: raw)
-                state = .ready
-                logger.notice("load() finished successfully")
+                if Self.hasNoFiniteVoxels(raw) {
+                    // Not cached: the cache short-circuit at the top of load() would
+                    // return `.ready` next time and drop the explanation.
+                    state = .noFiniteVoxels
+                    logger.notice("load() finished: volume has no finite voxel values")
+                } else {
+                    MIQPreviewCache.insert(makeBundle(from: raw), for: cacheKey)
+                    state = .ready
+                    logger.notice("load() finished successfully")
+                }
                 onChange?()
             }
         } catch is CancellationError {
@@ -413,8 +425,14 @@ final class MIQPreviewModel {
     /// integers; anything fractional (float data, or scl-scaled integers) uses a
     /// compact significant-digit form. Datatype-agnostic on purpose: the scaled
     /// value alone determines the most natural presentation.
+    ///
+    /// Non-finite voxels print literally rather than as "—". NaN is real data here
+    /// (parametric and statistical maps spell "not computed" with it) and windowing
+    /// draws it at the window minimum, indistinguishable from background — so this
+    /// readout is the only place it shows, and "—" means "no value available".
     private static func formatVoxelValue(_ value: Float) -> String {
-        guard value.isFinite else { return "—" }
+        if value.isNaN { return "NaN" }
+        if value.isInfinite { return value < 0 ? "-Inf" : "+Inf" }
         if value == value.rounded(), abs(value) < 1e7 {
             return String(Int(value))
         }
@@ -461,6 +479,16 @@ final class MIQPreviewModel {
         if let axialImage = bitmaps[.axial].flatMap(MIQImageBridge.makeNSImage) {
             axial = axialImage
         }
+    }
+
+    /// No window from the pooled center slices and no LUT to replace it ⇒ not one
+    /// finite voxel. The RGB exclusion is load-bearing, not defensive: RGB planes
+    /// contribute nothing to the pooled window by design, so every RGB volume
+    /// reaches here with no bounds and would otherwise be declared empty.
+    private static func hasNoFiniteVoxels(_ raw: RawPreviewData) -> Bool {
+        let datatype = raw.interactiveState.volume.image.header.datatype
+        guard datatype != .rgb24, datatype != .rgba32 else { return false }
+        return raw.interactiveState.windowBounds == nil && raw.interactiveState.segmentationLut == nil
     }
 
     private func makeBundle(from raw: RawPreviewData) -> MIQPreviewBundle {

@@ -2191,6 +2191,98 @@ struct MIQCoreTests {
         #expect(volume.buildSegmentationLut(options: autoOptions) != nil)
     }
 
+    // MARK: - Out-of-range floats in the label paths
+    //
+    // The label paths' float→Int conversions were guarded by `isFinite` alone,
+    // which admits *finite* values beyond `Int`'s range — where a plain `Int(_:)`
+    // traps and kills the extension. Real data has none (a 94-file corpus scan
+    // found zero), but a garbage float payload is full of them. One test per site:
+    // the center-slice scan, the binary-mask confirm, and the label render.
+
+    /// float32/float64 NIfTI whose payload is written from `value(x, y, z)`.
+    private func makeFloatNii(
+        width: Int,
+        height: Int,
+        depth: Int,
+        datatype: MIQDatatype,
+        value: (Int, Int, Int) -> Double
+    ) -> Data {
+        var data = TestMIQFactory.makeNii(width: width, height: height, depth: depth, datatype: datatype)
+        var payload = Data()
+        payload.reserveCapacity(width * height * depth * datatype.bytesPerVoxel)
+        for z in 0..<depth {
+            for y in 0..<height {
+                for x in 0..<width {
+                    let v = value(x, y, z)
+                    if datatype == .float64 {
+                        withUnsafeBytes(of: v.bitPattern.littleEndian) { payload.append(contentsOf: $0) }
+                    } else {
+                        withUnsafeBytes(of: Float(v).bitPattern.littleEndian) { payload.append(contentsOf: $0) }
+                    }
+                }
+            }
+        }
+        data.replaceSubrange(352..<data.count, with: payload)
+        return data
+    }
+
+    /// A blocky 3-label volume: piecewise constant (edge ratio 0.2), no background.
+    private static func blockLabel(_ x: Int, _ y: Int, _ z: Int) -> Double {
+        Double(((x / 4) + (y / 4) + (z / 4)) % 3 + 1)
+    }
+
+    @Test
+    func labelScanRejectsOutOfRangeFloatInsteadOfTrapping() throws {
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+
+        // Control: the same fixture without a sentinel IS detected, so the rejection
+        // below is caused by the out-of-range voxel, not by a fixture that never
+        // qualified.
+        let clean = makeFloatNii(width: 16, height: 16, depth: 16, datatype: .float32, value: Self.blockLabel)
+        let cleanVolume = MIQVolume(image: try MIQParser().parseNifti(clean))
+        #expect(cleanVolume.buildSegmentationLut(options: autoOptions) != nil)
+
+        // 1e30 on the z center plane, so the center-slice scan itself sees it.
+        let data = makeFloatNii(width: 16, height: 16, depth: 16, datatype: .float32) { x, y, z in
+            (x == 2 && y == 2 && z == 8) ? 1e30 : Self.blockLabel(x, y, z)
+        }
+        let volume = MIQVolume(image: try MIQParser().parseNifti(data))
+        #expect(volume.buildSegmentationLut(options: autoOptions) == nil)
+    }
+
+    @Test(arguments: [MIQDatatype.float32, MIQDatatype.float64])
+    func binaryMaskConfirmationRejectsOutOfRangeFloat(datatype: MIQDatatype) throws {
+        // One foreground label in the center slices ⇒ `confirmBinaryMask` walks all
+        // of volume 0, which is the only place an off-center voxel is ever read.
+        let data = makeFloatNii(width: 16, height: 16, depth: 16, datatype: datatype) { x, y, z in
+            if x == 1 && y == 1 && z == 1 { return 1e30 }
+            return (4..<12).contains(x) && (4..<12).contains(y) && (4..<12).contains(z) ? 1 : 0
+        }
+        let volume = MIQVolume(image: try MIQParser().parseNifti(data))
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        // Reported as intensity, not as a mask — an out-of-range voxel is not a label.
+        #expect(volume.buildSegmentationLut(options: autoOptions) == nil)
+    }
+
+    @Test
+    func labelRenderSurvivesOutOfRangeFloatOffCenter() throws {
+        // Multi-label ⇒ no full-volume confirm scan, so the sentinel at (1,1,1) is
+        // first seen by the *render*, when the user scrolls onto that slice.
+        let data = makeFloatNii(width: 16, height: 16, depth: 16, datatype: .float32) { x, y, z in
+            (x == 1 && y == 1 && z == 1) ? 1e30 : Self.blockLabel(x, y, z)
+        }
+        let volume = MIQVolume(image: try MIQParser().parseNifti(data))
+        let autoOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        let lut = try #require(volume.buildSegmentationLut(options: autoOptions))
+
+        // (1,1,1) sits at index 1 on all three axes, so every plane's slice 1
+        // contains it whichever axis the stored-order plan picks.
+        for plane in SlicePlane.allCases {
+            let image = volume.slice(plane: plane, index: 1, options: autoOptions, windowBounds: nil, lut: lut)
+            #expect(image.width > 0 && image.height > 0)
+        }
+    }
+
     @Test
     func segmentationAtlasAboveLegacyLabelCapIsDetected() throws {
         // 200 foreground labels — rejected by the old 160 cap, which is why dense
@@ -2636,7 +2728,10 @@ enum TestMIQFactory {
         depth: Int,
         datatype: MIQDatatype,
         layout: [Int] = [0, 1, 2],
-        layoutTokens: [String]? = nil
+        layoutTokens: [String]? = nil,
+        /// Verbatim `scaling:` value (MRtrix spells it `offset,scale`). `nil` omits
+        /// the line, which is the format's default of offset 0 / scale 1.
+        scaling: String? = nil
     ) -> Data {
         if let layoutTokens {
             return makeMifWithLayoutTokens(
@@ -2680,7 +2775,7 @@ mrtrix image
 dim: \(width),\(height),\(depth)
 vox: 1.0,1.0,1.0
 layout: \(mifLayoutLabel(layout))
-datatype: \(datatypeLabel)
+datatype: \(datatypeLabel)\(scaling.map { "\nscaling: \($0)" } ?? "")
 file: . \(offset)
 END
 """

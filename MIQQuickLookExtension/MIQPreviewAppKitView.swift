@@ -197,6 +197,12 @@ final class MIQPreviewAppKitView: NSView {
             deferredPlaceholder.isHidden = true
             status.stringValue = "Preview failed: \(message)"
             status.isHidden = false
+        case .noFiniteVoxels:
+            // Not phrased as a failure — the file parsed fine. The metadata panel
+            // stays populated alongside, which is what shows it is intact.
+            deferredPlaceholder.isHidden = true
+            status.stringValue = "No finite voxel values to display — the volume is entirely NaN or infinite."
+            status.isHidden = false
         case .ready:
             deferredPlaceholder.isHidden = true
             status.isHidden = true

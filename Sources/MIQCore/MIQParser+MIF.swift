@@ -106,8 +106,12 @@ extension MIQParser {
         let (dataFile, dataOffset) = try parseMifFileSpec(fileString)
 
         let scalingValues = keyValues["scaling"]?.last.flatMap { try? parseMifFloatList($0) }
-        let offset = scalingValues?[safe: 0] ?? 0
-        let scale = scalingValues?[safe: 1] ?? 1
+        // MIF spells the pair `offset,scale` — note the argument order. Normalised
+        // like NIfTI's: the field is free text, so `Float("nan")` parses.
+        let (scale, offset) = normalizedScaling(
+            slope: scalingValues?[safe: 1] ?? 1,
+            inter: scalingValues?[safe: 0] ?? 0
+        )
 
         return MifHeader(
             dim: dim,

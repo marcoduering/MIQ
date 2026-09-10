@@ -78,7 +78,7 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
             case .loading:
                 logger.notice("same URL requested while load is in progress; reusing existing model")
                 return
-            case .ready, .deferred:
+            case .ready, .deferred, .noFiniteVoxels:
                 logger.notice("same URL requested with ready/deferred model; reusing existing preview")
                 previewView?.update(from: model)
                 return
@@ -114,6 +114,7 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
             switch model.state {
             case .ready: shouldFlushDisplay = !model.hasInteracted
             case .deferred: shouldFlushDisplay = true  // show the placeholder promptly
+            case .noFiniteVoxels: shouldFlushDisplay = true  // likewise: the message is the first frame
             case .idle, .loading, .failed: shouldFlushDisplay = false
             }
             self.refreshPreviewView(from: model, flushDisplay: shouldFlushDisplay)

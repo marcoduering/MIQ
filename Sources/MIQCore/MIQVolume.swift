@@ -584,7 +584,8 @@ public struct MIQVolume: Sendable {
                 let rgb = [UInt8](unsafeUninitializedCapacity: pixelCount * 3) { buf, initialized in
                     var w = 0
                     for v in values {
-                        let label = v.isFinite ? Int(v.rounded()) : 0
+                        // safeInt maps non-finite to 0 (background), as before.
+                        let label = MIQBinaryReader.safeInt(v.rounded())
                         let c = lut.lookup(label)
                         buf[w] = c.r; buf[w + 1] = c.g; buf[w + 2] = c.b
                         w += 3
@@ -774,7 +775,11 @@ public struct MIQVolume: Sendable {
             for i in start..<end {
                 let v = values[i]
                 guard v.isFinite else { previous = 0; continue }
-                let rounded = Int(v.rounded())
+                // Clamped, not plain `Int(_:)`, which traps on a finite value beyond
+                // `Int`'s range. Sound rather than merely safe: the integrality guard
+                // below compares back, so a clamped voxel fails it and the volume is
+                // correctly rejected as a non-label map.
+                let rounded = MIQBinaryReader.safeInt(v.rounded())
                 guard abs(v - Float(rounded)) <= 1e-3 else { return false }
                 scan.labels.insert(rounded)
                 if scan.labels.count > maxLabels { return false }
@@ -882,7 +887,9 @@ public struct MIQVolume: Sendable {
                     let raw = rawBuf.loadUnaligned(fromByteOffset: base + i * 4, as: UInt32.self)
                     let fv = Float(bitPattern: le ? raw : raw.byteSwapped)
                     guard fv.isFinite else { continue }
-                    let r = Int(fv.rounded())
+                    // Clamped as in `collectLabels`: the integrality guard below then
+                    // reports an out-of-range voxel as `.intensity` rather than trapping.
+                    let r = MIQBinaryReader.safeInt(fv.rounded())
                     guard abs(fv - Float(r)) <= 1e-3 else { return .intensity }
                     if r != 0 && r != centerLabel { return .multiLabel }
                 }
@@ -891,7 +898,7 @@ public struct MIQVolume: Sendable {
                     let raw = rawBuf.loadUnaligned(fromByteOffset: base + i * 8, as: UInt64.self)
                     let dv = Double(bitPattern: le ? raw : raw.byteSwapped)
                     guard dv.isFinite else { continue }
-                    let r = Int(dv.rounded())
+                    let r = MIQBinaryReader.safeInt(dv.rounded())
                     guard abs(dv - Double(r)) <= 1e-3 else { return .intensity }
                     if r != 0 && r != centerLabel { return .multiLabel }
                 }
@@ -908,7 +915,7 @@ public struct MIQVolume: Sendable {
                 for x in 0..<width {
                     let fv = voxel(x: x, y: y, z: z, t: 0)
                     guard fv.isFinite else { continue }
-                    let r = Int(fv.rounded())
+                    let r = MIQBinaryReader.safeInt(fv.rounded())
                     guard abs(fv - Float(r)) <= 1e-3 else { return .intensity }
                     if r != 0 && r != centerLabel { return .multiLabel }
                 }

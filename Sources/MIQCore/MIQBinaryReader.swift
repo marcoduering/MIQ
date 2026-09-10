@@ -46,14 +46,23 @@ enum MIQBinaryReader {
         }
     }
 
-    /// `Float`→`Int` that never traps. NaN/infinite or out-of-`Int`-range inputs
-    /// map to 0; finite in-range values truncate toward zero. A corrupt NIfTI
-    /// header can put NaN/inf or a huge value in the float `vox_offset` field,
-    /// where a plain `Int(Float)` would trap and crash the sandboxed extension.
+    /// Float→`Int` that never traps: non-finite maps to 0, out-of-range clamps,
+    /// the rest truncates toward zero. A plain `Int(_:)` traps on all three and
+    /// kills the sandboxed extension. Used for a corrupt `vox_offset`, and for the
+    /// label paths in `MIQVolume` — a garbage float payload is full of finite
+    /// values beyond `Int.max`, which an `isFinite` guard alone does not cover.
     static func safeInt(_ value: Float) -> Int {
         guard value.isFinite else { return 0 }
         if value >= Float(Int.max) { return Int.max }
         if value <= Float(Int.min) { return Int.min }
+        return Int(value)
+    }
+
+    /// `Double` overload of `safeInt(_:)`, for the float64 payload paths.
+    static func safeInt(_ value: Double) -> Int {
+        guard value.isFinite else { return 0 }
+        if value >= Double(Int.max) { return Int.max }
+        if value <= Double(Int.min) { return Int.min }
         return Int(value)
     }
 

@@ -248,6 +248,22 @@ public struct MIQParser {
         return try body()
     }
 
+    /// Non-finite `scl_slope`/`scl_inter` mean "no scaling", which NIfTI already
+    /// spells as slope 0 — so normalise the pair to 0/0 and reuse the unscaled path.
+    ///
+    /// Not corrupt-header hardening: NaN is nibabel's marker for "scaling
+    /// undefined" (`set_slope_inter(None, None)` writes it, and its own reader maps
+    /// a non-finite slope back to "no scaling"), so such files are ordinary output
+    /// from the most widely used NIfTI toolchain. Without this they are destroyed
+    /// rather than mis-scaled — `slope != 0` is TRUE for NaN, so every voxel becomes
+    /// NaN, no window can be derived, and the file renders black with the Scaling
+    /// row *hidden* (`MIQMetadata`'s `abs(slope) > epsilon` is also false for NaN).
+    ///
+    /// Dropped as a pair: a finite slope with a NaN intercept is equally unusable.
+    func normalizedScaling(slope: Float, inter: Float) -> (slope: Float, inter: Float) {
+        (slope.isFinite && inter.isFinite) ? (slope, inter) : (0, 0)
+    }
+
     /// Rejects a header whose declared voxel extent (`dims` product × bytes per
     /// voxel) overflows `Int`. A corrupt or crafted header can list dimensions
     /// whose product exceeds `Int.max`; computing it with `*` traps and crashes
