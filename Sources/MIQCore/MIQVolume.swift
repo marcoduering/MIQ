@@ -355,8 +355,10 @@ public struct MIQVolume: Sendable {
         )
     }
 
-    /// Returns a 3-letter storage orientation label (e.g. "RAS", "LAS") if determinable.
-    /// For MIF files this comes from the layout field; for NIfTI/MGH from the sform matrix.
+    /// Returns the volume's 3-letter anatomical orientation (e.g. "RAS", "LAS") if
+    /// determinable — the direction each storage axis runs, matching what NIfTI-based
+    /// tools report for the same data. For MIF this is the `transform:` composed with
+    /// `layout:`; for NIfTI/MGH/NRRD it is the affine alone, since those store axes in image order.
     public func storageOrientationLabel() -> String? {
         orientation.storageLabel()
     }

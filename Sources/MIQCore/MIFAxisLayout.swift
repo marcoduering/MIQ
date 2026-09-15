@@ -58,14 +58,26 @@ struct MIFAxisLayout {
         try self.init(dim: dim, layout: layout.map { MIFLayoutComponent(signedOrder: $0) })
     }
 
-    /// Derives a 3-letter anatomical orientation label (e.g. "RAS") from a MIF layout field.
+    /// Composes the `transform:`-derived image-axis frame with the `layout:` field to give the
+    /// volume's actual anatomical orientation — the one a NIfTI export bakes into its affine.
+    ///
+    /// MRtrix realigns on import and writes back a canonical transform, so the transform alone
+    /// is RAS for essentially every MRtrix-written file and the orientation really lives in the
+    /// layout. Composing the two is also realignment-invariant: a canonical transform stored
+    /// reversed and an LAS transform stored forward both land on LAS, as they must, since both
+    /// put element order on the same R→L run. See the MIF orientation convention in CLAUDE.md.
+    ///
     /// `spatialAxes` is the 3 spatial axis indices sorted by abs(layout) — fastest to slowest.
-    /// MRtrix convention: axis 0 = L(−)/R(+), axis 1 = P(−)/A(+), axis 2 = I(−)/S(+).
-    static func orientationLabel(spatialAxes: [Int], layout: [MIFLayoutComponent]) -> String {
-        let positive = ["R", "A", "S"]
-        let negative = ["L", "P", "I"]
-        return spatialAxes.map { axis in
-            layout[axis].reversed ? negative[axis] : positive[axis]
-        }.joined()
+    /// Distinctness is preserved: reversing an axis changes its direction, never its world axis.
+    static func storageFrame(
+        imageFrame: OrientationFrame,
+        spatialAxes: [Int],
+        layout: [MIFLayoutComponent]
+    ) -> OrientationFrame {
+        let axes = spatialAxes.map { axis -> StorageAxisOrientation in
+            let anatomy = imageFrame.axes[axis]
+            return layout[axis].reversed ? anatomy.opposite : anatomy
+        }
+        return OrientationFrame(axes: axes, source: .mifLayout)
     }
 }

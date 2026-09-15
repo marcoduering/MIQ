@@ -1926,6 +1926,143 @@ struct MIQCoreTests {
         #expect(image.header.orientationFrame?.axes[0] == StorageAxisOrientation(axis: .rightLeft, positive: false))
     }
 
+    /// The `transform:` rows of a real `dwibiascorrect` output (bias.mif), whose columns
+    /// are dominantly +x/+y/+z — an RAS image. Its `layout: -0,+1,+2` is the FSL
+    /// round-trip signature: axis 0 stored backwards on disk, anatomy untouched.
+    private static let rasTransform: [[Float]] = [
+        [0.998683, 0.035498, 0.037029, -113.580994],
+        [-0.032603, 0.996571, -0.076049, -96.039336],
+        [-0.039602, 0.074742, 0.996416, -72.889366]
+    ]
+
+    @Test
+    func mifReversedLayoutOrientationComposesTransformWithLayout() throws {
+        // A canonical RAS transform stored backwards along axis 0 is an LAS volume —
+        // which is exactly what `mrconvert`ing it to NIfTI bakes into the affine.
+        // The layout is where MRtrix parks the orientation after realigning the transform.
+        let mif = TestMIQFactory.makeMif(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            layoutTokens: ["-0", "+1", "+2"],
+            transform: Self.rasTransform
+        )
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let volume = MIQVolume(image: try MIQParser().parse(url: url))
+
+        #expect(volume.storageOrientationLabel() == "LAS")
+    }
+
+    @Test
+    func mifOrientationIsInvariantUnderMrtrixRealignment() throws {
+        // The same physical volume, written the two ways MRtrix considers equivalent:
+        // a canonical RAS transform with axis 0 reversed on disk, versus an LAS transform
+        // stored forward. Both put element order on a R→L run, so both must report LAS —
+        // the frame must not depend on which representation the writer happened to pick.
+        let canonicalTransformReversedLayout = TestMIQFactory.makeMif(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            layoutTokens: ["-0", "+1", "+2"],
+            transform: Self.rasTransform
+        )
+        let lasTransformForwardLayout = TestMIQFactory.makeMif(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            layoutTokens: ["+0", "+1", "+2"],
+            transform: [[-1, 0, 0, 118], [0, 1, 0, -128], [0, 0, 1, -57]]
+        )
+
+        var labels: [String?] = []
+        for data in [canonicalTransformReversedLayout, lasTransformForwardLayout] {
+            let url = Self.tempURL(suffix: ".mif")
+            defer { try? FileManager.default.removeItem(at: url) }
+            try data.write(to: url)
+            labels.append(MIQVolume(image: try MIQParser().parse(url: url)).storageOrientationLabel())
+        }
+
+        #expect(labels == ["LAS", "LAS"])
+    }
+
+    @Test
+    func mifOrientationFollowsNonCanonicalTransform() throws {
+        // Sagittally-stored volume: transform columns are S, P, R. The old
+        // axis-index assumption reported "RAS" here — every letter wrong.
+        let mif = TestMIQFactory.makeMif(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            transform: [
+                [0, 0, 1, -80],
+                [0, -1, 0, 90],
+                [1, 0, 0, -70]
+            ]
+        )
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let volume = MIQVolume(image: try MIQParser().parse(url: url))
+
+        #expect(volume.storageOrientationLabel() == "SPR")
+    }
+
+    @Test
+    func mifNonCanonicalTransformComposesWithPermutedLayout() throws {
+        // Mirrors Quicklooktest/rot60.mif: `mrtransform -replace` with a 60° rotation about
+        // z, which is the one real MRtrix path that writes a NON-canonical transform (mrconvert
+        // normalises on write, so it cannot produce this). Columns give image axes A, L, S; the
+        // layout then permutes and reverses them to R, I, A. Ground truth is the NIfTI export,
+        // which reports RIA. The old axis-index code returned PIR here — all three letters wrong,
+        // and identical to the unrotated source, i.e. wholly blind to the transform.
+        let mif = TestMIQFactory.makeMif(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            layoutTokens: ["+2", "-0", "-1"],
+            transform: [
+                [0.500011, -0.866019, 0, 0],
+                [0.866019, 0.500011, 0, 0],
+                [0, 0, 1, 0]
+            ]
+        )
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let volume = MIQVolume(image: try MIQParser().parse(url: url))
+
+        #expect(volume.storageOrientationLabel() == "RIA")
+    }
+
+    @Test
+    func mifDegenerateTransformMakesNoAnatomicalClaim() throws {
+        // A collapsed column is undeterminable — better "?" labels than a fabricated frame.
+        let mif = TestMIQFactory.makeMif(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            transform: [
+                [1, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 1, 0]
+            ]
+        )
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let image = try MIQParser().parse(url: url)
+
+        #expect(image.header.orientationFrame == nil)
+        #expect(MIQVolume(image: image).storageOrientationLabel() == nil)
+    }
+
+    @Test
+    func mifWithoutTransformFallsBackToIdentityAffine() throws {
+        // `transform:` is optional; absent means image axes are already R/A/S, so the
+        // storage frame is the layout applied to identity — MIQ's pre-existing behaviour.
+        let mif = TestMIQFactory.makeMif(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            layoutTokens: ["+2", "-0", "+1"]
+        )
+        let url = Self.tempURL(suffix: ".mif")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try mif.write(to: url)
+        let volume = MIQVolume(image: try MIQParser().parse(url: url))
+
+        // Storage walks axis 1 first (reversed, A → P), then axis 2 (S), then axis 0 (R).
+        #expect(volume.storageOrientationLabel() == "PSR")
+    }
+
     @Test
     func resolverEmitsRealLabelsForNiftiWithSform() throws {
         // NIfTI with explicit RAS sform — resolver should now produce R/A/S labels
@@ -2731,7 +2868,10 @@ enum TestMIQFactory {
         layoutTokens: [String]? = nil,
         /// Verbatim `scaling:` value (MRtrix spells it `offset,scale`). `nil` omits
         /// the line, which is the format's default of offset 0 / scale 1.
-        scaling: String? = nil
+        scaling: String? = nil,
+        /// The three rows of the voxel→scanner affine. `nil` omits the (optional)
+        /// `transform:` field, which is the format's default of an identity affine.
+        transform: [[Float]]? = nil
     ) -> Data {
         if let layoutTokens {
             return makeMifWithLayoutTokens(
@@ -2739,7 +2879,8 @@ enum TestMIQFactory {
                 height: height,
                 depth: depth,
                 datatype: datatype,
-                layoutTokens: layoutTokens
+                layoutTokens: layoutTokens,
+                transform: transform
             )
         }
 
@@ -2775,7 +2916,7 @@ mrtrix image
 dim: \(width),\(height),\(depth)
 vox: 1.0,1.0,1.0
 layout: \(mifLayoutLabel(layout))
-datatype: \(datatypeLabel)\(scaling.map { "\nscaling: \($0)" } ?? "")
+datatype: \(datatypeLabel)\(scaling.map { "\nscaling: \($0)" } ?? "")\(mifTransformLines(transform))
 file: . \(offset)
 END
 """
@@ -2849,7 +2990,8 @@ END
         height: Int,
         depth: Int,
         datatype: MIQDatatype,
-        layoutTokens: [String]
+        layoutTokens: [String],
+        transform: [[Float]]? = nil
     ) -> Data {
         let components = parseLayoutTokens(layoutTokens)
         let dims = [width, height, depth]
@@ -2894,7 +3036,7 @@ mrtrix image
 dim: \(width),\(height),\(depth)
 vox: 1.0,1.0,1.0
 layout: \(layoutLabel)
-datatype: \(datatypeLabel)
+datatype: \(datatypeLabel)\(mifTransformLines(transform))
 file: . \(offset)
 END
 """
@@ -3213,6 +3355,15 @@ END
 
         precondition(Set(result.map { $0.order }).count == result.count, "layout ranks must be unique")
         return result
+    }
+
+    /// Renders the affine as MRtrix's one-line-per-row `transform:` field, with a
+    /// leading newline so it splices onto the preceding header line. Empty when nil.
+    private static func mifTransformLines(_ transform: [[Float]]?) -> String {
+        guard let transform else { return "" }
+        return transform
+            .map { "\ntransform: " + $0.map { String($0) }.joined(separator: ",") }
+            .joined()
     }
 
     private static func mifLayoutLabel(_ layout: [Int]) -> String {

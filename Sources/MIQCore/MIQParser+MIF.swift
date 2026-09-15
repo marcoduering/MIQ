@@ -1,6 +1,14 @@
 import Foundation
 
 extension MIQParser {
+    /// Stand-in for an absent `transform:` field — image axes are then R/A/S as stored.
+    /// Composed with the layout, this reproduces MRtrix's own default for the field.
+    fileprivate static let identityMifTransform: [[Float]] = [
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 1, 0]
+    ]
+
     private struct MifHeader {
         let dim: [Int]
         let vox: [Float]
@@ -13,6 +21,9 @@ extension MIQParser {
         let dataOffset: Int
         let scale: Float
         let offset: Float
+        /// The voxel→scanner affine's three rows, when the (optional) `transform:` field
+        /// is present and well-formed. `nil` means an identity affine, per the MIF spec.
+        let transform: [[Float]]?
     }
 
     func parseMif(_ data: Data) throws -> MIQImage {
@@ -105,6 +116,8 @@ extension MIQParser {
         try validateDimensionExtent(dim, bytesPerVoxel: spec.datatype.bytesPerVoxel)
         let (dataFile, dataOffset) = try parseMifFileSpec(fileString)
 
+        let transform = keyValues["transform"].flatMap(parseMifTransform)
+
         let scalingValues = keyValues["scaling"]?.last.flatMap { try? parseMifFloatList($0) }
         // MIF spells the pair `offset,scale` — note the argument order. Normalised
         // like NIfTI's: the field is free text, so `Float("nan")` parses.
@@ -123,7 +136,8 @@ extension MIQParser {
             dataFile: dataFile,
             dataOffset: dataOffset,
             scale: scale,
-            offset: offset
+            offset: offset,
+            transform: transform
         )
     }
 
@@ -164,7 +178,22 @@ extension MIQParser {
             tStride
         ]
 
-        let orientationLabel = MIFAxisLayout.orientationLabel(spatialAxes: spatialAxes, layout: header.layout)
+        // MIF is the one format that states anatomy and disk layout separately. The
+        // transform's columns give each *image* axis its anatomical direction; `layout`
+        // then says in what order and direction those axes are stored. The field is
+        // optional — absent means an identity affine, i.e. image axes already R/A/S.
+        let transform = header.transform ?? MIQParser.identityMifTransform
+        let imageFrame = OrientationFrame.from(
+            srowX: transform[0],
+            srowY: transform[1],
+            srowZ: transform[2],
+            source: .mifLayout
+        )
+        // A degenerate transform leaves both frames nil rather than fabricating a label
+        // from axis indices: the resolver then shows "?" instead of a wrong anatomical claim.
+        let storageFrame = imageFrame.map {
+            MIFAxisLayout.storageFrame(imageFrame: $0, spatialAxes: spatialAxes, layout: header.layout)
+        }
 
         let miqHeader = MIQHeader(
             littleEndian: header.littleEndian,
@@ -180,7 +209,7 @@ extension MIQParser {
             srowY: [],
             srowZ: [],
             datatypeLabel: header.bitPacked ? "bit" : nil,
-            orientationFrame: OrientationFrame.fromMifLabel(orientationLabel)
+            orientationFrame: storageFrame
         )
 
         return MifImageDescriptor(
@@ -355,6 +384,20 @@ extension MIQParser {
         }
 
         return parsed
+    }
+
+    /// The three rows of the voxel→scanner affine. `transform:` is optional in the MIF
+    /// spec, and MRtrix writes one line per row; anything absent, short, or malformed is
+    /// treated as absent so the caller falls back to the identity affine.
+    private func parseMifTransform(_ values: [String]) -> [[Float]]? {
+        guard values.count >= 3 else { return nil }
+        var rows: [[Float]] = []
+        rows.reserveCapacity(3)
+        for value in values.prefix(3) {
+            guard let row = try? parseMifFloatList(value), row.count >= 3 else { return nil }
+            rows.append(row)
+        }
+        return rows
     }
 
     private func parseMifFloatList(_ value: String) throws -> [Float] {

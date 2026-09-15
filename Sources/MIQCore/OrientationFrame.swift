@@ -84,20 +84,6 @@ public struct OrientationFrame: Sendable, Hashable {
         )
     }
 
-    /// Build a frame from a 3-letter MRtrix MIF orientation label (e.g. "RAS", "LAS").
-    /// Returns nil when the string is malformed or yields non-distinct axes.
-    public static func fromMifLabel(_ label: String) -> OrientationFrame? {
-        guard label.count == 3 else { return nil }
-        var axes: [StorageAxisOrientation] = []
-        axes.reserveCapacity(3)
-        for char in label {
-            guard let entry = orientation(for: char) else { return nil }
-            axes.append(entry)
-        }
-        guard Set(axes.map { $0.axis }).count == axes.count else { return nil }
-        return OrientationFrame(axes: axes, source: .mifLayout)
-    }
-
     // MARK: - Helpers (mirror OrientationResolver's logic; kept local so the
     // resolver remains the single owner of slice planning while this type owns
     // header-derived orientation construction.)
@@ -114,17 +100,5 @@ public struct OrientationFrame: Sendable, Hashable {
             return StorageAxisOrientation(axis: .anteriorPosterior, positive: v.y >= 0)
         }
         return StorageAxisOrientation(axis: .superiorInferior, positive: v.z >= 0)
-    }
-
-    private static func orientation(for char: Character) -> StorageAxisOrientation? {
-        switch char {
-        case "R": return StorageAxisOrientation(axis: .rightLeft, positive: true)
-        case "L": return StorageAxisOrientation(axis: .rightLeft, positive: false)
-        case "A": return StorageAxisOrientation(axis: .anteriorPosterior, positive: true)
-        case "P": return StorageAxisOrientation(axis: .anteriorPosterior, positive: false)
-        case "S": return StorageAxisOrientation(axis: .superiorInferior, positive: true)
-        case "I": return StorageAxisOrientation(axis: .superiorInferior, positive: false)
-        default: return nil
-        }
     }
 }

@@ -25,9 +25,9 @@ Supported formats:
 - :white_check_mark: **NIfTI-1 & NIfTI-2** — `.nii`, `.nii.gz`
 - :white_check_mark: **FreeSurfer** — `.mgh`, `.mgz`, `.mgh.gz`
 - :white_check_mark: **MRtrix** — `.mif`, `.mif.gz`
-- :white_check_mark: **NRRD** — `.nrrd` *(only the single-file variant with attached header)*
+- :white_check_mark: **NRRD** — `.nrrd` *(only single-file variant with attached header)*
 
-All formats are supported uncompressed and gzip-compressed. The extension relies on the file extension to determine the format, so it is **important that files have the correct extensions**.
+All formats are supported uncompressed and gzip-compressed.
 
 ## Installation & Updates
 
@@ -46,8 +46,9 @@ The app and extension can be installed manually or via the package manager [Home
 
 #### Updating
 
-MIQ updates itself. Open the MIQ app and choose **MIQ → Check for Updates…**, or leave **Automatically check for updates** enabled in Settings → About. MIQ only runs while its window is open, so checks happen when you open it; when a new version is available, MIQ downloads and installs it in place and relaunches. No manual download or replacing of `MIQ.app` is needed.
+MIQ updates itself. Open the MIQ app and choose MIQ → Check for Updates…, or leave Automatically check for updates enabled in Settings → About. 
 
+Automatic checks and updates happen when you open the main app, so make sure to do this from time to time.
 ### Installation via Homebrew
 
 1. Install on the command line:
@@ -64,7 +65,7 @@ MIQ updates itself. Open the MIQ app and choose **MIQ → Check for Updates…**
 
 #### Updating via Homebrew
 
-The cask is marked `auto_updates`, so the app updates itself via **MIQ → Check for Updates…** (see above). To update through Homebrew instead:
+The cask is marked `auto_updates`, so the app updates itself (see above). To update through Homebrew instead:
 
 ```bash
 brew update
@@ -96,7 +97,7 @@ Use the settings (main app) to tailor the preview and thumbnails to your needs. 
 
 ### Orientation
 
-By default, MIQ displays data **as stored on disk**, without reorienting. Images may appear upside down, mirrored, or rotated depending on acquisition. This is by design, so you can inspect the raw data as-is. Optional settings reorient to **Neurological** or **Radiological view**.
+By default, MIQ displays data **as stored on disk**, without reorienting. Images may appear upside down, mirrored, or rotated depending on acquisition. This is by design, so you can inspect the raw data "as is". Optional settings reorient to **Neurological** or **Radiological view**.
 
 ## Troubleshooting
 
