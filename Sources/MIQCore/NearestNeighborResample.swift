@@ -14,17 +14,20 @@ struct ResampleTargetSize {
         maxDimension: Int
     ) {
         guard width > 0, height > 0 else { return nil }
-        let sx = max(1e-6, pixelSpacingX)
-        let sy = max(1e-6, pixelSpacingY)
-        let physicalWidth = Float(width) * sx
-        let physicalHeight = Float(height) * sy
-        let referencePhysical = max(maxPhysicalExtent, max(physicalWidth, physicalHeight), 1e-6)
+        // Spacings arrive through `sanitizedSpacing` (finite, > 0) and must not be floored
+        // here: `maxPhysicalExtent` is computed from the same unfloored spacings, and any
+        // floor applied to one side only skews every slice of a sub-1e-6-spaced volume.
+        let physicalWidth = Float(width) * pixelSpacingX
+        let physicalHeight = Float(height) * pixelSpacingY
+        let referencePhysical = max(maxPhysicalExtent, max(physicalWidth, physicalHeight))
         let referencePixels = max(1, maxDimension)
         // An infinite or NaN spacing, or a huge finite one whose extent overflows,
-        // leaves `inf/inf` = NaN (or a bogus 0) below, and `Int(NaN)` traps. Fall back
-        // to the unscaled size rather than guess an aspect ratio from arithmetic that
-        // has already lost it. With all three finite, the ratio is ≤ 1 and `Int` is safe.
-        guard physicalWidth.isFinite, physicalHeight.isFinite, referencePhysical.isFinite else {
+        // leaves `inf/inf` = NaN (or a bogus 0) below, and `Int(NaN)` traps; a zero or
+        // negative spacing from a caller that bypassed `sanitizedSpacing` has no usable
+        // aspect ratio either. Fall back to the unscaled size rather than guess. With
+        // both extents finite and positive, the ratio is in (0, 1] and `Int` is safe.
+        guard physicalWidth.isFinite, physicalHeight.isFinite, referencePhysical.isFinite,
+              physicalWidth > 0, physicalHeight > 0 else {
             self.width = min(width, referencePixels)
             self.height = min(height, referencePixels)
             return

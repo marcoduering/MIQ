@@ -221,6 +221,23 @@ struct VoxelSpacingTests {
         }
     }
 
+    /// A spacing below 1e-6 is valid (finite, positive) and must scale every slice
+    /// exactly like the same volume at unit spacing — only the ratios matter.
+    @Test
+    func subMicroSpacingRendersLikeUnitSpacing() throws {
+        let options = RenderingOptions(lowerPercentile: 2, upperPercentile: 98)
+        func sizes(pixdim: Float) throws -> [[Int]] {
+            let data = TestMIQFactory.makeNii(width: 256, height: 4, depth: 4, datatype: .int16, pixdim: [1, pixdim, pixdim, pixdim])
+            let volume = MIQVolume(image: try MIQParser().parseNifti(data))
+            return SlicePlane.allCases.map {
+                let image = volume.centerSlice(plane: $0, options: options)
+                return [image.width, image.height]
+            }
+        }
+        let tiny = try sizes(pixdim: 1e-9), unit = try sizes(pixdim: 1)
+        #expect(tiny == unit)
+    }
+
     @Test
     func resampleTargetSizeFallsBackOnNonFiniteExtent() throws {
         let target = try #require(ResampleTargetSize(
