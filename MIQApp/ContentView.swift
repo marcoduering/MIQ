@@ -714,7 +714,7 @@ struct ContentView: View {
                             .labelsHidden()
                     }
 
-                    Text("On by default: for files larger than \(Int(MIQConfig.Defaults.networkPreviewThresholdMB)) MB the user needs to actively confirm loading. 4D NIfTI is unaffected, it only reads the first volume.")
+                    Text("On by default: files over \(Int(MIQConfig.Defaults.networkPreviewThresholdMB)) MB show a “Load preview” button instead of loading automatically. NIfTI is exempt because MIQ reads only its first volume.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

@@ -39,13 +39,6 @@ final class MIQPreviewModel {
         case noFiniteVoxels
     }
 
-    /// Result of the cold detached load: either the parsed preview, or a signal
-    /// that the network gate deferred it (carrying the size for the placeholder).
-    private enum LoadOutcome: Sendable {
-        case loaded(RawPreviewData)
-        case deferred(sizeBytes: Int)
-    }
-
     /// Lifecycle of the lazy full-decompression for 4D `.nii.gz`. Every other
     /// kind is `.notNeeded` (uncompressed `.nii` is mmap'd; `.mgz`/`.mif.gz`
     /// already decompress in full; 3D `.nii.gz`'s volume-0 budget is the whole
@@ -77,7 +70,17 @@ final class MIQPreviewModel {
     private let fileKind: MIQFileKind?
     private let maxDimension = 512
     private var renderingOptions: RenderingOptions?
-    private var interactiveState: InteractivePreviewState?
+    private var interactiveState: InteractivePreviewState? {
+        didSet { interactiveStateGeneration &+= 1 }
+    }
+    /// Bumped on every `interactiveState` swap (fresh parse, cache-hit prep, 4D
+    /// expansion). A render captures it at start; if it changed by completion,
+    /// the render's auto window was derived from a buffer that's no longer
+    /// current (e.g. the volume-0-capped one) and must not be remembered.
+    private var interactiveStateGeneration = 0
+    /// Set on a cache hit for a file the large-network gate would defer: the
+    /// cached frame is shown, but the full read waits for the first interaction.
+    private var interactivePreparationDeferred = false
     private var expansionState: ExpansionState = .notNeeded
     private var expansionTask: Task<Void, Never>?
     private var currentCursor: MIQVolumeCursor?
@@ -145,79 +148,81 @@ final class MIQPreviewModel {
         // on a cache hit too (the setting only affects volumes > 0, never the
         // cached volume-0 cold preview — see MIQConfig.perVolumeIntensityWindow).
         perVolumeWindow = MIQConfig.perVolumeIntensityWindow
-        let cacheKey = MIQPreviewCache.makeKey(fileURL: fileURL, maxDimension: maxDimension, options: options)
         logger.notice("load() started for: \(fileURL.lastPathComponent, privacy: .public)")
         logger.notice("MIQConfig percentiles: lower=\(options.lowerPercentile, privacy: .public), upper=\(options.upperPercentile, privacy: .public), orientation=\(options.orientation.rawValue, privacy: .public), showAxisLabels=\(MIQConfig.showAxisLabels, privacy: .public)")
 
-        // Preserve interactiveState when reloading the same file with the same options
-        // (the typical cache-hit path). Clearing it forces a re-parse before the first
-        // scroll can fire, causing silent drops that feel like lag.
-        let reusingInteractiveState = interactiveState != nil && renderingOptions == options
-
+        // The controller creates one model per URL, and a second load() only comes
+        // from the deferred placeholder, so there is never state worth keeping.
         interactionPreparationTask?.cancel()
         interactionPreparationTask = nil
+        interactivePreparationDeferred = false
         renderTask?.cancel()
         renderTask = nil
         renderingOptions = options
-        if !reusingInteractiveState {
-            interactiveState = nil
-            // A fresh parse starts capped again; the cache-hit reuse path keeps
-            // whatever expansion was already achieved for this file+options.
-            expansionTask?.cancel()
-            expansionTask = nil
-            expansionState = .notNeeded
-            // New volume ⇒ stale per-timepoint windows. (The reuse path keeps
-            // them: same volume, same options.)
-            perVolumeWindowCache = [:]
-        }
-        currentCursor = interactiveState?.centerCursor
-        displayedCursor = interactiveState?.centerCursor
+        interactiveState = nil
+        expansionTask?.cancel()
+        expansionTask = nil
+        expansionState = .notNeeded
+        perVolumeWindowCache = [:]
+        currentCursor = nil
+        displayedCursor = nil
         hasInteracted = false
         windowAdjustment = nil
         pendingForceRender = false
         pendingRenderCursor = nil
 
-        if let cached = MIQPreviewCache.bundle(for: cacheKey) {
-            let stateLabel = reusingInteractiveState ? "reused" : "pending"
-            logger.notice("load() cache hit — applying cached center preview (interactive state \(stateLabel, privacy: .public))")
-            apply(bundle: cached)
-            state = .ready
-            onChange?()
-            if !reusingInteractiveState {
-                prepareInteractiveState(fileURL: fileURL, options: options)
-            }
-            return
-        }
-
         do {
-            let outcome = try await Self.runCancelableDetached { () -> LoadOutcome in
-                if applyNetworkGate, let sizeBytes = Self.networkDeferralSizeBytes(fileURL: fileURL, kind: kind) {
-                    return .deferred(sizeBytes: sizeBytes)
+            // The cache key stats the file (mtime) and the gate probes locality and
+            // size; either can block on a hung network mount, so both run off the
+            // MainActor. Only the String key and the size come back — cached
+            // bundles hold NSImages, so the lookup itself stays on the MainActor.
+            let probe = try await Self.runCancelableDetached { () -> (cacheKey: String, deferralSizeBytes: Int?) in
+                let cacheKey = MIQPreviewCache.makeKey(fileURL: fileURL, maxDimension: maxDimension, options: options)
+                let deferralSizeBytes = applyNetworkGate ? Self.networkDeferralSizeBytes(fileURL: fileURL, kind: kind) : nil
+                return (cacheKey, deferralSizeBytes)
+            }
+            try Task.checkCancellation()
+
+            if let cached = MIQPreviewCache.bundle(for: probe.cacheKey) {
+                apply(bundle: cached)
+                state = .ready
+                onChange?()
+                if probe.deferralSizeBytes != nil {
+                    // The gate would have deferred this file: show the cached frame
+                    // but don't pull the whole file until the user interacts.
+                    interactivePreparationDeferred = true
+                    logger.notice("load() cache hit — interactive state deferred to first interaction (large network file)")
+                } else {
+                    logger.notice("load() cache hit — applying cached center preview, preparing interactive state")
+                    prepareInteractiveState(fileURL: fileURL, options: options)
                 }
-                return .loaded(try Self.loadPreviewData(fileURL: fileURL, options: options, maxDimension: maxDimension))
+                return
             }
 
-            switch outcome {
-            case .deferred(let sizeBytes):
+            if let sizeBytes = probe.deferralSizeBytes {
                 state = .deferred(name: fileURL.lastPathComponent, sizeBytes: sizeBytes)
                 logger.notice("load() deferred large network preview: \(sizeBytes / (1024 * 1024), privacy: .public)MB")
                 onChange?()
-            case .loaded(let raw):
-                // Applied either way — metadata and orientation are valid even with
-                // nothing to window.
-                apply(raw: raw)
-                if Self.hasNoFiniteVoxels(raw) {
-                    // Not cached: the cache short-circuit at the top of load() would
-                    // return `.ready` next time and drop the explanation.
-                    state = .noFiniteVoxels
-                    logger.notice("load() finished: volume has no finite voxel values")
-                } else {
-                    MIQPreviewCache.insert(makeBundle(from: raw), for: cacheKey)
-                    state = .ready
-                    logger.notice("load() finished successfully")
-                }
-                onChange?()
+                return
             }
+
+            let raw = try await Self.runCancelableDetached {
+                try Self.loadPreviewData(fileURL: fileURL, options: options, maxDimension: maxDimension)
+            }
+            // Applied either way — metadata and orientation are valid even with
+            // nothing to window.
+            apply(raw: raw)
+            if Self.hasNoFiniteVoxels(raw) {
+                // Not cached: the cache short-circuit at the top of load() would
+                // return `.ready` next time and drop the explanation.
+                state = .noFiniteVoxels
+                logger.notice("load() finished: volume has no finite voxel values")
+            } else {
+                MIQPreviewCache.insert(makeBundle(from: raw), for: probe.cacheKey)
+                state = .ready
+                logger.notice("load() finished successfully")
+            }
+            onChange?()
         } catch is CancellationError {
             // Preview dismissed/replaced mid-parse (e.g. a large file abandoned on
             // a slow network mount). The load task is being torn down — leave state
@@ -230,7 +235,21 @@ final class MIQPreviewModel {
         }
     }
 
+    /// The interactive state for an input event, or `nil` while it isn't ready
+    /// (the event is dropped). If the large-network gate deferred preparation on
+    /// a cache hit, this first interaction is what starts it.
+    private func interactiveStateForInteraction() -> InteractivePreviewState? {
+        if let interactiveState { return interactiveState }
+        if interactivePreparationDeferred, let renderingOptions {
+            interactivePreparationDeferred = false
+            logger.notice("first interaction — preparing deferred interactive state")
+            prepareInteractiveState(fileURL: url, options: renderingOptions)
+        }
+        return nil
+    }
+
     func scrollGestureBegan() {
+        _ = interactiveStateForInteraction()
         renderTask?.cancel()
         renderTask = nil
         pendingRenderCursor = nil
@@ -239,7 +258,7 @@ final class MIQPreviewModel {
     }
 
     func stepSlice(plane: SlicePlane, deltaSteps: Int) {
-        guard deltaSteps != 0, let interactiveState else { return }
+        guard deltaSteps != 0, let interactiveState = interactiveStateForInteraction() else { return }
         hasInteracted = true
         let cursor = currentCursor ?? interactiveState.centerCursor
         let geometry = interactiveState.volume.sliceGeometry(for: plane, options: interactiveState.options)
@@ -264,7 +283,7 @@ final class MIQPreviewModel {
     /// the lazy-expand (kicked off here on first 4D intent) swaps in the fully
     /// decompressed volume.
     func stepVolume(deltaSteps: Int) {
-        guard deltaSteps != 0, let interactiveState else { return }
+        guard deltaSteps != 0, let interactiveState = interactiveStateForInteraction() else { return }
         let volumes = interactiveState.volume.volumes
         guard volumes > 1 else { return }
         let cursor = currentCursor ?? interactiveState.centerCursor
@@ -274,7 +293,7 @@ final class MIQPreviewModel {
     /// Absolute timepoint seek (the metadata scrubber). Same path as
     /// `stepVolume`; clamps into range and is a no-op for 3D files.
     func setVolume(to index: Int) {
-        guard let interactiveState, interactiveState.volume.volumes > 1 else { return }
+        guard let interactiveState = interactiveStateForInteraction(), interactiveState.volume.volumes > 1 else { return }
         applyVolume(index, interactiveState: interactiveState)
     }
 
@@ -356,7 +375,7 @@ final class MIQPreviewModel {
     }
 
     func updateCursor(plane: SlicePlane, normalizedPoint: MIQNormalizedPoint) {
-        guard let interactiveState else { return }
+        guard let interactiveState = interactiveStateForInteraction() else { return }
         hasInteracted = true
         let cursor = currentCursor ?? interactiveState.centerCursor
         let sliceIndex = interactiveState.volume.sliceIndex(for: plane, cursor: cursor, options: interactiveState.options)
@@ -375,7 +394,7 @@ final class MIQPreviewModel {
     }
 
     func adjustWindow(deltaX: CGFloat, deltaY: CGFloat) {
-        guard let interactiveState else { return }
+        guard let interactiveState = interactiveStateForInteraction() else { return }
         // Drag starts from the window currently on screen: in per-volume mode
         // that's the displayed volume's own window (lastAppliedAutoBounds), not
         // volume 0's. `nil` only when there is no window at all (RGB-only).
@@ -383,8 +402,11 @@ final class MIQPreviewModel {
 
         let current = windowAdjustment ?? initialBounds
         let initialRange = initialBounds.high - initialBounds.low
+        // Relative, not absolute: data with tiny values (~1e-9) must stay
+        // adjustable. A degenerate window gives the drag no scale, so stay inert.
+        guard initialRange > 0 else { return }
         let sensitivity = initialRange * 0.005
-        let minWidth = max(1e-6, initialRange * 0.01)
+        let minWidth = initialRange * 0.01
 
         let level = (current.high + current.low) / 2 + Float(deltaY) * sensitivity
         let width = max(minWidth, (current.high - current.low) + Float(deltaX) * sensitivity)
@@ -453,8 +475,7 @@ final class MIQPreviewModel {
         interactiveState = raw.interactiveState
         lastAppliedAutoBounds = raw.interactiveState.segmentationLut == nil ? raw.interactiveState.windowBounds : nil
         // Fresh parse installs a new volume — drop any per-timepoint windows
-        // memoized against the previous one (the reuse+cache-miss path reaches
-        // here without load()'s clear having run).
+        // memoized against the previous one.
         perVolumeWindowCache = [:]
         expansionState = Self.needsExpansion(volume: raw.interactiveState.volume) ? .pending : .notNeeded
         currentCursor = raw.interactiveState.centerCursor
@@ -524,6 +545,9 @@ final class MIQPreviewModel {
                 self.displayedCursor = interactiveState.centerCursor
                 self.onChange?()
             } catch {
+                // A cancelled task may already have been replaced; don't clear
+                // its successor.
+                guard !Task.isCancelled, !(error is CancellationError) else { return }
                 self.interactionPreparationTask = nil
                 self.logger.error("interactive state preparation failed: \(error.localizedDescription, privacy: .public)")
             }
@@ -573,6 +597,7 @@ final class MIQPreviewModel {
         // Memoized per-volume window: when we've already derived this timepoint's
         // auto window, hand it to the task so it skips the 3-center-slice decode.
         let cachedAutoBounds = (manualBounds == nil && perVolume) ? perVolumeWindowCache[cursor.t] : nil
+        let generation = interactiveStateGeneration
 
         renderTask = Task { [weak self] in
             guard let self else { return }
@@ -589,8 +614,9 @@ final class MIQPreviewModel {
             guard !Task.isCancelled else { return }
             self.apply(bitmaps: result.bitmaps)
             // Remember the auto window so a subsequent W/L drag starts from it,
-            // and memoize it per timepoint for per-volume mode.
-            if manualBounds == nil {
+            // and memoize it per timepoint for per-volume mode — unless the state
+            // was swapped mid-render (4D expansion), which makes it stale.
+            if manualBounds == nil, generation == self.interactiveStateGeneration {
                 self.lastAppliedAutoBounds = result.bounds
                 if perVolume, let bounds = result.bounds {
                     self.perVolumeWindowCache[cursor.t] = bounds
@@ -764,6 +790,11 @@ final class MIQPreviewModel {
     ) -> MIQIntensityWindowBounds? {
         if let manual { return manual }
         guard perVolume, interactiveState.volume.volumes > 1 else {
+            return interactiveState.windowBounds
+        }
+        // Before 4D expansion, volumes > 0 read the zero backstop; a window
+        // derived from zeros is degenerate, so keep volume 0's.
+        if cursor.t > 0, !interactiveState.volume.containsAllVolumes {
             return interactiveState.windowBounds
         }
         // A memoized window for this timepoint skips the 3-center-slice decode.
