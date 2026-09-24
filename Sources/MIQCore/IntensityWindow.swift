@@ -60,7 +60,13 @@ enum IntensityWindow {
 
     /// Applies precomputed window bounds to `values`, producing 8-bit grayscale.
     static func apply(_ values: [Float], bounds: Bounds) -> [UInt8] {
-        let range = max(bounds.high - bounds.low, 1e-6)
+        // No absolute floor on the width: float data can legitimately span far less
+        // than 1e-6 (ADC maps in SI units sit around 1e-9), and a floor squashed such
+        // a window into one or two grey levels. A degenerate window (high <= low)
+        // clips every value to `low`, so the numerator is 0 and any positive divisor
+        // gives black; 1 just keeps the division finite.
+        let width = bounds.high - bounds.low
+        let range = width > 0 ? width : 1
         return values.map { value in
             guard value.isFinite else {
                 return 0

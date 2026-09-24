@@ -70,9 +70,9 @@ extension MIQParser {
         let sformCode: Int
 
         if goodRAS != 0 {
-            let sx = max(1e-6, abs(MIQBinaryReader.float32(data, 30, littleEndian: false)))
-            let sy = max(1e-6, abs(MIQBinaryReader.float32(data, 34, littleEndian: false)))
-            let sz = max(1e-6, abs(MIQBinaryReader.float32(data, 38, littleEndian: false)))
+            let sx = sanitizedSpacing(MIQBinaryReader.float32(data, 30, littleEndian: false))
+            let sy = sanitizedSpacing(MIQBinaryReader.float32(data, 34, littleEndian: false))
+            let sz = sanitizedSpacing(MIQBinaryReader.float32(data, 38, littleEndian: false))
             pixdim = [1.0, sx, sy, sz]
 
             let xr = MIQBinaryReader.float32(data, 42, littleEndian: false)

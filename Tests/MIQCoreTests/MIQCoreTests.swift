@@ -282,11 +282,11 @@ struct MIQCoreTests {
             FuzzTarget(name: "mif",
                        seed: TestMIQFactory.makeMif(width: 6, height: 5, depth: 4, datatype: .int16),
                        parseImage: { _ = try parser.parseMif($0) },
-                       parseHeader: { _ = try parser.parseMifHeaderOnly(from: $0) }),
+                       parseHeader: nil),
             FuzzTarget(name: "nrrd",
                        seed: TestMIQFactory.makeNrrd(width: 6, height: 5, depth: 4, datatype: .int16),
                        parseImage: { _ = try parser.parseNrrd($0) },
-                       parseHeader: { _ = try parser.parseNrrdHeaderOnly(from: $0) }),
+                       parseHeader: nil),
         ]
 
         let mutationsPerTarget = 600
@@ -298,7 +298,9 @@ struct MIQCoreTests {
                 var rng = SplitMix64(seed: seed)
                 let mutated = Self.mutate(target.seed, using: &rng)
                 assertGraceful(target.parseImage, mutated, target: "\(target.name).image", iteration: i, seed: seed)
-                assertGraceful(target.parseHeader, mutated, target: "\(target.name).header", iteration: i, seed: seed)
+                if let parseHeader = target.parseHeader {
+                    assertGraceful(parseHeader, mutated, target: "\(target.name).header", iteration: i, seed: seed)
+                }
             }
         }
     }
@@ -323,7 +325,9 @@ struct MIQCoreTests {
         let name: String
         let seed: Data
         let parseImage: (Data) throws -> Void
-        let parseHeader: (Data) throws -> Void
+        /// `nil` for formats without a standalone header parser (MIF, NRRD): their
+        /// header parse runs inside `parseImage`, which the fuzzer already covers.
+        let parseHeader: ((Data) throws -> Void)?
     }
 
     /// Deterministic SplitMix64 — seedable (unlike `SystemRandomNumberGenerator`),

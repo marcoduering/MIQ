@@ -20,6 +20,15 @@ struct ResampleTargetSize {
         let physicalHeight = Float(height) * sy
         let referencePhysical = max(maxPhysicalExtent, max(physicalWidth, physicalHeight), 1e-6)
         let referencePixels = max(1, maxDimension)
+        // An infinite or NaN spacing, or a huge finite one whose extent overflows,
+        // leaves `inf/inf` = NaN (or a bogus 0) below, and `Int(NaN)` traps. Fall back
+        // to the unscaled size rather than guess an aspect ratio from arithmetic that
+        // has already lost it. With all three finite, the ratio is ≤ 1 and `Int` is safe.
+        guard physicalWidth.isFinite, physicalHeight.isFinite, referencePhysical.isFinite else {
+            self.width = min(width, referencePixels)
+            self.height = min(height, referencePixels)
+            return
+        }
         self.width = max(1, Int((physicalWidth / referencePhysical * Float(referencePixels)).rounded()))
         self.height = max(1, Int((physicalHeight / referencePhysical * Float(referencePixels)).rounded()))
     }

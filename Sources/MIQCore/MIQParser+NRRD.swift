@@ -25,11 +25,6 @@ extension MIQParser {
         return try buildNrrdImage(nrrd: nrrd, storage: storage, payloadOffset: payloadOffset)
     }
 
-    func parseNrrdHeaderOnly(from data: Data) throws -> MIQHeader {
-        let (nrrd, _, payloadOffset) = try loadNrrd(data: data)
-        return try buildNrrdMIQHeader(nrrd: nrrd, payloadOffset: payloadOffset).header
-    }
-
     // MARK: - Loading
 
     private func loadNrrd(data: Data) throws -> (NrrdParsedHeader, Data, Int) {
@@ -62,16 +57,35 @@ extension MIQParser {
     }
 
     private func splitNrrdHeader(data: Data) throws -> (String, Data.Index) {
-        // Search CRLF blank line first, then LF blank line
-        if let r = data.range(of: Data("\r\n\r\n".utf8)) {
-            return (String(decoding: data[data.startIndex..<r.lowerBound], as: UTF8.self), r.upperBound)
+        guard let separator = firstBlankLine(in: data) else {
+            throw MIQError.malformedFile(
+                "NRRD header is missing the blank-line separator; detached headers (.nhdr) are not supported"
+            )
         }
-        if let r = data.range(of: Data("\n\n".utf8)) {
-            return (String(decoding: data[data.startIndex..<r.lowerBound], as: UTF8.self), r.upperBound)
+        return (String(decoding: data[data.startIndex..<separator.lowerBound], as: UTF8.self), separator.upperBound)
+    }
+
+    /// The header ends at the *earliest* blank line (`\n\n` or `\n\r\n`). Walking
+    /// newline to newline stops right there, so the payload is never scanned: a
+    /// whole-file search pages in an mmap'd raw payload, and lets payload bytes that
+    /// spell a blank line (`0D 0A 0D 0A`) win over the real separator. For a CRLF
+    /// header the match starts one byte into `\r\n\r\n`, leaving a trailing `\r` on
+    /// the header text, which the `isNewline` line split already drops.
+    private func firstBlankLine(in data: Data) -> Range<Data.Index>? {
+        let lf: UInt8 = 0x0A
+        let cr: UInt8 = 0x0D
+        var searchStart = data.startIndex
+        while let newline = data[searchStart...].firstIndex(of: lf) {
+            let next = newline + 1
+            if next < data.endIndex, data[next] == lf {
+                return newline..<(next + 1)
+            }
+            if next + 1 < data.endIndex, data[next] == cr, data[next + 1] == lf {
+                return newline..<(next + 2)
+            }
+            searchStart = next
         }
-        throw MIQError.malformedFile(
-            "NRRD header is missing the blank-line separator; detached headers (.nhdr) are not supported"
-        )
+        return nil
     }
 
     // MARK: - Header field parsing

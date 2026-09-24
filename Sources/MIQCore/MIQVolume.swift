@@ -447,9 +447,9 @@ public struct MIQVolume: Sendable {
     }
 
     private func prepareSlice(plan: SliceAxisPlan, index: Int, volumeIndex: Int) -> PreparedSlice {
-        let dx = max(1e-6, abs(image.header.pixdim[safe: 1] ?? 1.0))
-        let dy = max(1e-6, abs(image.header.pixdim[safe: 2] ?? 1.0))
-        let dz = max(1e-6, abs(image.header.pixdim[safe: 3] ?? 1.0))
+        let dx = sanitizedSpacing(image.header.pixdim[safe: 1] ?? 1.0)
+        let dy = sanitizedSpacing(image.header.pixdim[safe: 2] ?? 1.0)
+        let dz = sanitizedSpacing(image.header.pixdim[safe: 3] ?? 1.0)
 
         let config = SliceConfig(plan: plan, width: width, height: height, depth: depth, dx: dx, dy: dy, dz: dz)
         let maxPhysicalExtent = max(Float(width) * dx, Float(height) * dy, Float(depth) * dz)

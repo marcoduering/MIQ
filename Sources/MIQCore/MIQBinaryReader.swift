@@ -109,8 +109,10 @@ enum MIQBinaryReader {
         return Swift.max(capacity, inflateCapacityFloor)
     }
 
-    static func gunzip(_ data: Foundation.Data) throws -> Foundation.Data {
-        guard data.count >= 18 else {
+    /// `maxInputWindow` is internal and exists only so tests can exercise input
+    /// refills without a 4 GiB fixture; production uses the `avail_in` maximum.
+    static func gunzip(_ data: Foundation.Data, maxInputWindow: Int = Int(UInt32.max)) throws -> Foundation.Data {
+        guard data.count >= 18, maxInputWindow >= 1 else {
             throw MIQError.decompressionFailed
         }
 
@@ -138,10 +140,10 @@ enum MIQBinaryReader {
                 status = Z_DATA_ERROR
                 return
             }
-            stream.next_in = UnsafeMutablePointer(mutating: inBase)
-            stream.avail_in = UInt32(data.count)
+            var fed = 0  // input bytes handed to zlib so far
 
             while true {
+                feedInputWindow(&stream, base: inBase, count: data.count, fed: &fed, maxWindow: maxInputWindow)
                 status = output.withUnsafeMutableBytes { outBuf -> Int32 in
                     guard let outBase = outBuf.bindMemory(to: Bytef.self).baseAddress else {
                         return Z_DATA_ERROR
@@ -157,8 +159,9 @@ enum MIQBinaryReader {
                 if status == Z_STREAM_END { break }
                 if status != Z_OK && status != Z_BUF_ERROR { break }
                 if stream.avail_out > 0 {
-                    // Output space left but no stream end: the compressed input ran
-                    // out first, so the file is truncated.
+                    // Output space left but no stream end: zlib consumed the current
+                    // input window. Truncated only once *all* input has been fed.
+                    if fed < data.count { continue }
                     status = Z_DATA_ERROR
                     break
                 }
@@ -183,6 +186,23 @@ enum MIQBinaryReader {
         return output
     }
 
+    /// `avail_in` is a UInt32, so compressed input past 4 GiB is fed in windows,
+    /// the same way output is. Refills only once zlib has consumed the current
+    /// window. Chunking the input never changes inflate's output.
+    private static func feedInputWindow(
+        _ stream: inout z_stream,
+        base: UnsafePointer<Bytef>,
+        count: Int,
+        fed: inout Int,
+        maxWindow: Int
+    ) {
+        guard stream.avail_in == 0, fed < count else { return }
+        let window = Swift.min(count - fed, maxWindow, Int(UInt32.max))
+        stream.next_in = UnsafeMutablePointer(mutating: base + fed)
+        stream.avail_in = UInt32(window)
+        fed += window
+    }
+
     /// Streaming gunzip that stops once at least `maxOutputBytes` have been
     /// produced (or the stream ends first). Used to decompress only the prefix a
     /// Quick Look preview actually reads (header + the requested volume) instead
@@ -191,8 +211,12 @@ enum MIQBinaryReader {
     ///
     /// For the full-stream case (cap >= uncompressed size) the chunked inflate
     /// produces byte-identical output to the single-shot `gunzip(_:)` above.
-    static func gunzip(_ data: Foundation.Data, maxOutputBytes: Int) throws -> Foundation.Data {
-        guard data.count >= 18, maxOutputBytes >= 1 else {
+    static func gunzip(
+        _ data: Foundation.Data,
+        maxOutputBytes: Int,
+        maxInputWindow: Int = Int(UInt32.max)
+    ) throws -> Foundation.Data {
+        guard data.count >= 18, maxOutputBytes >= 1, maxInputWindow >= 1 else {
             throw MIQError.decompressionFailed
         }
 
@@ -222,10 +246,10 @@ enum MIQBinaryReader {
                 status = Z_DATA_ERROR
                 return
             }
-            stream.next_in = UnsafeMutablePointer(mutating: inBase)
-            stream.avail_in = UInt32(data.count)
+            var fed = 0  // input bytes handed to zlib so far
 
             while true {
+                feedInputWindow(&stream, base: inBase, count: data.count, fed: &fed, maxWindow: maxInputWindow)
                 status = output.withUnsafeMutableBytes { outBuf -> Int32 in
                     guard let outBase = outBuf.bindMemory(to: Bytef.self).baseAddress else {
                         return Z_DATA_ERROR
@@ -239,7 +263,10 @@ enum MIQBinaryReader {
                 }
                 if status == Z_STREAM_END { break }
                 if status != Z_OK && status != Z_BUF_ERROR { break }
-                if stream.avail_out > 0 { break }       // input ended before the stream did
+                if stream.avail_out > 0 {               // input window consumed
+                    if fed < data.count { continue }    // more input to feed
+                    break                               // input ended before the stream did
+                }
                 if produced < capacity { continue }     // buffer has room, refill the window
                 if capacity == maxOutputBytes { break } // requested prefix produced: deliberate stop
                 let grown = capacity.multipliedReportingOverflow(by: 2)

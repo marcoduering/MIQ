@@ -15,7 +15,8 @@ public struct MIQHeader: Sendable {
     public let srowZ: [Float]
     /// Optional override for the displayed format name. When `nil`, callers should fall back to
     /// `MIQFileKind.displayName`. Set by parsers that detect compression at parse time (e.g. NRRD,
-    /// where `.nrrd` covers both raw and gzipped payloads).
+    /// where `.nrrd` covers both raw and gzipped payloads), and by NIfTI-2, which shares its file
+    /// kinds with NIfTI-1.
     public let formatLabel: String?
     /// Optional override for the displayed datatype name. When `nil`, callers fall back to
     /// `datatype.label`. Set by parsers whose on-disk datatype has no `MIQDatatype` equivalent and
@@ -66,4 +67,15 @@ public struct MIQHeader: Sendable {
         self.datatypeLabel = datatypeLabel
         self.orientationFrame = orientationFrame
     }
+}
+
+/// Voxel spacing used for rendering: `abs(value)` when it is finite and positive, else 1.
+/// A zero spacing is common in hand-written headers and every mainstream viewer reads it as
+/// 1 (a tiny floor instead squashed that axis to a single pixel); a non-finite one would
+/// poison the physical-extent arithmetic. Applied at render time, so `pixdim` keeps the
+/// header's raw values for the metadata panel; MGH is the exception, having always stored
+/// its clamped voxel sizes.
+func sanitizedSpacing(_ value: Float) -> Float {
+    let magnitude = abs(value)
+    return magnitude.isFinite && magnitude > 0 ? magnitude : 1
 }

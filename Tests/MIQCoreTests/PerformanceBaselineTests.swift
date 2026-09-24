@@ -466,7 +466,6 @@ struct PerformanceBaselineTests {
         var previewTotal: Double?       // headline: parse(url) + centerPreview, min-based & stable
         var coldParsePreview: Double?   // single 1× cold run — real-world cross-check, noisy
         var mmapRead: Double?
-        var parseHeader: Double?
         var gunzipFull: Double?
         var parseEndToEnd: Double?
         var fixedCenterWindow: Double?
@@ -613,7 +612,6 @@ struct PerformanceBaselineTests {
         }
 
         let readMs = measure(iterations: 3) { _ = try? Data(contentsOf: url, options: [.mappedIfSafe]) }
-        let headerMs = measure(iterations: 3) { _ = try? MIQParser().parseHeader(url: url) }
         let isGz = url.pathExtension.lowercased() == "gz"
         var gunzipMs: (minMs: Double, medianMs: Double)?
         if isGz, let rawData = try? Data(contentsOf: url, options: [.mappedIfSafe]) {
@@ -669,7 +667,6 @@ struct PerformanceBaselineTests {
                 previewTotal: parseMs.minMs + previewMs.minMs,
                 coldParsePreview: ms(coldDur),
                 mmapRead: readMs.minMs,
-                parseHeader: headerMs.minMs,
                 gunzipFull: gunzipMs?.minMs,
                 parseEndToEnd: parseMs.minMs,
                 fixedCenterWindow: windowMs.minMs,
@@ -721,7 +718,6 @@ struct PerformanceBaselineTests {
         print(String(repeating: "·", count: 72))
         line("  COLD 1× (real-world)", r.stages.coldParsePreview, b?.coldParsePreview, flag: false)
         line("  mmap read", r.stages.mmapRead, b?.mmapRead)
-        line("  parseHeader(url)", r.stages.parseHeader, b?.parseHeader)
         line("  gunzip (zlib, full)", r.stages.gunzipFull, b?.gunzipFull)
         line("  parse(url) end-to-end", r.stages.parseEndToEnd, b?.parseEndToEnd)
         line("  fixedCenterWindow", r.stages.fixedCenterWindow, b?.fixedCenterWindow)

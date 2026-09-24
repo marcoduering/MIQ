@@ -14,11 +14,6 @@ public struct MIQParser {
         return try parseImage(data: data, kind: kind)
     }
 
-    public func parseHeader(url: URL) throws -> MIQHeader {
-        let (data, kind) = try loadAndDecompress(url: url)
-        return try parseHeader(data: data, kind: kind)
-    }
-
     // MARK: - Internal
 
     /// Generous prefix that comfortably contains any NIfTI fixed header (≤ 540 B)
@@ -286,26 +281,13 @@ public struct MIQParser {
     private func parseImage(data: Data, kind: MIQFileKind) throws -> MIQImage {
         switch kind {
         case .nii, .niiGz:
-            return try parseNifti(data)
+            return try parseNifti(data, compressed: kind.isCompressed)
         case .mgh, .mgz:
             return try parseMgh(data)
         case .mif, .mifGz:
             return try parseMif(data)
         case .nrrd:
             return try parseNrrd(data)
-        }
-    }
-
-    private func parseHeader(data: Data, kind: MIQFileKind) throws -> MIQHeader {
-        switch kind {
-        case .nii, .niiGz:
-            return try parseNiftiHeader(from: data)
-        case .mgh, .mgz:
-            return try parseMghHeader(from: data)
-        case .mif, .mifGz:
-            return try parseMifHeaderOnly(from: data)
-        case .nrrd:
-            return try parseNrrdHeaderOnly(from: data)
         }
     }
 }

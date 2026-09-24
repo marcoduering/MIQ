@@ -1,8 +1,11 @@
 import Foundation
 
 extension MIQParser {
-    func parseNifti(_ data: Data) throws -> MIQImage {
-        let header = try parseNiftiHeader(from: data)
+    /// - Parameter compressed: Whether the file was gzipped. Only the NIfTI-2 format
+    ///   label depends on it: `MIQFileKind.displayName` says "NIfTI-1", and the header
+    ///   version is only known here while the compression is only known to the caller.
+    func parseNifti(_ data: Data, compressed: Bool = false) throws -> MIQImage {
+        let header = try parseNiftiHeader(from: data, compressed: compressed)
         guard data.count >= header.voxOffset else {
             throw MIQError.truncatedData
         }
@@ -18,7 +21,7 @@ extension MIQParser {
         return MIQImage(header: header, storage: data, payloadOffset: header.voxOffset)
     }
 
-    func parseNiftiHeader(from data: Data) throws -> MIQHeader {
+    func parseNiftiHeader(from data: Data, compressed: Bool = false) throws -> MIQHeader {
         guard data.count >= 4 else { throw MIQError.truncatedData }
 
         let headerSizeLE = MIQBinaryReader.int32(data, 0, littleEndian: true)
@@ -28,7 +31,7 @@ extension MIQParser {
         if headerSizeLE == 348 || headerSizeBE == 348 {
             header = try parseNifti1Header(from: data, littleEndian: headerSizeLE == 348)
         } else if headerSizeLE == 540 || headerSizeBE == 540 {
-            header = try parseNifti2Header(from: data, littleEndian: headerSizeLE == 540)
+            header = try parseNifti2Header(from: data, littleEndian: headerSizeLE == 540, compressed: compressed)
         } else {
             throw MIQError.invalidHeaderSize(headerSizeLE)
         }
@@ -87,7 +90,7 @@ extension MIQParser {
     // Field types are widened relative to NIfTI-1: dim→int64, pixdim→float64,
     // vox_offset→int64, scl_slope/inter→float64, srow→float64, form_codes→int32.
 
-    private func parseNifti2Header(from data: Data, littleEndian: Bool) throws -> MIQHeader {
+    private func parseNifti2Header(from data: Data, littleEndian: Bool, compressed: Bool) throws -> MIQHeader {
         guard data.count >= 540 else { throw MIQError.truncatedData }
 
         let dim = MIQBinaryReader.int64Array(data, 16, count: 8, littleEndian: littleEndian)
@@ -128,6 +131,7 @@ extension MIQParser {
             srowX: srowX,
             srowY: srowY,
             srowZ: srowZ,
+            formatLabel: compressed ? "Compressed NIfTI-2" : "NIfTI-2",
             orientationFrame: orientationFrame
         )
     }
