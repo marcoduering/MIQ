@@ -304,7 +304,15 @@ final class MIQPreviewModel {
 
     func scrollGestureBegan() {
         _ = interactiveStateForInteraction()
-        renderTask?.cancel()
+        // The in-flight render may have been a forced full render (after W/L or
+        // the 4D expansion swap) whose `pendingForceRender` was already consumed.
+        // Cancelled, it never repaints, so the diff against `displayedCursor`
+        // would skip planes that are stale — re-arm the force so the next render
+        // repaints all three.
+        if let renderTask {
+            renderTask.cancel()
+            pendingForceRender = true
+        }
         renderTask = nil
         pendingRenderCursor = nil
         // A new gesture earns one more expansion attempt after a prior failure.
