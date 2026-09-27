@@ -48,18 +48,6 @@ final class MIQPreviewController: NSViewController, QLPreviewingController, Netw
         self.view = root
     }
 
-    /// Tags log lines with this controller (its address, so it can recur after a
-    /// `deinit`): the Finder pane's and the Space panel's controllers run side by side.
-    private nonisolated var logID: String {
-        String(UInt(bitPattern: ObjectIdentifier(self).hashValue), radix: 16)
-    }
-
-    private func logLifecycle(_ event: String) {
-        let file = currentURL?.lastPathComponent ?? "-"
-        let state = model.map { String(describing: $0.state) } ?? "no model"
-        logger.notice("[\(self.logID, privacy: .public)] \(event, privacy: .public): \(file, privacy: .public), state=\(state, privacy: .public)")
-    }
-
     /// Between `viewWillAppear` and `viewDidDisappear`. Quick Look can show two
     /// previews at once (the Space panel and the Finder pane, one lagging behind
     /// the other); `NetworkReadLane` never drops the read of a file on screen.
@@ -76,11 +64,10 @@ final class MIQPreviewController: NSViewController, QLPreviewingController, Netw
         super.viewWillAppear()
         isOnScreen = true
         hasDisappeared = false
-        logLifecycle("viewWillAppear")
         NetworkReadLane.shared.clientVisibilityChanged(self)
         // Its read was dropped while it was off screen: load again.
         if model?.loadSuperseded == true {
-            logger.notice("[\(self.logID, privacy: .public)] reloading dropped preview")
+            logger.notice("reloading dropped preview")
             beginLoad(forceFullRead: false)
         }
     }
@@ -89,13 +76,12 @@ final class MIQPreviewController: NSViewController, QLPreviewingController, Netw
         super.viewDidDisappear()
         isOnScreen = false
         hasDisappeared = true
-        logLifecycle("viewDidDisappear")
         NetworkReadLane.shared.clientVisibilityChanged(self)
     }
 
     nonisolated func preparePreviewOfFile(at url: URL, completionHandler handler: @escaping (Error?) -> Void) {
         nonisolated(unsafe) let completion = handler
-        logger.notice("[\(self.logID, privacy: .public)] preparePreviewOfFile called for: \(url.path, privacy: .public)")
+        logger.notice("preparePreviewOfFile called for: \(url.path, privacy: .public)")
 
         guard MIQFileKind(url: url) != nil else {
             logger.notice("declining unsupported preview file: \(url.path, privacy: .public)")
@@ -207,7 +193,7 @@ final class MIQPreviewController: NSViewController, QLPreviewingController, Netw
             }
             self.refreshPreviewView(from: model, flushDisplay: false)
             let elapsedMs = Int(Date().timeIntervalSince(started) * 1000)
-            logger.notice("[\(self.logID, privacy: .public)] async model load finished in \(elapsedMs, privacy: .public) ms, state=\(String(describing: model.state), privacy: .public)")
+            logger.notice("async model load finished in \(elapsedMs, privacy: .public) ms, state=\(String(describing: model.state), privacy: .public)")
         }
     }
 
@@ -226,8 +212,5 @@ final class MIQPreviewController: NSViewController, QLPreviewingController, Netw
         if automaticTerminationDisabled {
             ProcessInfo.processInfo.enableAutomaticTermination("Quick Look preview active")
         }
-        // Last: once `self` is used by a call, the stored properties above can no
-        // longer be read in a deinitializer.
-        logger.notice("[\(self.logID, privacy: .public)] deinit")
     }
 }
