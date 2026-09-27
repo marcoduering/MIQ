@@ -3,6 +3,46 @@
     <channel>
         <title>MIQ</title>
         <item>
+            <title>1.5.2</title>
+            <pubDate>Sun, 27 Sep 2026 15:49:47 +0200</pubDate>
+            <link>https://miq.marco-duering.net/</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/marcoduering/MIQ/releases</sparkle:fullReleaseNotesLink>
+            <sparkle:version>1.5.2</sparkle:version>
+            <sparkle:shortVersionString>1.5.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description>&lt;style&gt;
+body { line-height: 1.45; margin: 10px 12px; }
+h1, h2, h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
+h1:first-child, h2:first-child, h3:first-child, p:first-child { margin-top: 0; }
+p { margin: 0 0 8px; }
+ul, ol { margin: 0 0 10px; padding-left: 20px; }
+li { margin: 2px 0; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em; background: rgba(128,128,128,.14);
+  border-radius: 3px; padding: 1px 4px;
+}
+&lt;/style&gt;
+&lt;p dir="auto"&gt;&lt;strong&gt;Performance improvements:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul dir="auto"&gt;
+&lt;li&gt;On a network share, the next file's preview no longer waits for the previous file to finish loading.&lt;/li&gt;
+&lt;li&gt;A file shown in both the Finder preview pane and the Quick Look window is loaded only once.&lt;/li&gt;
+&lt;li&gt;Closing a preview stops loading or decompressing almost immediately.&lt;/li&gt;
+&lt;li&gt;MRtrix &lt;code class="notranslate"&gt;.mif&lt;/code&gt; masks open noticeably faster.&lt;/li&gt;
+&lt;li&gt;With thumbnails enabled, files over 100 MB that would need a full read keep the standard icon instead of slowing down Finder.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p dir="auto"&gt;&lt;strong&gt;Fixes:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul dir="auto"&gt;
+&lt;li&gt;64-bit integer images (int64/uint64) in NIfTI, MIF and NRRD now display instead of failing.&lt;/li&gt;
+&lt;li&gt;Improvbed mask detection (some masks rendered as greyscale)&lt;/li&gt;
+&lt;li&gt;If loading all volumes of a 4D file fails, the Volumes line now says so.&lt;/li&gt;
+&lt;li&gt;Fixed a 1.5.1 regression that could distort volumes with extremely small voxel sizes.&lt;/li&gt;
+&lt;li&gt;Images with very small intensity values (e.g. ADC maps in SI units) display with better contrast.&lt;/li&gt;
+&lt;li&gt;The other views no longer show outdated images when scrolling right after adjusting window/level or loading a 4D file's volumes.&lt;/li&gt;
+&lt;/ul&gt;</description>
+            <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.5.2/MIQ.app.zip" length="4314029" type="application/octet-stream" sparkle:edSignature="L43aXHpGawb+ojhz9g/kZ6kQWafLGch85abtlMI167V+wAFCTy90wtcVcmk+rqtHHLD5GdSbNZOk5/T+bDT0Ag==" />
+        </item>
+        <item>
             <title>1.5.1</title>
             <pubDate>Thu, 24 Sep 2026 09:37:00 +0200</pubDate>
             <link>https://miq.marco-duering.net/</link>
@@ -76,38 +116,6 @@ code {
 &lt;li&gt;Minor GUI fixes in the main app&lt;/li&gt;
 &lt;/ul&gt;</description>
             <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.5.0/MIQ.app.zip" length="4255922" type="application/octet-stream" sparkle:edSignature="R6jYHrKVINWM0QH06/j71BOOyUSXj15mZ7sO7ylx7F7FF4A9WNsqWqlOVoOGOUZH0ELNC/k4J9h8X0xB72T+Cg==" />
-        </item>
-        <item>
-            <title>1.4.1</title>
-            <pubDate>Sat, 05 Sep 2026 17:02:12 +0200</pubDate>
-            <link>https://miq.marco-duering.net/</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/marcoduering/MIQ/releases</sparkle:fullReleaseNotesLink>
-            <sparkle:version>1.4.1</sparkle:version>
-            <sparkle:shortVersionString>1.4.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description>&lt;style&gt;
-body { line-height: 1.45; margin: 10px 12px; }
-h1, h2, h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
-h1:first-child, h2:first-child, h3:first-child, p:first-child { margin-top: 0; }
-p { margin: 0 0 8px; }
-ul, ol { margin: 0 0 10px; padding-left: 20px; }
-li { margin: 2px 0; }
-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.92em; background: rgba(128,128,128,.14);
-  border-radius: 3px; padding: 1px 4px;
-}
-&lt;/style&gt;
-&lt;p dir="auto"&gt;&lt;strong&gt;Fixes:&lt;/strong&gt;&lt;/p&gt;
-&lt;ul dir="auto"&gt;
-&lt;li&gt;“Restore default settings” did not cover the “Voxel value” metadata setting.&lt;/li&gt;
-&lt;li&gt;Multiple minor bug fixes&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p dir="auto"&gt;&lt;strong&gt;Other:&lt;/strong&gt;&lt;/p&gt;
-&lt;ul dir="auto"&gt;
-&lt;li&gt;Automatic update is now the default&lt;/li&gt;
-&lt;/ul&gt;</description>
-            <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.4.1/MIQ.app.zip" length="4224125" type="application/octet-stream" sparkle:edSignature="wFypR7x4RzIM08jlikxEqRYUg+DUUvQHvZiYR12jRDrynQKTEC8cIHfwGiFznvOOMi99+KljXiCOHHc4GK5bBw==" />
         </item>
     </channel>
 </rss>
