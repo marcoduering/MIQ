@@ -187,7 +187,8 @@ public enum MIQConfig {
         return d.object(forKey: Keys.deferLargeNetworkPreviews) as? Bool ?? Defaults.deferLargeNetworkPreviews
     }
 
-    /// Byte threshold derived from `Defaults.networkPreviewThresholdMB`.
+    /// Byte threshold derived from `Defaults.networkPreviewThresholdMB`. Also the
+    /// thumbnail extension's size cutoff (`MIQFileKind.declinesThumbnail`).
     public static var networkPreviewThresholdBytes: Int {
         Int(Defaults.networkPreviewThresholdMB * 1024 * 1024)
     }

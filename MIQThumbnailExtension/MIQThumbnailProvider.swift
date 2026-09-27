@@ -24,7 +24,7 @@ final class MIQThumbnailProvider: QLThumbnailProvider {
             return
         }
 
-        guard MIQFileKind(url: url) != nil else {
+        guard let kind = MIQFileKind(url: url) else {
             logger.notice("declining non-volume file, deferring to system icon: \(url.lastPathComponent, privacy: .public)")
             handler(nil, nil)
             return
@@ -32,8 +32,19 @@ final class MIQThumbnailProvider: QLThumbnailProvider {
 
         // Off by default: thumbnailing a network share means a parse per file
         // while browsing, which can hammer a slow mount. Local files are unaffected.
-        if !MIQConfig.showThumbnailsOnNetworkVolumes, !VolumeLocation.isLocal(url) {
+        let isLocal = VolumeLocation.isLocal(url)
+        if !MIQConfig.showThumbnailsOnNetworkVolumes, !isLocal {
             logger.notice("declining thumbnail on network volume (disabled in settings): \(url.lastPathComponent, privacy: .public)")
+            handler(nil, nil)
+            return
+        }
+
+        // A large file whose centre slice needs a full read/decompression would
+        // cost one full gunzip per icon. Same threshold as the preview's
+        // large-network gate.
+        let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        if kind.declinesThumbnail(fileSizeBytes: fileSize, isLocal: isLocal, thresholdBytes: MIQConfig.networkPreviewThresholdBytes) {
+            logger.notice("declining thumbnail for large \(kind.displayName, privacy: .public) file (\((fileSize ?? 0) / 1_048_576, privacy: .public) MB): \(url.lastPathComponent, privacy: .public)")
             handler(nil, nil)
             return
         }

@@ -44,6 +44,21 @@ public enum MIQFileKind: Sendable, CaseIterable {
         }
     }
 
+    /// Whether the Finder thumbnail extension should decline this file (keeping
+    /// the system icon) rather than parse it. A thumbnail is spawned per visible
+    /// icon, so a folder of large 4D `.mif.gz`/`.mgz` would otherwise fully
+    /// decompress one file per icon. Declines only when rendering the centre
+    /// slice would pull the whole file: a non-boundable kind over `thresholdBytes`
+    /// that is compressed, is `.nrrd` (the header, not the extension, decides
+    /// whether its payload is gzip), or sits on a network volume. Local
+    /// uncompressed MGH/MIF are memory-mapped, so size costs them nothing. An
+    /// unknown size (`nil`) never declines.
+    public func declinesThumbnail(fileSizeBytes: Int?, isLocal: Bool, thresholdBytes: Int) -> Bool {
+        guard !supportsBoundedNetworkRead,
+              let fileSizeBytes, fileSizeBytes > thresholdBytes else { return false }
+        return isCompressed || self == .nrrd || !isLocal
+    }
+
     public var displayName: String {
         switch self {
         case .nii: return "NIfTI-1"
