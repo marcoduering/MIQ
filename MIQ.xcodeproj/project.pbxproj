@@ -13,6 +13,7 @@
 		0701E1F39439EE434DE78D66 /* MIQQuickLookExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DEACD5BFB1B39E6BB6A9F28F /* MIQQuickLookExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		1525C5A90753349409A6DC7B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00FF4BD21CCF016F9EE93B3D /* ContentView.swift */; };
 		1F7BAF3D389C4B31A8A8EA6E /* MIQPreviewCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 827A41D521B17E9ABFF27BF5 /* MIQPreviewCache.swift */; };
+		4E7A1C2B9D3F4A5B6C7D8E9F /* NetworkReadLane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F8B2D3C0E4A5B6C7D8E9FA0 /* NetworkReadLane.swift */; };
 		4CFCB7FE2FAD03EF00715102 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 4CFCB7FD2FAD03EF00715102 /* AppIcon.icon */; };
 		9C6AE0FE9F91ECE1B1923E18 /* MIQCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0D703866A54AAA65D0773EF7 /* MIQCore */; };
 		AA00BB00CC00DD00EE00FF01 /* MIQCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB00CC00DD00EE00FF02 /* MIQCore */; };
@@ -74,6 +75,7 @@
 		4CFCB7FD2FAD03EF00715102 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		5FA8F818819F192C0EB31251 /* MIQ */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MIQ; path = .; sourceTree = SOURCE_ROOT; };
 		827A41D521B17E9ABFF27BF5 /* MIQPreviewCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQPreviewCache.swift; sourceTree = "<group>"; };
+		5F8B2D3C0E4A5B6C7D8E9FA0 /* NetworkReadLane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkReadLane.swift; sourceTree = "<group>"; };
 		901139238A3C73F5F746D7A0 /* MIQPreviewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQPreviewModel.swift; sourceTree = "<group>"; };
 		B9BA3B91B2654D418D9CD49E /* MIQPreviewAppKitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQPreviewAppKitView.swift; sourceTree = "<group>"; };
 		BA1109BAE7000002000003E6 /* MIQLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQLogger.swift; sourceTree = "<group>"; };
@@ -156,6 +158,7 @@
 				901139238A3C73F5F746D7A0 /* MIQPreviewModel.swift */,
 				24EC29AEA4504CC7AE152ACC /* MIQSliceCanvas.swift */,
 				827A41D521B17E9ABFF27BF5 /* MIQPreviewCache.swift */,
+				5F8B2D3C0E4A5B6C7D8E9FA0 /* NetworkReadLane.swift */,
 			);
 			path = MIQQuickLookExtension;
 			sourceTree = "<group>";
@@ -323,6 +326,7 @@
 				C56348DEE1CC6B4E25B8E49F /* MIQPreviewModel.swift in Sources */,
 				E8089EA1F58D4F049738209C /* MIQSliceCanvas.swift in Sources */,
 				1F7BAF3D389C4B31A8A8EA6E /* MIQPreviewCache.swift in Sources */,
+				4E7A1C2B9D3F4A5B6C7D8E9F /* NetworkReadLane.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1,7 +1,15 @@
 import Foundation
 
 public struct MIQParser {
-    public init() { /* value type, no stored state */ }
+    /// Called once a file on a network volume has been read from the mount — before
+    /// decompression and decoding, which need no further I/O. Lets the preview's
+    /// network read lane hand the link to the next file early. Never called for a
+    /// local file.
+    let onNetworkReadFinished: (@Sendable () -> Void)?
+
+    public init(onNetworkReadFinished: (@Sendable () -> Void)? = nil) {
+        self.onNetworkReadFinished = onNetworkReadFinished
+    }
 
     /// - Parameter fullyDecompress: When `true`, bypass the volume-0 budget cap
     ///   for `.nii.gz` and decompress the entire stream. The default (`false`)
@@ -47,6 +55,7 @@ public struct MIQParser {
         if !fullyDecompress, kind == .nii || kind == .niiGz, !isLocal {
             do {
                 if let bounded = try loadBoundedNiftiPrefix(url: url, kind: kind) {
+                    onNetworkReadFinished?()
                     return (bounded, kind)
                 }
             } catch is CancellationError {
@@ -67,6 +76,7 @@ public struct MIQParser {
         let raw = isLocal
             ? try Data(contentsOf: url, options: [.mappedIfSafe])
             : try readCancelable(url: url)
+        if !isLocal { onNetworkReadFinished?() }
         guard kind.isCompressed else {
             return (raw, kind)
         }

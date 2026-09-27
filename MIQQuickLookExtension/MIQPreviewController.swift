@@ -5,7 +5,7 @@ import QuickLook
 import QuickLookUI
 import MIQCore
 
-final class MIQPreviewController: NSViewController, QLPreviewingController {
+final class MIQPreviewController: NSViewController, QLPreviewingController, NetworkReadRetrying {
     private let logger = MIQLogger.make(category: "preview")
     private var previewView: MIQPreviewAppKitView?
     private var model: MIQPreviewModel?
@@ -48,17 +48,55 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
         self.view = root
     }
 
+    /// Tags log lines with this controller (its address, so it can recur after a
+    /// `deinit`): the Finder pane's and the Space panel's controllers run side by side.
+    private nonisolated var logID: String {
+        String(UInt(bitPattern: ObjectIdentifier(self).hashValue), radix: 16)
+    }
+
+    private func logLifecycle(_ event: String) {
+        let file = currentURL?.lastPathComponent ?? "-"
+        let state = model.map { String(describing: $0.state) } ?? "no model"
+        logger.notice("[\(self.logID, privacy: .public)] \(event, privacy: .public): \(file, privacy: .public), state=\(state, privacy: .public)")
+    }
+
+    /// Between `viewWillAppear` and `viewDidDisappear`. Quick Look can show two
+    /// previews at once (the Space panel and the Finder pane, one lagging behind
+    /// the other), so a preview whose read was dropped for a newer file's may still
+    /// be the one the user is looking at.
+    private var isOnScreen = false
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        isOnScreen = true
+        logLifecycle("viewWillAppear")
+        // Shown again after its read was dropped: queue it as the newest request.
+        if model?.loadSuperseded == true { retryNetworkRead() }
+    }
+
+    override func viewDidDisappear() {
+        super.viewDidDisappear()
+        isOnScreen = false
+        logLifecycle("viewDidDisappear")
+    }
+
+    var retryURL: URL? { currentURL }
+
+    var wantsNetworkReadRetry: Bool {
+        isOnScreen && model?.loadSuperseded == true
+    }
+
+    func retryNetworkRead() {
+        logger.notice("[\(self.logID, privacy: .public)] retrying superseded load")
+        beginLoad(forceFullRead: false)
+    }
+
     nonisolated func preparePreviewOfFile(at url: URL, completionHandler handler: @escaping (Error?) -> Void) {
         nonisolated(unsafe) let completion = handler
-        logger.notice("preparePreviewOfFile called for: \(url.path, privacy: .public)")
+        logger.notice("[\(self.logID, privacy: .public)] preparePreviewOfFile called for: \(url.path, privacy: .public)")
 
         guard MIQFileKind(url: url) != nil else {
             logger.notice("declining unsupported preview file: \(url.path, privacy: .public)")
-            // Moving on to a file we decline is still moving on: stop the previous
-            // previews' reads (see `prepareAndStartLoading`).
-            Task { @MainActor in
-                MIQPreviewModel.stopBackgroundWork(exceptFor: url)
-            }
             completion(MIQError.unsupportedFileFormat)
             return
         }
@@ -77,12 +115,6 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
             automaticTerminationDisabled = true
             logger.notice("automatic termination disabled")
         }
-
-        // Quick Look releases the previous file's controller (whose `deinit` cancels
-        // its load) only 0.5–1.5 s after the next request, so a quick arrow-through
-        // left two or three old reads competing for the mount. This request is the
-        // earliest sign that the user moved on: stop the other files' reads now.
-        MIQPreviewModel.stopBackgroundWork(exceptFor: url)
 
         if currentURL == url, let model {
             switch model.state {
@@ -130,10 +162,8 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
             }
             self.refreshPreviewView(from: model, flushDisplay: shouldFlushDisplay)
         }
-        // Defensive: Quick Look has so far always used a fresh controller per file
-        // (`stopBackgroundWork(exceptFor:)` above is what actually stops the old
-        // file's reads), but if it ever reuses this one, don't leave the old
-        // model's work running.
+        // Defensive: Quick Look has so far always used a fresh controller per file,
+        // but if it ever reuses this one, don't leave the old model's work running.
         self.model?.cancelInFlightWork()
         self.model = model
 
@@ -149,6 +179,7 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
         loadTask?.cancel()
         loadingIndicatorTask?.cancel()
         previewView?.hideStatus()
+        let started = Date()
 
         loadingIndicatorTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
@@ -169,7 +200,12 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
                 return
             }
             self.refreshPreviewView(from: model, flushDisplay: false)
-            logger.notice("async model load finished")
+            if model.loadSuperseded {
+                // Retried when the link goes quiet, if still on screen then.
+                NetworkReadLane.shared.parkForRetry(self)
+            }
+            let elapsedMs = Int(Date().timeIntervalSince(started) * 1000)
+            logger.notice("[\(self.logID, privacy: .public)] async model load finished in \(elapsedMs, privacy: .public) ms, state=\(String(describing: model.state), privacy: .public)")
         }
     }
 
@@ -188,5 +224,8 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
         if automaticTerminationDisabled {
             ProcessInfo.processInfo.enableAutomaticTermination("Quick Look preview active")
         }
+        // Last: once `self` is used by a call, the stored properties above can no
+        // longer be read in a deinitializer.
+        logger.notice("[\(self.logID, privacy: .public)] deinit")
     }
 }
