@@ -248,3 +248,40 @@ struct VoxelSpacingTests {
         #expect(target.width == 256 && target.height == 20)
     }
 }
+
+/// The in-memory gunzip variants inflate in `inflateOutputWindow`-sized output
+/// windows so a cancelled task stops between them. The windows must never change
+/// the output, and cancellation must surface as `CancellationError`, not as a
+/// decompression failure.
+struct GunzipOutputWindowTests {
+    // Spans several output windows; patterned so it compresses, but not trivially.
+    private static let raw: Data = {
+        let count = MIQBinaryReader.inflateOutputWindow * 2 + 12_345
+        var bytes = [UInt8](repeating: 0, count: count)
+        for i in 0..<count { bytes[i] = UInt8(truncatingIfNeeded: (i >> 4) ^ (i >> 13)) }
+        return Data(bytes)
+    }()
+
+    @Test
+    func multiWindowInflateIsByteIdentical() throws {
+        let gz = try TestZlib.gzip(Self.raw)
+        #expect(try MIQBinaryReader.gunzip(gz) == Self.raw)
+        let cap = MIQBinaryReader.inflateOutputWindow + 1
+        #expect(try MIQBinaryReader.gunzip(gz, maxOutputBytes: cap) == Self.raw.prefix(cap))
+        #expect(try MIQBinaryReader.gunzip(gz, maxOutputBytes: Self.raw.count) == Self.raw)
+    }
+
+    @Test
+    func cancelledTaskThrowsCancellationError() async throws {
+        let gz = try TestZlib.gzip(Self.raw)
+        let outcome = await Task.detached { () -> (full: Error?, capped: Error?) in
+            withUnsafeCurrentTask { $0?.cancel() }
+            var full: Error?, capped: Error?
+            do { _ = try MIQBinaryReader.gunzip(gz) } catch { full = error }
+            do { _ = try MIQBinaryReader.gunzip(gz, maxOutputBytes: Self.raw.count) } catch { capped = error }
+            return (full, capped)
+        }.value
+        #expect(outcome.full is CancellationError)
+        #expect(outcome.capped is CancellationError)
+    }
+}

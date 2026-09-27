@@ -105,4 +105,43 @@ END
         #expect(!volume.volumeZeroIsContiguous)
         #expect(volume.buildSegmentationLut(options: Self.autoOptions)?.kind == .monochromeWhite)
     }
+
+    // MARK: - Foreground off every center plane
+
+    /// Misses all three center planes (x = 6, y = 5, z = 4), so detection and the
+    /// window must walk the whole volume in storage order.
+    private static func inOffCenterBox(_ x: Int, _ y: Int, _ z: Int) -> Bool {
+        (0..<3).contains(x) && (0..<3).contains(y) && (0..<2).contains(z)
+    }
+
+    private static let offOptions = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .off)
+
+    @Test(arguments: [[0, 1, 2], [2, 0, 1], [-1, 2, 0], [1, 0, -2]])
+    func offCenterMifMaskScansDenseLayouts(layout: [Int]) throws {
+        let mask = try Self.makeMif(dims: Self.dims, layout: layout) { x, y, z, _ in
+            Self.inOffCenterBox(x, y, z) ? 5 : 0
+        }
+        #expect(mask.buildSegmentationLut(options: Self.autoOptions)?.kind == .monochromeWhite)
+        #expect(mask.fixedCenterWindow(options: Self.offOptions) == MIQIntensityWindowBounds(low: 0, high: 5))
+
+        let twoLabels = try Self.makeMif(dims: Self.dims, layout: layout) { x, y, z, _ in
+            if x == 11, y == 9, z == 7 { return 7 }
+            return Self.inOffCenterBox(x, y, z) ? 5 : 0
+        }
+        #expect(twoLabels.buildSegmentationLut(options: Self.autoOptions)?.kind == .random)
+    }
+
+    @Test(arguments: [[0, 1, 2, 3], [1, 2, 3, 0]])
+    func offCenter4DMifScansOnlyItsOwnVolume(layout: [Int]) throws {
+        // Volume-slowest (contiguous) and volume-fastest (per-voxel walk): volume
+        // 1's label must not leak into volume 0's verdict, and each timepoint's
+        // window fallback reads that timepoint.
+        let volume = try Self.makeMif(dims: Self.dims + [2], layout: layout) { x, y, z, t in
+            guard Self.inOffCenterBox(x, y, z) else { return 0 }
+            return t == 0 ? 5 : 9
+        }
+        #expect(volume.buildSegmentationLut(options: Self.autoOptions)?.kind == .monochromeWhite)
+        #expect(volume.fixedCenterWindow(volumeIndex: 0, options: Self.offOptions) == MIQIntensityWindowBounds(low: 0, high: 5))
+        #expect(volume.fixedCenterWindow(volumeIndex: 1, options: Self.offOptions) == MIQIntensityWindowBounds(low: 0, high: 9))
+    }
 }

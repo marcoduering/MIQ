@@ -109,8 +109,19 @@ enum MIQBinaryReader {
         return Swift.max(capacity, inflateCapacityFloor)
     }
 
+    /// Most output one `inflate` call may produce in the in-memory variants. The
+    /// windows exist for cancellation: with the whole ISIZE hint as one window, a
+    /// typical stream inflated in a single call and a dismissed preview's
+    /// decompression (a large local `.mgz`/`.mif.gz`, the 4D `.nii.gz` expansion)
+    /// could not stop until it finished. Chunking `avail_out` never changes
+    /// inflate's output, and at ~16 MiB the per-call overhead is immaterial.
+    static let inflateOutputWindow = 16 << 20
+
     /// `maxInputWindow` is internal and exists only so tests can exercise input
     /// refills without a 4 GiB fixture; production uses the `avail_in` maximum.
+    ///
+    /// Throws `CancellationError` (not `MIQError`) when the calling task is
+    /// cancelled; that is polled between output windows.
     static func gunzip(_ data: Foundation.Data, maxInputWindow: Int = Int(UInt32.max)) throws -> Foundation.Data {
         guard data.count >= 18, maxInputWindow >= 1 else {
             throw MIQError.decompressionFailed
@@ -134,6 +145,7 @@ enum MIQBinaryReader {
         var output = Data(count: capacity)
         var produced = 0
         var status: Int32 = Z_OK
+        var cancelled = false
 
         data.withUnsafeBytes { inBuf in
             guard let inBase = inBuf.bindMemory(to: Bytef.self).baseAddress else {
@@ -143,13 +155,15 @@ enum MIQBinaryReader {
             var fed = 0  // input bytes handed to zlib so far
 
             while true {
+                if Task.isCancelled { cancelled = true; break }
                 feedInputWindow(&stream, base: inBase, count: data.count, fed: &fed, maxWindow: maxInputWindow)
                 status = output.withUnsafeMutableBytes { outBuf -> Int32 in
                     guard let outBase = outBuf.bindMemory(to: Bytef.self).baseAddress else {
                         return Z_DATA_ERROR
                     }
-                    // `avail_out` is a UInt32, so a buffer past 4 GiB is filled in windows.
-                    let window = Swift.min(capacity - produced, Int(UInt32.max))
+                    // Windowed for cancellation (`inflateOutputWindow`), which also
+                    // keeps each window within `avail_out`'s UInt32.
+                    let window = Swift.min(capacity - produced, inflateOutputWindow)
                     stream.next_out = outBase + produced
                     stream.avail_out = UInt32(window)
                     let ret = inflate(&stream, Z_NO_FLUSH)
@@ -176,6 +190,7 @@ enum MIQBinaryReader {
             }
         }
 
+        if cancelled { throw CancellationError() }
         guard status == Z_STREAM_END else {
             throw MIQError.decompressionFailed
         }
@@ -210,7 +225,8 @@ enum MIQBinaryReader {
     /// requested cap is a deliberate success, not a truncation error.
     ///
     /// For the full-stream case (cap >= uncompressed size) the chunked inflate
-    /// produces byte-identical output to the single-shot `gunzip(_:)` above.
+    /// produces byte-identical output to the single-shot `gunzip(_:)` above. Also
+    /// polls cancellation between output windows, like `gunzip(_:)`.
     static func gunzip(
         _ data: Foundation.Data,
         maxOutputBytes: Int,
@@ -240,6 +256,7 @@ enum MIQBinaryReader {
         var output = Data(count: capacity)
         var produced = 0
         var status: Int32 = Z_OK
+        var cancelled = false
 
         data.withUnsafeBytes { inBuf in
             guard let inBase = inBuf.bindMemory(to: Bytef.self).baseAddress else {
@@ -249,12 +266,13 @@ enum MIQBinaryReader {
             var fed = 0  // input bytes handed to zlib so far
 
             while true {
+                if Task.isCancelled { cancelled = true; break }
                 feedInputWindow(&stream, base: inBase, count: data.count, fed: &fed, maxWindow: maxInputWindow)
                 status = output.withUnsafeMutableBytes { outBuf -> Int32 in
                     guard let outBase = outBuf.bindMemory(to: Bytef.self).baseAddress else {
                         return Z_DATA_ERROR
                     }
-                    let window = Swift.min(capacity - produced, Int(UInt32.max))
+                    let window = Swift.min(capacity - produced, inflateOutputWindow)
                     stream.next_out = outBase + produced
                     stream.avail_out = UInt32(window)
                     let ret = inflate(&stream, Z_NO_FLUSH)
@@ -275,6 +293,7 @@ enum MIQBinaryReader {
             }
         }
 
+        if cancelled { throw CancellationError() }
         // Success: the whole stream decompressed, OR we filled the requested cap
         // (a deliberate early stop). Z_BUF_ERROR with a filled cap is expected —
         // it means "no output space left", which is exactly why we stopped.

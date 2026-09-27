@@ -33,7 +33,7 @@ final class MIQPreviewModel {
         /// display name and on-disk size for the placeholder. `forceFullRead`
         /// (the "Load preview" button) bypasses the gate and parses normally.
         case deferred(name: String, sizeBytes: Int)
-        /// A well-formed scalar volume with no finite voxel in its center slices.
+        /// A well-formed scalar volume with no finite voxel in volume 0.
         /// Not `.failed` — nothing went wrong, there is just nothing to render, and
         /// the resulting black grid is otherwise indistinguishable from a bug.
         case noFiniteVoxels
@@ -380,10 +380,22 @@ final class MIQPreviewModel {
         scheduleRender(for: updated)
     }
 
-    /// `true` while the fully decompressed volume is still being prepared — the
-    /// view layer uses this to show a "decompressing" affordance on the volume
-    /// indicator (Phase 4).
-    var isExpandingVolumes: Bool { expansionState == .expanding }
+    /// What the Volumes line says about the lazy 4D expansion: nothing, a
+    /// "decompressing" affordance while it runs, or that it failed — without the
+    /// last, volumes > 0 render the zero backstop with no explanation.
+    enum VolumeExpansionStatus {
+        case idle
+        case expanding
+        case failed
+    }
+
+    var volumeExpansionStatus: VolumeExpansionStatus {
+        switch expansionState {
+        case .expanding: return .expanding
+        case .failed: return .failed
+        case .notNeeded, .pending, .expanded: return .idle
+        }
+    }
 
     /// Kick the one-time full decompression for a 4D `.nii.gz`. Idempotent:
     /// guarded by `expansionState`, and the model is `@MainActor` so the
@@ -433,6 +445,8 @@ final class MIQPreviewModel {
                 // Volumes > 0 keep the zero backstop; volume 0 stays correct.
                 self.expansionState = .failed
                 self.logger.error("4D expansion failed: \(error.localizedDescription, privacy: .public)")
+                // Repaint so the Volumes line drops "decompressing…" and says so.
+                self.onChange?()
             }
         }
     }
@@ -464,10 +478,13 @@ final class MIQPreviewModel {
         guard let initialBounds = lastAppliedAutoBounds ?? interactiveState.windowBounds else { return }
 
         let current = windowAdjustment ?? initialBounds
-        let initialRange = initialBounds.high - initialBounds.low
         // Relative, not absolute: data with tiny values (~1e-9) must stay
-        // adjustable. A degenerate window gives the drag no scale, so stay inert.
-        guard initialRange > 0 else { return }
+        // adjustable. A zero-width window (only left for a constant volume, since
+        // `MIQVolume` widens a mask's window over the whole volume) scales the drag
+        // by the value's own magnitude instead, or 1 for an all-zero volume.
+        let span = initialBounds.high - initialBounds.low
+        let magnitude = abs(initialBounds.low)
+        let initialRange = span > 0 ? span : (magnitude > 0 ? magnitude : 1)
         let sensitivity = initialRange * 0.005
         let minWidth = initialRange * 0.01
 
@@ -565,8 +582,9 @@ final class MIQPreviewModel {
         }
     }
 
-    /// No window from the pooled center slices and no LUT to replace it ⇒ not one
-    /// finite voxel. The RGB exclusion is load-bearing, not defensive: RGB planes
+    /// No window and no LUT to replace it ⇒ not one finite voxel in volume 0 (the
+    /// window falls back to the whole volume when the center slices have none —
+    /// see `MIQVolume.pooledBounds`). The RGB exclusion is load-bearing, not defensive: RGB planes
     /// contribute nothing to the pooled window by design, so every RGB volume
     /// reaches here with no bounds and would otherwise be declared empty.
     private static func hasNoFiniteVoxels(_ raw: RawPreviewData) -> Bool {

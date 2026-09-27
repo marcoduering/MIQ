@@ -93,7 +93,7 @@ final class MIQPreviewAppKitView: NSView {
     private var lastMetadataRenderInputs: MetadataRenderInputs?
     private var volumeCount = 1
     private var currentVolumeIndex = 0
-    private var volumesExpanding = false
+    private var volumeExpansionStatus: MIQPreviewModel.VolumeExpansionStatus = .idle
     private var metadataOverlayColor: NSColor = .systemBlue
     // Live voxel readout state. `showsVoxelValue` drives whether the value line
     // occupies a metadata slot (a one-time structural change on first interaction);
@@ -168,12 +168,12 @@ final class MIQPreviewAppKitView: NSView {
             needsLayout = true
         }
         currentVolumeIndex = model.currentVolumeIndex
-        volumesExpanding = model.isExpandingVolumes
+        volumeExpansionStatus = model.volumeExpansionStatus
         metadataOverlayColor = labelNSColor
         metadata.setVolumeState(
             index: currentVolumeIndex,
             count: volumeCount,
-            expanding: volumesExpanding,
+            expansion: volumeExpansionStatus,
             overlayColor: metadataOverlayColor
         )
 
@@ -331,7 +331,7 @@ final class MIQPreviewAppKitView: NSView {
         metadata.setVolumeState(
             index: currentVolumeIndex,
             count: volumeCount,
-            expanding: volumesExpanding,
+            expansion: volumeExpansionStatus,
             overlayColor: metadataOverlayColor
         )
         metadata.setVoxelValue(voxelValueText)
@@ -934,11 +934,16 @@ private final class MetadataView: NSView {
         return layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
     }
 
-    /// Cheap per-frame update: only the live index / expanding flag / colour.
+    /// Cheap per-frame update: only the live index / expansion status / colour.
     /// Deliberately does NOT touch `attributedText` so a scrub never re-runs the
     /// throttled metadata sort/rebuild.
-    func setVolumeState(index: Int, count: Int, expanding: Bool, overlayColor: NSColor) {
-        scrubber.configure(index: index, count: count, expanding: expanding, overlayColor: overlayColor)
+    func setVolumeState(
+        index: Int,
+        count: Int,
+        expansion: MIQPreviewModel.VolumeExpansionStatus,
+        overlayColor: NSColor
+    ) {
+        scrubber.configure(index: index, count: count, expansion: expansion, overlayColor: overlayColor)
         scrubber.isHidden = volumesLineIndex == nil || count <= 1
     }
 
@@ -1068,7 +1073,7 @@ private final class MIQVolumeScrubber: NSView {
 
     private var index = 0
     private var count = 1
-    private var expanding = false
+    private var expansion: MIQPreviewModel.VolumeExpansionStatus = .idle
 
     override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for _: NSEvent?) -> Bool { true }
@@ -1076,15 +1081,15 @@ private final class MIQVolumeScrubber: NSView {
     /// Single change-gated entry point. Returns early when nothing visible
     /// changed so a pure x/y/z slice scroll (same timepoint, same colour) never
     /// repaints the scrubber.
-    func configure(index: Int, count: Int, expanding: Bool, overlayColor: NSColor) {
+    func configure(index: Int, count: Int, expansion: MIQPreviewModel.VolumeExpansionStatus, overlayColor: NSColor) {
         let colorChanged = !overlayColor.isEqual(self.overlayColor)
         guard index != self.index
             || count != self.count
-            || expanding != self.expanding
+            || expansion != self.expansion
             || colorChanged else { return }
         self.index = index
         self.count = count
-        self.expanding = expanding
+        self.expansion = expansion
         self.overlayColor = overlayColor
         needsDisplay = true
     }
@@ -1131,7 +1136,12 @@ private final class MIQVolumeScrubber: NSView {
 
     private func valueString() -> String {
         let base = "\(index + 1) / \(count)"
-        return expanding ? base + "  decompressing…" : base
+        switch expansion {
+        case .idle: return base
+        case .expanding: return base + "  decompressing…"
+        // Volumes > 0 show the zero backstop; a new scroll gesture retries.
+        case .failed: return base + "  full load failed"
+        }
     }
 
     override func draw(_: NSRect) {
@@ -1157,7 +1167,7 @@ private final class MIQVolumeScrubber: NSView {
         let thickness = max(Self.trackThicknessMin, lineH * Self.trackThicknessFactor)
         let trackRect = CGRect(x: track.minX, y: centerY - thickness / 2, width: track.maxX - track.minX, height: thickness)
         let radius = thickness / 2
-        let dim: CGFloat = expanding ? 0.5 : 1.0
+        let dim: CGFloat = expansion == .expanding ? 0.5 : 1.0
 
         overlayColor.withAlphaComponent(0.20 * dim).setFill()
         NSBezierPath(roundedRect: trackRect, xRadius: radius, yRadius: radius).fill()

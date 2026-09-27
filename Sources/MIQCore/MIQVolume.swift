@@ -191,7 +191,7 @@ public struct MIQVolume: Sendable {
         options: RenderingOptions
     ) -> MIQIntensityWindowBounds? {
         let prepared = prepareCenterSlices(planes: planes, volumeIndex: volumeIndex, options: options)
-        let bounds = pooledBounds(from: prepared, options: options)
+        let bounds = pooledBounds(from: prepared, volumeIndex: volumeIndex, options: options)
         return bounds.map { MIQIntensityWindowBounds(low: $0.low, high: $0.high) }
     }
 
@@ -208,7 +208,7 @@ public struct MIQVolume: Sendable {
         if let lut = buildSegmentationLut(options: options, preparedCenterSlices: prepared) {
             return (nil, lut)
         }
-        let bounds = pooledBounds(from: prepared, options: options)
+        let bounds = pooledBounds(from: prepared, volumeIndex: 0, options: options)
         return (bounds.map { MIQIntensityWindowBounds(low: $0.low, high: $0.high) }, nil)
     }
 
@@ -282,7 +282,7 @@ public struct MIQVolume: Sendable {
         let lut = (volumeIndex == 0 && planes == SlicePlane.allCases)
             ? buildSegmentationLut(options: options, preparedCenterSlices: prepared)
             : buildSegmentationLut(options: options)
-        let bounds = lut == nil ? pooledBounds(from: prepared, options: options) : nil
+        let bounds = lut == nil ? pooledBounds(from: prepared, volumeIndex: volumeIndex, options: options) : nil
         var slices: [SlicePlane: SliceImage] = [:]
         slices.reserveCapacity(prepared.count)
         for entry in prepared {
@@ -330,8 +330,14 @@ public struct MIQVolume: Sendable {
     /// prepared slices (RGB planes contribute nothing). Split out from
     /// `prepareCenterSlices` because it is the dominant CPU cost of a cold load and
     /// is pure waste whenever a segmentation LUT is about to replace windowing.
+    ///
+    /// When the center slices hold no finite value, or only one value (a mask
+    /// whose foreground misses all three planes), that window is missing or
+    /// zero-width and would render every slice black; `volumeBounds` then derives
+    /// one from the whole of `volumeIndex` instead. Ordinary images never reach it.
     private func pooledBounds(
         from prepared: [(plane: SlicePlane, slice: PreparedSlice)],
+        volumeIndex: Int,
         options: RenderingOptions
     ) -> IntensityWindow.Bounds? {
         var pooledFloatCount = 0
@@ -340,6 +346,8 @@ public struct MIQVolume: Sendable {
                 pooledFloatCount += values.count
             }
         }
+        // RGB volumes contribute nothing and have no intensity window.
+        guard pooledFloatCount > 0 else { return nil }
 
         var pooled = [Float]()
         pooled.reserveCapacity(pooledFloatCount)
@@ -348,11 +356,63 @@ public struct MIQVolume: Sendable {
                 pooled.append(contentsOf: values)
             }
         }
-        return IntensityWindow.bounds(
+        let bounds = IntensityWindow.bounds(
             for: pooled,
             lowerPercentile: options.lowerPercentile,
             upperPercentile: options.upperPercentile
         )
+        if let bounds, bounds.high > bounds.low { return bounds }
+        // A zero-width window here means every finite center voxel had this value.
+        return volumeBounds(volumeIndex: volumeIndex, excluding: bounds?.low, options: options) ?? bounds
+    }
+
+    /// Upper bound on the voxels `volumeBounds` hands to the percentile selection;
+    /// larger sets are sampled at an even stride.
+    private static let maxVolumeWindowSamples = 1_000_000
+
+    /// Fallback window over every voxel of one timepoint, for `pooledBounds`.
+    /// With a `constant` (the value the center slices were filled with) only the
+    /// other values are sampled, and the window is then widened to include the
+    /// constant, so a sparse mask on a zero background maps to [0, label]. Returns
+    /// `nil` when nothing (else) finite is present. Two passes — count, then an
+    /// evenly strided sample — so even a few-voxel mask is always represented.
+    private func volumeBounds(
+        volumeIndex: Int,
+        excluding constant: Float?,
+        options: RenderingOptions
+    ) -> IntensityWindow.Bounds? {
+        func keep(_ v: Float) -> Bool {
+            guard v.isFinite else { return false }
+            guard let constant else { return true }
+            return v != constant
+        }
+
+        var count = 0
+        forEachStoragePlane(volumeIndex: volumeIndex) { values, _ in
+            for v in values where keep(v) { count += 1 }
+            return true
+        }
+        guard count > 0 else { return nil }
+
+        let stride = (count + Self.maxVolumeWindowSamples - 1) / Self.maxVolumeWindowSamples
+        var samples = [Float]()
+        samples.reserveCapacity(min(count, Self.maxVolumeWindowSamples))
+        var seen = 0
+        forEachStoragePlane(volumeIndex: volumeIndex) { values, _ in
+            for v in values where keep(v) {
+                if seen % stride == 0 { samples.append(v) }
+                seen += 1
+            }
+            return true
+        }
+
+        guard let sampled = IntensityWindow.bounds(
+            for: samples,
+            lowerPercentile: options.lowerPercentile,
+            upperPercentile: options.upperPercentile
+        ) else { return nil }
+        guard let constant else { return sampled }
+        return IntensityWindow.Bounds(low: min(sampled.low, constant), high: max(sampled.high, constant))
     }
 
     /// Returns the volume's 3-letter anatomical orientation (e.g. "RAS", "LAS") if
@@ -511,35 +571,7 @@ public struct MIQVolume: Sendable {
             return .rgb(pixels: pixels, config: config, maxPhysicalExtent: maxPhysicalExtent)
 
         default:
-            // Typed reader chosen once; mirrors `rawVoxelValue` arm-for-arm.
-            // `le ? u : u.byteSwapped` reproduces MIQBinaryReader's manual
-            // little/big-endian byte assembly on this little-endian host.
-            let read: (UnsafeRawBufferPointer, Int) -> Float
-            switch datatype {
-            case .uint8:
-                read = { Float($0.loadUnaligned(fromByteOffset: $1, as: UInt8.self)) }
-            case .int8:
-                read = { Float(Int8(bitPattern: $0.loadUnaligned(fromByteOffset: $1, as: UInt8.self))) }
-            case .int16:
-                read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt16.self); return Float(Int16(bitPattern: le ? u : u.byteSwapped)) }
-            case .uint16:
-                read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt16.self); return Float(le ? u : u.byteSwapped) }
-            case .int32:
-                read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt32.self); return Float(Int32(bitPattern: le ? u : u.byteSwapped)) }
-            case .uint32:
-                read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt32.self); return Float(le ? u : u.byteSwapped) }
-            case .float32:
-                read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt32.self); return Float(bitPattern: le ? u : u.byteSwapped) }
-            case .float64:
-                read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt64.self); return Float(Double(bitPattern: le ? u : u.byteSwapped)) }
-            case .int64:
-                read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt64.self); return Float(Double(Int64(bitPattern: le ? u : u.byteSwapped))) }
-            case .uint64:
-                read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt64.self); return Float(Double(le ? u : u.byteSwapped)) }
-            case .rgb24, .rgba32:
-                read = { _, _ in 0 } // unreachable: handled by the RGB case above
-            }
-
+            let read = Self.scalarReader(datatype: datatype, littleEndian: le)
             let values = [Float](unsafeUninitializedCapacity: sampleCount) { buf, initialized in
                 if !tInRange {
                     for i in 0..<sampleCount { buf[i] = 0 }
@@ -568,6 +600,41 @@ public struct MIQVolume: Sendable {
                 initialized = sampleCount
             }
             return .grayscale(values: values, config: config, maxPhysicalExtent: maxPhysicalExtent)
+        }
+    }
+
+    /// Typed scalar reader for `datatype`, chosen once per decode so the per-voxel
+    /// loop never switches on it. Mirrors `rawVoxelValue` arm-for-arm (unscaled);
+    /// `le ? u : u.byteSwapped` reproduces MIQBinaryReader's manual little/big-endian
+    /// byte assembly on this little-endian host. The RGB datatypes have no scalar
+    /// reading here — their callers decode pixel triples instead.
+    private static func scalarReader(
+        datatype: MIQDatatype,
+        littleEndian le: Bool
+    ) -> (UnsafeRawBufferPointer, Int) -> Float {
+        switch datatype {
+        case .uint8:
+            return { Float($0.loadUnaligned(fromByteOffset: $1, as: UInt8.self)) }
+        case .int8:
+            return { Float(Int8(bitPattern: $0.loadUnaligned(fromByteOffset: $1, as: UInt8.self))) }
+        case .int16:
+            return { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt16.self); return Float(Int16(bitPattern: le ? u : u.byteSwapped)) }
+        case .uint16:
+            return { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt16.self); return Float(le ? u : u.byteSwapped) }
+        case .int32:
+            return { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt32.self); return Float(Int32(bitPattern: le ? u : u.byteSwapped)) }
+        case .uint32:
+            return { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt32.self); return Float(le ? u : u.byteSwapped) }
+        case .float32:
+            return { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt32.self); return Float(bitPattern: le ? u : u.byteSwapped) }
+        case .float64:
+            return { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt64.self); return Float(Double(bitPattern: le ? u : u.byteSwapped)) }
+        case .int64:
+            return { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt64.self); return Float(Double(Int64(bitPattern: le ? u : u.byteSwapped))) }
+        case .uint64:
+            return { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt64.self); return Float(Double(le ? u : u.byteSwapped)) }
+        case .rgb24, .rgba32:
+            return { _, _ in 0 } // unreachable: callers decode RGB separately
         }
     }
 
@@ -660,7 +727,7 @@ public struct MIQVolume: Sendable {
                 return nil
             }
         }
-        return finishSegmentationLut(scan: scan, options: options)
+        return finishSegmentationLut(scan: scan, options: options, maxLabels: maxLabels)
     }
 
     /// Same detection as `buildSegmentationLut(options:)`, but reading the label
@@ -682,7 +749,7 @@ public struct MIQVolume: Sendable {
                 return nil
             }
         }
-        return finishSegmentationLut(scan: scan, options: options)
+        return finishSegmentationLut(scan: scan, options: options, maxLabels: maxLabels)
     }
 
     /// Cheap pre-decode gate: colouring enabled, datatype not already RGB, and
@@ -772,6 +839,10 @@ public struct MIQVolume: Sendable {
     ) -> Bool {
         guard rowLength > 0 else { return true }
         let count = values.count
+        // Runs of one value (background, a label's interior) dominate every label
+        // map, so a Set insert is skipped while the value repeats. The set comes
+        // out identical; it matters for the whole-volume scan, not the slices.
+        var lastInserted: Int?
         var start = 0
         while start < count {
             let end = min(start + rowLength, count)
@@ -787,8 +858,11 @@ public struct MIQVolume: Sendable {
                 // correctly rejected as a non-label map.
                 let rounded = MIQBinaryReader.safeInt(v.rounded())
                 guard abs(v - Float(rounded)) <= 1e-3 else { return false }
-                scan.labels.insert(rounded)
-                if scan.labels.count > maxLabels { return false }
+                if rounded != lastInserted {
+                    scan.labels.insert(rounded)
+                    if scan.labels.count > maxLabels { return false }
+                    lastInserted = rounded
+                }
                 if rounded != 0 && previous != 0 {
                     scan.adjacentPairs += 1
                     if rounded != previous { scan.differingPairs += 1 }
@@ -802,20 +876,37 @@ public struct MIQVolume: Sendable {
     }
 
     /// Final LUT selection from a completed scan (background removed here):
-    /// not piecewise constant ⇒ nil; empty ⇒ nil; a lone label confirmed against
-    /// the full volume ⇒ binary mask (or `nil`/multi-label per the scan);
-    /// otherwise FreeSurfer or random.
+    /// not piecewise constant ⇒ nil; a lone label confirmed against the full
+    /// volume ⇒ binary mask (or `nil`/multi-label per the scan); otherwise
+    /// FreeSurfer or random.
+    ///
+    /// Center slices that are pure background (a lesion or single-ROI mask often
+    /// misses all three planes) carry no evidence either way, so the labels are
+    /// then collected from all of volume 0 (`scanVolumeZero`) instead of giving
+    /// up — which rendered such a mask as a black grid. Only that case pays the
+    /// scan; a lone label found there needs no second, confirming pass.
     ///
     /// The piecewise-constancy gate is checked first so that an intensity volume
     /// never reaches `confirmBinaryMask`, whose scan walks all of volume 0. It
     /// cannot affect the binary-mask path itself: a single foreground label makes
     /// every foreground pair equal, so such a volume scores exactly 0.
-    private func finishSegmentationLut(scan: LabelScan, options: RenderingOptions) -> SegmentationLut? {
+    private func finishSegmentationLut(
+        scan: LabelScan,
+        options: RenderingOptions,
+        maxLabels: Int,
+        volumeZeroScanned: Bool = false
+    ) -> SegmentationLut? {
         guard scan.isPiecewiseConstant else { return nil }
         var labelSet = scan.labels
         labelSet.remove(0)
-        guard !labelSet.isEmpty else { return nil }
+        if labelSet.isEmpty {
+            guard !volumeZeroScanned, let full = scanVolumeZero(maxLabels: maxLabels) else { return nil }
+            return finishSegmentationLut(scan: full, options: options, maxLabels: maxLabels, volumeZeroScanned: true)
+        }
 
+        if labelSet.count == 1 && volumeZeroScanned {
+            return .monochromeWhite
+        }
         if labelSet.count == 1 {
             let centerLabel = labelSet.first!
             switch confirmBinaryMask(centerLabel: centerLabel) {
@@ -831,6 +922,81 @@ public struct MIQVolume: Sendable {
         let useFreeSurfer = options.segmentationColoring == .auto
             && SegmentationLut.looksLikeFreeSurfer(labelSet)
         return useFreeSurfer ? .freeSurfer : .random(labels: labelSet)
+    }
+
+    /// The same label scan as the center slices get, run over all of volume 0 in
+    /// storage order (see `finishSegmentationLut` for when). Every rule carries
+    /// over — integrality, `maxLabels`, piecewise constancy along storage rows and
+    /// its reject-side early exit — so an integer intensity image whose center
+    /// happens to be empty is still rejected. `nil` means rejected.
+    private func scanVolumeZero(maxLabels: Int) -> LabelScan? {
+        var scan = LabelScan()
+        let completed = forEachStoragePlane(volumeIndex: 0) { values, rowLength in
+            collectLabels(values, rowLength: rowLength, into: &scan, maxLabels: maxLabels)
+        }
+        return completed ? scan : nil
+    }
+
+    /// Walks one timepoint in storage order, one storage plane at a time, handing
+    /// `body` that plane's (scaled) values and the length of its storage rows —
+    /// consecutive elements within a row are spatial neighbours, which is what the
+    /// piecewise-constancy sample needs. Stops as soon as `body` returns `false`,
+    /// and reports whether the walk ran to completion. Scalar datatypes only.
+    ///
+    /// A dense layout (`denseStorageAxisSizes`) is read straight off the payload
+    /// through the same typed reader as `prepareSlice`; elements past the end of the
+    /// payload (a buffer loaded with the volume-0 cap) are skipped, as in
+    /// `confirmBinaryMask`. Only a layout that interleaves volumes with space falls
+    /// back to walking x-rows through `voxel()`.
+    @discardableResult
+    private func forEachStoragePlane(
+        volumeIndex: Int,
+        _ body: (_ values: [Float], _ rowLength: Int) -> Bool
+    ) -> Bool {
+        let datatype = image.header.datatype
+        guard datatype != .rgb24, datatype != .rgba32 else { return true }
+        guard volumeIndex >= 0, volumeIndex < volumes, width > 0, height > 0, depth > 0 else { return true }
+
+        guard let sizes = denseStorageAxisSizes else {
+            var plane = [Float](repeating: 0, count: width * height)
+            for z in 0..<depth {
+                for y in 0..<height {
+                    for x in 0..<width {
+                        plane[y * width + x] = voxel(x: x, y: y, z: z, t: volumeIndex)
+                    }
+                }
+                if !body(plane, width) { return false }
+            }
+            return true
+        }
+
+        let bpv = datatype.bytesPerVoxel
+        let read = Self.scalarReader(datatype: datatype, littleEndian: image.header.littleEndian)
+        let slope = image.header.sclSlope
+        let intercept = image.header.sclInter
+        let applyScale = slope != 0
+        let payloadBase = image.payloadOffset
+        let availableElements = image.payloadCount / max(bpv, 1)
+        let rowLength = sizes[0]
+        let planeLength = sizes[0] * sizes[1]
+        let base = image.voxelElementIndex(x: 0, y: 0, z: 0, t: volumeIndex)
+
+        var plane = [Float](repeating: 0, count: planeLength)
+        for p in 0..<sizes[2] {
+            let start = base + p * planeLength
+            let count = min(planeLength, availableElements - start)
+            guard count > 0 else { break }
+            image.storage.withUnsafeBytes { rawBuf in
+                plane.withUnsafeMutableBufferPointer { out in
+                    for i in 0..<count {
+                        let raw = read(rawBuf, payloadBase + (start + i) * bpv)
+                        out[i] = applyScale ? raw * slope + intercept : raw
+                    }
+                }
+            }
+            if !body(count == planeLength ? plane : Array(plane.prefix(count)), rowLength) { return false }
+        }
+        return true
     }
 
     private enum BinaryCheckResult { case binary, multiLabel, intensity }
@@ -936,17 +1102,24 @@ public struct MIQVolume: Sendable {
     /// axis faster than a spatial one fails the check, as it must — its first N
     /// elements mix timepoints. Internal, not private, so tests can pin which path a
     /// layout takes.
-    var volumeZeroIsContiguous: Bool {
-        guard let strides = image.payloadElementStrides else { return true }
-        guard strides.count >= 3 else { return false }
+    var volumeZeroIsContiguous: Bool { denseStorageAxisSizes != nil }
+
+    /// The spatial axis sizes in storage order, fastest first, when the layout is
+    /// dense (see `volumeZeroIsContiguous`); `nil` otherwise. Every timepoint of a
+    /// dense layout is then one contiguous run of `W·H·D` elements starting at
+    /// `voxelElementIndex(0, 0, 0, t)`.
+    private var denseStorageAxisSizes: [Int]? {
+        guard let strides = image.payloadElementStrides else { return [width, height, depth] }
+        guard strides.count >= 3 else { return nil }
         // Ties (a size-1 axis shares its stride with the next) sort by size so the
         // size-1 axis comes first and the check still holds. A mis-ordered tie would
         // only cost the fast path, never correctness.
         let axes = [(strides[0], width), (strides[1], height), (strides[2], depth)]
             .sorted { $0.0 != $1.0 ? $0.0 < $1.0 : $0.1 < $1.1 }
-        return axes[0].0 == 1
+        let dense = axes[0].0 == 1
             && axes[1].0 == axes[0].1
             && axes[2].0 == axes[0].1 * axes[1].1
+        return dense ? axes.map(\.1) : nil
     }
 
     private func confirmBinaryMaskPerVoxel(centerLabel: Int) -> BinaryCheckResult {
