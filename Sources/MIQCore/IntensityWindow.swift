@@ -8,28 +8,34 @@ enum IntensityWindow {
         let high: Float
     }
 
+    /// Magnitude at or below which a value counts as background for the preferred
+    /// foreground subset (see `bounds`).
+    static let nonZeroFloor: Float = 1e-6
+
     /// Derives window bounds from a pooled set of values. Pass voxels from one slice for
     /// per-slice windowing, or from multiple slices to get a window shared across them.
     /// Returns `nil` if no finite values are present.
     static func bounds(for values: [Float], lowerPercentile: Double, upperPercentile: Double) -> Bounds? {
-        // One fused pass replaces the previous filter + filter + min + max chain:
-        // collect finite values and the non-zero subset, tracking finite min/max
-        // inline. Both buffers reserve `values.count` up front — the non-zero
-        // subset is usually the bulk of a slice, so without it the array reallocs
-        // and copies repeatedly as it grows into the hundreds of thousands.
+        // One fused pass: collect finite values and the above-floor subset, track
+        // finite min/max, and count exact non-zeros for the rare fallback tier.
+        // Both buffers reserve `values.count` up front — the subset is usually the
+        // bulk of a slice, so without it the array reallocs repeatedly as it grows
+        // into the hundreds of thousands.
         var finiteValues = [Float]()
         finiteValues.reserveCapacity(values.count)
-        var nonZeroValues = [Float]()
-        nonZeroValues.reserveCapacity(values.count)
+        var aboveFloorValues = [Float]()
+        aboveFloorValues.reserveCapacity(values.count)
         var minV = Float.greatestFiniteMagnitude
         var maxV = -Float.greatestFiniteMagnitude
+        var nonZeroCount = 0
 
         for value in values where value.isFinite {
             finiteValues.append(value)
             if value < minV { minV = value }
             if value > maxV { maxV = value }
-            if abs(value) > 1e-6 {
-                nonZeroValues.append(value)
+            if value != 0 {
+                nonZeroCount += 1
+                if abs(value) > nonZeroFloor { aboveFloorValues.append(value) }
             }
         }
 
@@ -37,18 +43,35 @@ enum IntensityWindow {
             return nil
         }
 
-        // Prefer a non-zero subset for windowing if it's substantial; otherwise fall back to all finite values.
-        // The /20 ratio guards against rejecting legitimate dim regions when most voxels are background.
-        let useNonZero = nonZeroValues.count >= max(64, finiteValues.count / 20)
+        // Window over the foreground when it's substantial; the /20 ratio keeps a
+        // dim region from being rejected when most voxels are background.
+        //
+        // Two tiers, tried in order. The 1e-6 floor also drops near-zero
+        // interpolation residue, and wins whenever it leaves enough voxels — every
+        // ordinary image, bit-identical to before. Only when it doesn't (data in
+        // tiny units: an SI-unit ADC map sits around 1e-9, *entirely* below the
+        // floor) do exactly-non-zero values stand in, so such a map windows over its
+        // tissue instead of over tissue plus background zeros. Deliberately not a
+        // floor scaled by the data's maximum: one outlier voxel (1e30 from a failed
+        // fit) would lift that above real tissue.
+        let minimumSubset = max(64, finiteValues.count / 20)
+
         // Only four order statistics are ever read, so the buffer is *selected*
         // rather than sorted (quickselect, below). The k-th smallest of a multiset
-        // is algorithm-independent, so this is bit-identical to the previous full
-        // sort, not merely close — `IntensityWindowSortTests` pins that against an
-        // `Array.sort()` reference. Mutate the chosen array directly (not a copy of
-        // it) so the selection stays in place.
+        // is algorithm-independent, so this is bit-identical to a full sort, not
+        // merely close — `IntensityWindowSortTests` pins that against an
+        // `Array.sort()` reference. The chosen array is mutated in place.
         let lower: Float
         let upper: Float
-        if useNonZero {
+        if aboveFloorValues.count >= minimumSubset {
+            (lower, upper) = percentileBounds(&aboveFloorValues, lowerPercentile: lowerPercentile, upperPercentile: upperPercentile)
+        } else if nonZeroCount >= minimumSubset {
+            // Tiny-unit fallback — the only case that pays a second pass.
+            var nonZeroValues = [Float]()
+            nonZeroValues.reserveCapacity(nonZeroCount)
+            for value in finiteValues where value != 0 {
+                nonZeroValues.append(value)
+            }
             (lower, upper) = percentileBounds(&nonZeroValues, lowerPercentile: lowerPercentile, upperPercentile: upperPercentile)
         } else {
             (lower, upper) = percentileBounds(&finiteValues, lowerPercentile: lowerPercentile, upperPercentile: upperPercentile)

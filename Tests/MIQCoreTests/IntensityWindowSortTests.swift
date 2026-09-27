@@ -18,19 +18,28 @@ struct IntensityWindowSortTests {
         upperPercentile: Double
     ) -> (low: Float, high: Float)? {
         var finite = [Float]()
-        var nonZero = [Float]()
         var minV = Float.greatestFiniteMagnitude
         var maxV = -Float.greatestFiniteMagnitude
         for v in values where v.isFinite {
             finite.append(v)
             if v < minV { minV = v }
             if v > maxV { maxV = v }
-            if abs(v) > 1e-6 { nonZero.append(v) }
         }
         guard !finite.isEmpty else { return nil }
-        let useNonZero = nonZero.count >= max(64, finite.count / 20)
-        if useNonZero { nonZero.sort() } else { finite.sort() }
-        let sorted = useNonZero ? nonZero : finite
+        // Two-tier foreground: above the 1e-6 floor if that's substantial, else
+        // exactly non-zero if that is, else everything finite.
+        let minimumSubset = max(64, finite.count / 20)
+        let aboveFloor = finite.filter { abs($0) > 1e-6 }
+        let nonZero = finite.filter { $0 != 0 }
+        var sorted: [Float]
+        if aboveFloor.count >= minimumSubset {
+            sorted = aboveFloor
+        } else if nonZero.count >= minimumSubset {
+            sorted = nonZero
+        } else {
+            sorted = finite
+        }
+        sorted.sort()
         func percentile(_ p: Float) -> Float {
             guard let first = sorted.first else { return 0 }
             guard sorted.count > 1 else { return first }
@@ -157,5 +166,50 @@ struct IntensityWindowSortTests {
             }
         }
         Self.assertMatchesReference(values, "non-finite interleaved")
+    }
+
+    // MARK: - Foreground tiers
+
+    /// A center slice in tiny units: 60% exact-zero background, tissue spread over
+    /// 0.5e-9 … 3e-9 (an ADC map in SI units). Every value sits below the 1e-6
+    /// floor, which used to leave the window computed over tissue *and* the zeros.
+    private static func tinyUnitSlice(outlier: Float? = nil) -> [Float] {
+        var values = [Float]()
+        for i in 0..<10_000 {
+            values.append(i % 5 < 3 ? 0 : 0.5e-9 + Float(i % 997) / 996 * 2.5e-9)
+        }
+        if let outlier { values[1] = outlier }
+        return values
+    }
+
+    @Test func tinyUnitDataWindowsOverItsTissue() throws {
+        let values = Self.tinyUnitSlice()
+        Self.assertMatchesReference(values, "tiny units")
+        let bounds = try #require(IntensityWindow.bounds(for: values, lowerPercentile: 2, upperPercentile: 98))
+        // Lower bound comes from the tissue, not from the background zeros.
+        #expect(bounds.low > 0.5e-9)
+        #expect(bounds.high < 3e-9)
+    }
+
+    @Test func tinyUnitWindowIgnoresAnOutlier() throws {
+        // A failed-fit voxel must not drag the window: the fallback is a plain
+        // non-zero test, not a floor scaled by the data's maximum.
+        let values = Self.tinyUnitSlice(outlier: 1e30)
+        Self.assertMatchesReference(values, "tiny units + outlier")
+        let bounds = try #require(IntensityWindow.bounds(for: values, lowerPercentile: 2, upperPercentile: 98))
+        #expect(bounds.low > 0.5e-9)
+        #expect(bounds.high < 3e-9)
+    }
+
+    @Test func floorStillDropsNearZeroResidueOnOrdinaryData() throws {
+        // Ordinary-unit signal plus interpolation residue in (0, 1e-6]: the floor
+        // tier qualifies, so the residue stays out of the window, as before.
+        var values = [Float]()
+        for i in 0..<10_000 {
+            values.append(i % 2 == 0 ? Float(i % 7 + 1) * 1e-8 : 100 + Float(i % 500))
+        }
+        Self.assertMatchesReference(values, "residue")
+        let bounds = try #require(IntensityWindow.bounds(for: values, lowerPercentile: 2, upperPercentile: 98))
+        #expect(bounds.low >= 100)
     }
 }
