@@ -362,12 +362,9 @@ extension MIQParser {
         case "float":                                                            return .float32
         case "double":                                                           return .float64
         case "int64", "int64_t", "longlong", "long long",
-             "signed long long", "signed long long int",
-             "uint64", "uint64_t", "ulonglong",
-             "unsigned long long", "unsigned long long int":
-            throw MIQError.unsupportedFeature(
-                "NRRD 64-bit integer types are not supported; convert to float or int32 before previewing"
-            )
+             "signed long long", "signed long long int":                        return .int64
+        case "uint64", "uint64_t", "ulonglong",
+             "unsigned long long", "unsigned long long int":                    return .uint64
         default:
             throw MIQError.malformedFile("Unrecognised NRRD type '\(value)'")
         }

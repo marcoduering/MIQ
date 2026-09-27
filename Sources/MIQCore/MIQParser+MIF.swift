@@ -318,6 +318,8 @@ extension MIQParser {
         if lowered.hasPrefix("int32") { return (.int32, isLittleEndian, false) }
         if lowered.hasPrefix("float32") { return (.float32, isLittleEndian, false) }
         if lowered.hasPrefix("float64") { return (.float64, isLittleEndian, false) }
+        if lowered.hasPrefix("uint64") { return (.uint64, isLittleEndian, false) }
+        if lowered.hasPrefix("int64") { return (.int64, isLittleEndian, false) }
 
         throw MIQError.malformedFile("unrecognised MIF datatype '\(value)'")
     }

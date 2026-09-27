@@ -9,6 +9,8 @@ public enum MIQDatatype: Int16, Sendable {
     case uint32 = 768
     case float32 = 16
     case float64 = 64
+    case int64 = 1024
+    case uint64 = 1280
     case rgb24 = 128
     case rgba32 = 2304
 
@@ -20,7 +22,7 @@ public enum MIQDatatype: Int16, Sendable {
             return 2
         case .int32, .uint32, .float32:
             return 4
-        case .float64:
+        case .float64, .int64, .uint64:
             return 8
         case .rgb24:
             return 3
@@ -39,6 +41,8 @@ public enum MIQDatatype: Int16, Sendable {
         case .uint32: return "uint32"
         case .float32: return "float32"
         case .float64: return "float64"
+        case .int64: return "int64"
+        case .uint64: return "uint64"
         case .rgb24: return "rgb24"
         case .rgba32: return "rgba32"
         }

@@ -901,6 +901,11 @@ struct PerformanceBaselineTests {
                     let d = Double((i % 1000)) * 0.5 + 0.25
                     vals[i] = d.bitPattern.littleEndian
                 }
+            case .int64, .uint64:
+                let vals = p.bindMemory(to: Int64.self, capacity: voxelCount)
+                for i in 0..<voxelCount {
+                    vals[i] = Int64((i &* 131 &+ 7) & 0x000FFFFF).littleEndian
+                }
             }
         }
         return data

@@ -2277,6 +2277,31 @@ struct MIQCoreTests {
     }
 
     @Test
+    func segmentationInt64LabelMapDetectedSameAsInt16Equivalent() throws {
+        // NumPy's default integer dtype is int64, so nibabel-saved label maps are
+        // often NIfTI datatype 1024 (or 1280 for uint64). They must parse and be
+        // coloured exactly like the int16 equivalent.
+        let labelsFS: [Int] = [0, 2, 3, 41, 42, 10, 11, 17, 251]
+        let options = RenderingOptions(lowerPercentile: 2, upperPercentile: 98, segmentationColoring: .auto)
+        let reference = try #require(MIQVolume(image: try MIQParser().parseNifti(
+            TestMIQFactory.makeNiiLabels(width: 16, height: 16, depth: 16, datatype: .int16, labels: labelsFS)
+        )).buildSegmentationLut(options: options))
+        for datatype in [MIQDatatype.int64, .uint64] {
+            let data = TestMIQFactory.makeNiiLabels(width: 16, height: 16, depth: 16, datatype: datatype, labels: labelsFS)
+            let image = try MIQParser().parseNifti(data)
+            #expect(image.header.datatype == datatype)
+            let lut = try #require(MIQVolume(image: image).buildSegmentationLut(options: options))
+            #expect(lut.kind == reference.kind)
+            #expect(lut.kind == .freeSurfer)
+        }
+
+        // A binary int64 mask goes through the contiguous full-volume confirm.
+        let mask = TestMIQFactory.makeNiiLabels(width: 16, height: 16, depth: 16, datatype: .int64, labels: [0, 5])
+        let maskLut = try #require(MIQVolume(image: try MIQParser().parseNifti(mask)).buildSegmentationLut(options: options))
+        #expect(maskLut.kind == .monochromeWhite)
+    }
+
+    @Test
     func segmentationIntensityImageUnaffected() throws {
         // Dense uint8 anatomical spanning 0..254. Every value is integral and the
         // distinct count is far below `maxLabels`, so only the piecewise-constancy
@@ -3188,6 +3213,8 @@ END
                 withUnsafeBytes(of: &v) { src in
                     payload.replaceSubrange(i * 4..<(i * 4 + 4), with: src)
                 }
+            case .int64, .uint64:
+                encodeSample(Double(label), at: i, datatype: datatype, bigEndian: false, into: &payload)
             default:
                 payload[i * datatype.bytesPerVoxel] = UInt8(clamping: abs(label))
             }
@@ -3272,6 +3299,12 @@ END
             return Double(index % 255) + 0.5
         case .float64:
             return Double(index % 255) + 0.25
+        case .int64:
+            // Below Int32.min, so a 32-bit read cannot reproduce it.
+            return Double(-5_000_000_000 - index % 4096)
+        case .uint64:
+            // Above Int64.max; multiples of 4096 stay exact in Double.
+            return 0x1p63 + Double(index % 4096) * 4096
         }
     }
 
@@ -3305,6 +3338,11 @@ END
             writeBits(Float32(value).bitPattern, at: base, bigEndian: bigEndian, into: &payload)
         case .float64:
             writeBits(value.bitPattern, at: base, bigEndian: bigEndian, into: &payload)
+        case .int64:
+            let clamped = min(max(value, -0x1p63), 0x1p63.nextDown)
+            writeBits(UInt64(bitPattern: Int64(clamped)), at: base, bigEndian: bigEndian, into: &payload)
+        case .uint64:
+            writeBits(UInt64(min(max(value, 0), 0x1p64.nextDown)), at: base, bigEndian: bigEndian, into: &payload)
         }
     }
 
@@ -3330,6 +3368,8 @@ END
         case .int32: return "int32"
         case .float32: return "float"
         case .float64: return "double"
+        case .int64: return "int64"
+        case .uint64: return "uint64"
         case .rgb24, .rgba32: return "uint8"
         }
     }
@@ -3405,6 +3445,10 @@ END
             return "Float32LE"
         case .float64:
             return "Float64LE"
+        case .int64:
+            return "Int64LE"
+        case .uint64:
+            return "UInt64LE"
         case .int8:
             return "Int8"
         case .rgb24, .rgba32:

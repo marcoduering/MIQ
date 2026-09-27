@@ -532,6 +532,10 @@ public struct MIQVolume: Sendable {
                 read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt32.self); return Float(bitPattern: le ? u : u.byteSwapped) }
             case .float64:
                 read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt64.self); return Float(Double(bitPattern: le ? u : u.byteSwapped)) }
+            case .int64:
+                read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt64.self); return Float(Double(Int64(bitPattern: le ? u : u.byteSwapped))) }
+            case .uint64:
+                read = { let u = $0.loadUnaligned(fromByteOffset: $1, as: UInt64.self); return Float(Double(le ? u : u.byteSwapped)) }
             case .rgb24, .rgba32:
                 read = { _, _ in 0 } // unreachable: handled by the RGB case above
             }
@@ -885,6 +889,14 @@ public struct MIQVolume: Sendable {
                     let v = Int(Int32(bitPattern: le ? raw : raw.byteSwapped))
                     if v != 0 && v != centerLabel { return .multiLabel }
                 }
+            case .int64, .uint64:
+                // A uint64 above Int64.max reads negative, which is neither 0 nor
+                // the center label, so it still reports `.multiLabel` correctly.
+                for i in 0..<elemCount {
+                    let raw = rawBuf.loadUnaligned(fromByteOffset: base + i * 8, as: UInt64.self)
+                    let v = Int(Int64(bitPattern: le ? raw : raw.byteSwapped))
+                    if v != 0 && v != centerLabel { return .multiLabel }
+                }
             case .float32:
                 for i in 0..<elemCount {
                     let raw = rawBuf.loadUnaligned(fromByteOffset: base + i * 4, as: UInt32.self)
@@ -975,6 +987,11 @@ public struct MIQVolume: Sendable {
             return Float(bitPattern: MIQBinaryReader.uint32(image.storage, image.payloadOffset + byteOffset, littleEndian: le))
         case .float64:
             return Float(Double(bitPattern: MIQBinaryReader.uint64(image.storage, image.payloadOffset + byteOffset, littleEndian: le)))
+        case .int64:
+            // Via Double, like float64; `prepareSlice`'s reader must match bit for bit.
+            return Float(Double(MIQBinaryReader.int64(image.storage, image.payloadOffset + byteOffset, littleEndian: le)))
+        case .uint64:
+            return Float(Double(MIQBinaryReader.uint64(image.storage, image.payloadOffset + byteOffset, littleEndian: le)))
         case .rgb24, .rgba32:
             // RGB slices are rendered by the dedicated RGB reader in `prepareSlice`;
             // this branch is only reached via the public `voxel()` accessor, where a

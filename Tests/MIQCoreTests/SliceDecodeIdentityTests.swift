@@ -19,7 +19,7 @@ struct SliceDecodeIdentityTests {
     /// decodes to pixel triples through a separate branch (covered by
     /// `sliceValuesIsNilForColorVolumes` below).
     private static let grayscaleDatatypes: [MIQDatatype] = [
-        .uint8, .int8, .int16, .uint16, .int32, .uint32, .float32, .float64
+        .uint8, .int8, .int16, .uint16, .int32, .uint32, .float32, .float64, .int64, .uint64
     ]
 
     private static func options(_ orientation: ViewOrientation) -> RenderingOptions {
@@ -122,7 +122,7 @@ struct SliceDecodeIdentityTests {
     /// so both the strided read and the axis-label path are in play.
     @Test
     func permutedMifSliceDecodeMatchesVoxelAccessor() throws {
-        for datatype in [MIQDatatype.uint8, .int16, .float32] {
+        for datatype in [MIQDatatype.uint8, .int16, .float32, .int64, .uint64] {
             let data = TestMIQFactory.makeMif(
                 width: 7,
                 height: 5,
@@ -144,7 +144,7 @@ struct SliceDecodeIdentityTests {
     /// timepoints so a non-zero `volumeIndex` also crosses the strided path.
     @Test
     func stridedNrrdSliceDecodeMatchesVoxelAccessor() throws {
-        for datatype in [MIQDatatype.uint8, .int16, .float64] {
+        for datatype in [MIQDatatype.uint8, .int16, .float64, .int64, .uint64] {
             let data = TestMIQFactory.makeNrrdWithLeadingListAxis(
                 volumes: 2,
                 width: 7,
