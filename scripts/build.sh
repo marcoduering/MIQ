@@ -28,6 +28,17 @@ if [[ "$CONFIG" == "Release" ]]; then
   rm -rf "$(dirname "$BUILT_PRODUCTS_DIR")/Debug"
 fi
 
+# Label local builds as a dev version of the NEXT patch release (1.5.2 → 1.5.3-dev)
+# so the About pane shows at a glance that this isn't a shipped build. Only the
+# marketing version (CFBundleShortVersionString) changes: CFBundleVersion is pinned
+# to the released number, because Sparkle compares that value and it must stay
+# purely numeric — a dev build then looks like the last release to the updater and
+# is offered the real next version once it ships.
+RELEASED_VERSION=$(awk -F' = ' '/^MARKETING_VERSION/ { print $2 }' Config/Shared.xcconfig)
+IFS=. read -r V_MAJOR V_MINOR V_PATCH <<< "$RELEASED_VERSION"
+DEV_VERSION="$V_MAJOR.$V_MINOR.$((${V_PATCH:-0} + 1))-dev"
+echo "==> Building $CONFIG as $DEV_VERSION (CFBundleVersion $RELEASED_VERSION)"
+
 # Use the project's configured signing (Developer ID manual profiles for Release).
 # We intentionally do NOT force CODE_SIGN_IDENTITY="Apple Development" /
 # CODE_SIGN_STYLE=Automatic / PROVISIONING_PROFILE_SPECIFIER="": automatic Apple
@@ -42,6 +53,8 @@ xcodebuild \
   -configuration "$CONFIG" \
   -destination 'generic/platform=macOS' \
   -allowProvisioningUpdates \
+  MARKETING_VERSION="$DEV_VERSION" \
+  CURRENT_PROJECT_VERSION="$RELEASED_VERSION" \
   build
 
 BUILT_APP="$BUILT_PRODUCTS_DIR/MIQ.app"

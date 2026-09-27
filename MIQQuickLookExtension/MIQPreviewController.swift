@@ -54,6 +54,11 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
 
         guard MIQFileKind(url: url) != nil else {
             logger.notice("declining unsupported preview file: \(url.path, privacy: .public)")
+            // Moving on to a file we decline is still moving on: stop the previous
+            // previews' reads (see `prepareAndStartLoading`).
+            Task { @MainActor in
+                MIQPreviewModel.stopBackgroundWork(exceptFor: url)
+            }
             completion(MIQError.unsupportedFileFormat)
             return
         }
@@ -73,9 +78,10 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
             logger.notice("automatic termination disabled")
         }
 
-        // Quick Look keeps the previous file's controller alive, so this request is
-        // the only reliable sign that the user moved on. Stop the other files'
-        // background reads before this one starts competing with them for the mount.
+        // Quick Look releases the previous file's controller (whose `deinit` cancels
+        // its load) only 0.5–1.5 s after the next request, so a quick arrow-through
+        // left two or three old reads competing for the mount. This request is the
+        // earliest sign that the user moved on: stop the other files' reads now.
         MIQPreviewModel.stopBackgroundWork(exceptFor: url)
 
         if currentURL == url, let model {

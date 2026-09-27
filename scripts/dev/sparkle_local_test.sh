@@ -73,9 +73,10 @@ build_variant() {
   # that decides Info.plist is up to date will happily leave the previous
   # version's plist in place, and both zips then contain the same build — a test
   # that appears to pass while proving nothing. Observed once; never silently
-  # again.
+  # again. Checks CFBundleVersion — the value Sparkle compares; build.sh gives
+  # the marketing version a -dev suffix.
   local built_version
-  built_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
+  built_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")
   [[ "$built_version" == "$version" ]] \
     || die "built app is $built_version but $version was requested — stale incremental build; run ./scripts/clean.sh and retry"
   echo "    built $built_version"

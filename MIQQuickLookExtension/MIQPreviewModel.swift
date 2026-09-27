@@ -83,6 +83,12 @@ final class MIQPreviewModel {
     private var interactivePreparationDeferred = false
     private var expansionState: ExpansionState = .notNeeded
     private var expansionTask: Task<Void, Never>?
+    /// The cold parse `load()` is awaiting. Owned by the model (not only by the
+    /// controller's load task) so `stopBackgroundWork()` can cancel it.
+    private var coldLoadTask: Task<RawPreviewData, Error>?
+    /// Set when `stopBackgroundWork()` cancelled `coldLoadTask`, so `load()` can
+    /// tell that apart from the controller tearing the load down.
+    private var coldLoadInterrupted = false
     private var currentCursor: MIQVolumeCursor?
     private var displayedCursor: MIQVolumeCursor?
     private var windowAdjustment: MIQIntensityWindowBounds?
@@ -120,24 +126,31 @@ final class MIQPreviewModel {
     private static let liveModels = NSHashTable<MIQPreviewModel>.weakObjects()
 
     /// Stops the background reads of every live preview of a file other than `url`:
-    /// the 4D expansion re-parse and the cache-hit interactive-state prep. On a
-    /// network volume those keep pulling the old file off the mount, and the new
-    /// file's first stat and reads queue behind them (measured: a 305 MB expansion
-    /// held the next file's stat probe for 5–7 s). Previews of `url` itself are
-    /// untouched — the Finder preview pane and the Space panel each run one.
-    /// Cold loads are left alone: cancelling one would strand that preview in
-    /// `.loading`.
+    /// the cold parse, the 4D expansion re-parse and the cache-hit interactive-state
+    /// prep. On a network volume those keep pulling the old file off the mount, and
+    /// the new file's first stat and reads queue behind them (measured: a 305 MB
+    /// expansion held the next file's stat probe for 5–7 s). The cold parse matters
+    /// for every kind but canonical NIfTI, which reads only volume 0 up front:
+    /// `.mif(.gz)`/`.mgz`/`.nrrd` read (and decompress) the whole file there.
+    /// Previews of `url` itself are untouched — the Finder preview pane and the
+    /// Space panel each run one.
     static func stopBackgroundWork(exceptFor url: URL) {
         for model in liveModels.allObjects where model.url != url {
             model.stopBackgroundWork()
         }
     }
 
-    /// Cancels expansion and interactive-state prep, re-arming both so that coming
-    /// back to this preview and interacting restarts them. The cancelled tasks
-    /// return without touching state (their `!Task.isCancelled` guards), so the
-    /// re-armed values stick.
+    /// Cancels the cold parse, expansion and interactive-state prep. A cancelled
+    /// cold parse leaves the model `.idle` (see `load()`); the other two are
+    /// re-armed so that coming back to this preview and interacting restarts them.
+    /// The cancelled tasks return without touching state (their
+    /// `!Task.isCancelled` guards), so the re-armed values stick.
     private func stopBackgroundWork() {
+        if let coldLoadTask {
+            coldLoadTask.cancel()
+            self.coldLoadTask = nil
+            coldLoadInterrupted = true
+        }
         if let expansionTask {
             expansionTask.cancel()
             self.expansionTask = nil
@@ -156,6 +169,7 @@ final class MIQPreviewModel {
     /// finished, so this cancellation could never run while there was anything to
     /// cancel.
     deinit {
+        coldLoadTask?.cancel()
         interactionPreparationTask?.cancel()
         renderTask?.cancel()
         expansionTask?.cancel()
@@ -167,6 +181,8 @@ final class MIQPreviewModel {
     /// model. `runCancelableDetached` forwards the cancellation into the chunked
     /// network reads.
     func cancelInFlightWork() {
+        coldLoadTask?.cancel()
+        coldLoadTask = nil
         interactionPreparationTask?.cancel()
         interactionPreparationTask = nil
         renderTask?.cancel()
@@ -213,6 +229,7 @@ final class MIQPreviewModel {
         // The controller creates one model per URL, and a second load() only comes
         // from the deferred placeholder, so there is never state worth keeping.
         cancelInFlightWork()
+        coldLoadInterrupted = false
         interactivePreparationDeferred = false
         renderingOptions = options
         interactiveState = nil
@@ -260,9 +277,20 @@ final class MIQPreviewModel {
                 return
             }
 
-            let raw = try await Self.sharedColdLoad(key: probe.cacheKey) {
-                try MIQPreviewModel.loadPreviewData(fileURL: fileURL, options: options, maxDimension: maxDimension)
+            let coldLoad = Task {
+                try await Self.sharedColdLoad(key: probe.cacheKey) {
+                    try MIQPreviewModel.loadPreviewData(fileURL: fileURL, options: options, maxDimension: maxDimension)
+                }
             }
+            coldLoadTask = coldLoad
+            // An unstructured task doesn't inherit cancellation, so forward the
+            // controller's (a dismissed preview) explicitly.
+            let raw = try await withTaskCancellationHandler {
+                try await coldLoad.value
+            } onCancel: {
+                coldLoad.cancel()
+            }
+            coldLoadTask = nil
             // Applied either way — metadata and orientation are valid even with
             // nothing to window.
             apply(raw: raw)
@@ -278,6 +306,15 @@ final class MIQPreviewModel {
             }
             onChange?()
         } catch is CancellationError {
+            if coldLoadInterrupted {
+                // The user moved on to another file (`stopBackgroundWork()`). Back
+                // to `.idle`, not stuck in `.loading`: a later request for this
+                // file then reloads (the controller only reuses a model that is
+                // loading or has something to show).
+                state = .idle
+                logger.notice("load() interrupted: user moved to another file")
+                return
+            }
             // Preview dismissed/replaced mid-parse (e.g. a large file abandoned on
             // a slow network mount). The load task is being torn down — leave state
             // untouched and don't surface a failure.
