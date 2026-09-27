@@ -5,7 +5,7 @@ import QuickLook
 import QuickLookUI
 import MIQCore
 
-final class MIQPreviewController: NSViewController, QLPreviewingController, NetworkReadRetrying {
+final class MIQPreviewController: NSViewController, QLPreviewingController, NetworkReadClient {
     private let logger = MIQLogger.make(category: "preview")
     private var previewView: MIQPreviewAppKitView?
     private var model: MIQPreviewModel?
@@ -62,33 +62,35 @@ final class MIQPreviewController: NSViewController, QLPreviewingController, Netw
 
     /// Between `viewWillAppear` and `viewDidDisappear`. Quick Look can show two
     /// previews at once (the Space panel and the Finder pane, one lagging behind
-    /// the other), so a preview whose read was dropped for a newer file's may still
-    /// be the one the user is looking at.
+    /// the other); `NetworkReadLane` never drops the read of a file on screen.
     private var isOnScreen = false
+    /// Set by `viewDidDisappear`, cleared by a new request or reappearing: until
+    /// then the preview still wants its file, even before it first appears.
+    private var hasDisappeared = false
+
+    var readURL: URL? { currentURL }
+    var isShown: Bool { isOnScreen }
+    var wantsRead: Bool { !hasDisappeared }
 
     override func viewWillAppear() {
         super.viewWillAppear()
         isOnScreen = true
+        hasDisappeared = false
         logLifecycle("viewWillAppear")
-        // Shown again after its read was dropped: queue it as the newest request.
-        if model?.loadSuperseded == true { retryNetworkRead() }
+        NetworkReadLane.shared.clientVisibilityChanged(self)
+        // Its read was dropped while it was off screen: load again.
+        if model?.loadSuperseded == true {
+            logger.notice("[\(self.logID, privacy: .public)] reloading dropped preview")
+            beginLoad(forceFullRead: false)
+        }
     }
 
     override func viewDidDisappear() {
         super.viewDidDisappear()
         isOnScreen = false
+        hasDisappeared = true
         logLifecycle("viewDidDisappear")
-    }
-
-    var retryURL: URL? { currentURL }
-
-    var wantsNetworkReadRetry: Bool {
-        isOnScreen && model?.loadSuperseded == true
-    }
-
-    func retryNetworkRead() {
-        logger.notice("[\(self.logID, privacy: .public)] retrying superseded load")
-        beginLoad(forceFullRead: false)
+        NetworkReadLane.shared.clientVisibilityChanged(self)
     }
 
     nonisolated func preparePreviewOfFile(at url: URL, completionHandler handler: @escaping (Error?) -> Void) {
@@ -131,6 +133,7 @@ final class MIQPreviewController: NSViewController, QLPreviewingController, Netw
         }
 
         currentURL = url
+        hasDisappeared = false
 
         guard previewView != nil else {
             logger.error("preview root view missing")
@@ -180,6 +183,9 @@ final class MIQPreviewController: NSViewController, QLPreviewingController, Netw
         loadingIndicatorTask?.cancel()
         previewView?.hideStatus()
         let started = Date()
+        // Before the model's probe: the lane stops other files' reads now, or the
+        // probe's stat queues behind them on the share.
+        let navigating = currentURL.map { NetworkReadLane.shared.requestStarted(for: $0, client: self) } ?? false
 
         loadingIndicatorTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
@@ -192,7 +198,7 @@ final class MIQPreviewController: NSViewController, QLPreviewingController, Netw
         // dismissed the preview mid-load, so a dismissed network read ran on.
         loadTask = Task { @MainActor [weak self, logger] in
             logger.notice("starting async model load (forceFullRead=\(forceFullRead, privacy: .public))")
-            await model.load(forceFullRead: forceFullRead)
+            await model.load(forceFullRead: forceFullRead, navigating: navigating)
             guard let self else { return }
             self.loadingIndicatorTask?.cancel()
             guard !Task.isCancelled, self.model === model else {
@@ -200,10 +206,6 @@ final class MIQPreviewController: NSViewController, QLPreviewingController, Netw
                 return
             }
             self.refreshPreviewView(from: model, flushDisplay: false)
-            if model.loadSuperseded {
-                // Retried when the link goes quiet, if still on screen then.
-                NetworkReadLane.shared.parkForRetry(self)
-            }
             let elapsedMs = Int(Date().timeIntervalSince(started) * 1000)
             logger.notice("[\(self.logID, privacy: .public)] async model load finished in \(elapsedMs, privacy: .public) ms, state=\(String(describing: model.state), privacy: .public)")
         }

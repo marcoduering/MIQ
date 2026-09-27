@@ -8,13 +8,18 @@ final class MIQPreviewBundle: NSObject {
     let slices: [SlicePlane: NSImage]
     let orientations: [SlicePlane: SliceOrientationLabels]
     let metadataEntries: [MetadataEntry]
+    /// Volumes along the 4th axis, so a cache hit shows the Volumes scrubber at
+    /// once rather than only after the interactive state is re-read.
+    let volumeCount: Int
 
     init(slices: [SlicePlane: NSImage],
          orientations: [SlicePlane: SliceOrientationLabels],
-         metadataEntries: [MetadataEntry]) {
+         metadataEntries: [MetadataEntry],
+         volumeCount: Int) {
         self.slices = slices
         self.orientations = orientations
         self.metadataEntries = metadataEntries
+        self.volumeCount = volumeCount
     }
 }
 
