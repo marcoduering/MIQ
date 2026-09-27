@@ -20,10 +20,12 @@ public struct MIQParser {
     /// plus typical extensions — enough to compute the payload budget cheaply.
     private static let headerProbeBytes = 64 * 1024
 
-    /// Chunk size for the cancelable network read. Large enough to keep the read
-    /// efficient over a network mount, small enough that a cancelled task stops
-    /// pulling within roughly one chunk.
-    private static let networkReadChunkBytes = 4 * 1024 * 1024
+    /// Chunk size for the cancelable network reads. Cancellation is only checked
+    /// between chunks, so this bounds how long a dismissed preview keeps pulling:
+    /// measured on a contended SMB mount, one 4 MB read took up to ~2 s. 2 MB halves
+    /// that worst case while keeping the round-trip count per MB low enough for a
+    /// fast share. Local files never reach these reads (they are memory-mapped).
+    private static let networkReadChunkBytes = 2 * 1024 * 1024
 
     private func loadAndDecompress(url: URL, fullyDecompress: Bool = false) throws -> (Data, MIQFileKind) {
         guard let kind = MIQFileKind(url: url) else {

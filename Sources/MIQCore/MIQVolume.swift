@@ -836,12 +836,13 @@ public struct MIQVolume: Sendable {
     /// Returns `.multiLabel` or `.intensity` the instant a disqualifying voxel
     /// appears; only a true binary mask completes the scan.
     ///
-    /// For row-major layouts (nil `payloadElementStrides`) volume 0 is the first N
-    /// contiguous elements — scanned with the datatype switch hoisted out of the
-    /// loop, integers compared directly (no per-voxel index math, no float convert
-    /// for integer data). MIF custom strides fall back to the correct per-voxel walk.
+    /// Whenever volume 0 is the first N contiguous elements (`volumeZeroIsContiguous`)
+    /// it is scanned with the datatype switch hoisted out of the loop, integers
+    /// compared directly (no per-voxel index math, no float convert for integer
+    /// data). Only a layout that interleaves volumes with space (a MIF whose volume
+    /// axis is not the slowest) falls back to the per-voxel walk.
     private func confirmBinaryMask(centerLabel: Int) -> BinaryCheckResult {
-        if image.payloadElementStrides != nil {
+        if !volumeZeroIsContiguous {
             return confirmBinaryMaskPerVoxel(centerLabel: centerLabel)
         }
 
@@ -909,6 +910,31 @@ public struct MIQVolume: Sendable {
             }
             return .binary
         }
+    }
+
+    /// Whether volume 0 occupies exactly the first `W·H·D` payload elements, in any
+    /// order. The binary-mask verdict doesn't depend on voxel order, so this — not
+    /// the absence of custom strides — is what the contiguous scan needs.
+    ///
+    /// True for canonical layouts, and for every *dense* permuted or reversed one:
+    /// the spatial strides sorted ascending are `1, d₀, d₀·d₁`. The MIF parser sets
+    /// `payloadElementStrides` even for an identity layout, so keying off `nil`
+    /// sent every MIF mask down the per-voxel path (~8× slower on a 256³ mask). The
+    /// time stride never matters here: volume 0 is `t = 0`. A layout with the volume
+    /// axis faster than a spatial one fails the check, as it must — its first N
+    /// elements mix timepoints. Internal, not private, so tests can pin which path a
+    /// layout takes.
+    var volumeZeroIsContiguous: Bool {
+        guard let strides = image.payloadElementStrides else { return true }
+        guard strides.count >= 3 else { return false }
+        // Ties (a size-1 axis shares its stride with the next) sort by size so the
+        // size-1 axis comes first and the check still holds. A mis-ordered tie would
+        // only cost the fast path, never correctness.
+        let axes = [(strides[0], width), (strides[1], height), (strides[2], depth)]
+            .sorted { $0.0 != $1.0 ? $0.0 < $1.0 : $0.1 < $1.1 }
+        return axes[0].0 == 1
+            && axes[1].0 == axes[0].1
+            && axes[2].0 == axes[0].1 * axes[1].1
     }
 
     private func confirmBinaryMaskPerVoxel(centerLabel: Int) -> BinaryCheckResult {

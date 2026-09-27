@@ -109,12 +109,71 @@ final class MIQPreviewModel {
     init(url: URL) {
         self.url = url
         self.fileKind = MIQFileKind(url: url)
+        Self.liveModels.add(self)
     }
 
+    /// Every model still alive in this extension process. Quick Look creates a new
+    /// controller (and so a new model) per file and keeps the previous ones alive
+    /// after the user moves on, so neither replacement nor `deinit` is a signal that
+    /// a preview left the screen. A request for another file is. Weak, so the
+    /// registry never extends a model's lifetime.
+    private static let liveModels = NSHashTable<MIQPreviewModel>.weakObjects()
+
+    /// Stops the background reads of every live preview of a file other than `url`:
+    /// the 4D expansion re-parse and the cache-hit interactive-state prep. On a
+    /// network volume those keep pulling the old file off the mount, and the new
+    /// file's first stat and reads queue behind them (measured: a 305 MB expansion
+    /// held the next file's stat probe for 5–7 s). Previews of `url` itself are
+    /// untouched — the Finder preview pane and the Space panel each run one.
+    /// Cold loads are left alone: cancelling one would strand that preview in
+    /// `.loading`.
+    static func stopBackgroundWork(exceptFor url: URL) {
+        for model in liveModels.allObjects where model.url != url {
+            model.stopBackgroundWork()
+        }
+    }
+
+    /// Cancels expansion and interactive-state prep, re-arming both so that coming
+    /// back to this preview and interacting restarts them. The cancelled tasks
+    /// return without touching state (their `!Task.isCancelled` guards), so the
+    /// re-armed values stick.
+    private func stopBackgroundWork() {
+        if let expansionTask {
+            expansionTask.cancel()
+            self.expansionTask = nil
+            expansionState = .pending
+        }
+        if let interactionPreparationTask {
+            interactionPreparationTask.cancel()
+            self.interactionPreparationTask = nil
+            interactivePreparationDeferred = true
+        }
+    }
+
+    /// Reached only because no task below holds `self` across its `await`: each
+    /// binds `self` strongly only *after* the detached work returns. A task that
+    /// did `guard let self` up front would keep this model alive until its work
+    /// finished, so this cancellation could never run while there was anything to
+    /// cancel.
     deinit {
         interactionPreparationTask?.cancel()
         renderTask?.cancel()
         expansionTask?.cancel()
+    }
+
+    /// Stops every in-flight background task: interactive-state prep, the 4D
+    /// expansion re-parse, and the render queue — for a model being discarded.
+    /// Used by `load()` to reset, and by the controller if it ever replaces its
+    /// model. `runCancelableDetached` forwards the cancellation into the chunked
+    /// network reads.
+    func cancelInFlightWork() {
+        interactionPreparationTask?.cancel()
+        interactionPreparationTask = nil
+        renderTask?.cancel()
+        renderTask = nil
+        pendingRenderCursor = nil
+        expansionTask?.cancel()
+        expansionTask = nil
     }
 
     /// A 4D buffer that was loaded with the volume-0 cap (any `.nii.gz`, or a
@@ -153,15 +212,10 @@ final class MIQPreviewModel {
 
         // The controller creates one model per URL, and a second load() only comes
         // from the deferred placeholder, so there is never state worth keeping.
-        interactionPreparationTask?.cancel()
-        interactionPreparationTask = nil
+        cancelInFlightWork()
         interactivePreparationDeferred = false
-        renderTask?.cancel()
-        renderTask = nil
         renderingOptions = options
         interactiveState = nil
-        expansionTask?.cancel()
-        expansionTask = nil
         expansionState = .notNeeded
         perVolumeWindowCache = [:]
         currentCursor = nil
@@ -206,8 +260,8 @@ final class MIQPreviewModel {
                 return
             }
 
-            let raw = try await Self.runCancelableDetached {
-                try Self.loadPreviewData(fileURL: fileURL, options: options, maxDimension: maxDimension)
+            let raw = try await Self.sharedColdLoad(key: probe.cacheKey) {
+                try MIQPreviewModel.loadPreviewData(fileURL: fileURL, options: options, maxDimension: maxDimension)
             }
             // Applied either way — metadata and orientation are valid even with
             // nothing to window.
@@ -335,11 +389,12 @@ final class MIQPreviewModel {
         let windowBounds = interactiveState.windowBounds
         let segmentationLut = interactiveState.segmentationLut
 
+        // `self` stays weak across the await (see deinit) and the statics are named
+        // by type, not `Self`, so nothing in the closure retains the model.
         expansionTask = Task { [weak self] in
-            guard let self else { return }
             do {
-                let expanded = try await Self.runCancelableDetached { () -> InteractivePreviewState in
-                    try Self.loadExpandedInteractiveState(
+                let expanded = try await MIQPreviewModel.runCancelableDetached { () -> InteractivePreviewState in
+                    try MIQPreviewModel.loadExpandedInteractiveState(
                         fileURL: fileURL,
                         options: options,
                         maxDimension: maxDimension,
@@ -347,7 +402,7 @@ final class MIQPreviewModel {
                         segmentationLut: segmentationLut
                     )
                 }
-                guard !Task.isCancelled else { return }
+                guard let self, !Task.isCancelled else { return }
                 self.expansionTask = nil
                 self.interactiveState = expanded
                 self.lastAppliedAutoBounds = expanded.segmentationLut == nil ? expanded.windowBounds : nil
@@ -361,7 +416,7 @@ final class MIQPreviewModel {
                 self.scheduleFullRender()
                 self.onChange?()
             } catch {
-                guard !Task.isCancelled else { return }
+                guard let self, !Task.isCancelled else { return }
                 self.expansionTask = nil
                 // `.failed` (not `.notNeeded`): no retry on every subsequent
                 // step within this gesture (no storm), but `scrollGestureBegan`
@@ -529,13 +584,13 @@ final class MIQPreviewModel {
     private func prepareInteractiveState(fileURL: URL, options: RenderingOptions) {
         let maxDimension = self.maxDimension
         interactionPreparationTask?.cancel()
+        // Weak across the await; see deinit.
         interactionPreparationTask = Task { [weak self] in
-            guard let self else { return }
             do {
-                let interactiveState = try await Self.runCancelableDetached { () -> InteractivePreviewState in
-                    try Self.loadInteractiveState(fileURL: fileURL, options: options, maxDimension: maxDimension)
+                let interactiveState = try await MIQPreviewModel.runCancelableDetached { () -> InteractivePreviewState in
+                    try MIQPreviewModel.loadInteractiveState(fileURL: fileURL, options: options, maxDimension: maxDimension)
                 }
-                guard !Task.isCancelled else { return }
+                guard let self, !Task.isCancelled else { return }
                 self.interactionPreparationTask = nil
                 self.interactiveState = interactiveState
                 self.lastAppliedAutoBounds = interactiveState.segmentationLut == nil ? interactiveState.windowBounds : nil
@@ -547,7 +602,7 @@ final class MIQPreviewModel {
             } catch {
                 // A cancelled task may already have been replaced; don't clear
                 // its successor.
-                guard !Task.isCancelled, !(error is CancellationError) else { return }
+                guard let self, !Task.isCancelled, !(error is CancellationError) else { return }
                 self.interactionPreparationTask = nil
                 self.logger.error("interactive state preparation failed: \(error.localizedDescription, privacy: .public)")
             }
@@ -599,10 +654,10 @@ final class MIQPreviewModel {
         let cachedAutoBounds = (manualBounds == nil && perVolume) ? perVolumeWindowCache[cursor.t] : nil
         let generation = interactiveStateGeneration
 
+        // Weak across the await; see deinit.
         renderTask = Task { [weak self] in
-            guard let self else { return }
             let result = await Task.detached(priority: .userInitiated) {
-                Self.renderBitmaps(
+                MIQPreviewModel.renderBitmaps(
                     cursor: cursor,
                     planes: planesToRender,
                     interactiveState: interactiveState,
@@ -611,7 +666,7 @@ final class MIQPreviewModel {
                     cached: cachedAutoBounds
                 )
             }.value
-            guard !Task.isCancelled else { return }
+            guard let self, !Task.isCancelled else { return }
             self.apply(bitmaps: result.bitmaps)
             // Remember the auto window so a subsequent W/L drag starts from it,
             // and memoize it per timepoint for per-volume mode — unless the state
@@ -626,6 +681,67 @@ final class MIQPreviewModel {
             self.onChange?()
             self.renderTask = nil
             self.startNextRenderIfNeeded()
+        }
+    }
+
+    /// One cold parse in flight, shared by every preview that asks for the same
+    /// cache key while it runs.
+    @MainActor
+    private final class SharedColdLoad {
+        var task: Task<RawPreviewData, Error>!
+        /// Previews still waiting. Only decremented on cancellation; a load that
+        /// completes simply leaves the registry.
+        var waiters = 0
+    }
+
+    private static var sharedColdLoads: [String: SharedColdLoad] = [:]
+
+    /// Runs the cold parse for `key` once, however many previews ask for it while
+    /// it runs. The Finder preview pane and the Space panel each create a
+    /// controller for the same file; when the parse outlasts the gap between their
+    /// requests (a network file, or a large `.mgz`/`.mif.gz`) both used to parse
+    /// it — twice the bytes over the link, and twice the CPU and memory locally.
+    /// A fast local load finishes first and the second preview hits the cache, so
+    /// this changes nothing there.
+    ///
+    /// The shared task belongs to no single preview, so one leaving doesn't stop
+    /// it for the others: a cancelled waiter just drops out, and only the last one
+    /// out cancels the parse (which `runCancelableDetached` forwards into the
+    /// chunked network reads). A cancelled waiter still waits for the shared result
+    /// before its `load()` returns; its caller has already been torn down.
+    private static func sharedColdLoad(
+        key: String,
+        work: @Sendable @escaping () throws -> RawPreviewData
+    ) async throws -> RawPreviewData {
+        let shared: SharedColdLoad
+        if let existing = sharedColdLoads[key] {
+            shared = existing
+        } else {
+            shared = SharedColdLoad()
+            shared.task = Task { @MainActor in
+                defer {
+                    if MIQPreviewModel.sharedColdLoads[key] === shared {
+                        MIQPreviewModel.sharedColdLoads[key] = nil
+                    }
+                }
+                return try await MIQPreviewModel.runCancelableDetached(work)
+            }
+            sharedColdLoads[key] = shared
+        }
+        shared.waiters += 1
+        return try await withTaskCancellationHandler {
+            try await shared.task.value
+        } onCancel: {
+            Task { @MainActor in
+                shared.waiters -= 1
+                guard shared.waiters == 0 else { return }
+                // Unregister first so a new request starts a fresh parse instead
+                // of joining the cancelled one.
+                if MIQPreviewModel.sharedColdLoads[key] === shared {
+                    MIQPreviewModel.sharedColdLoads[key] = nil
+                }
+                shared.task.cancel()
+            }
         }
     }
 

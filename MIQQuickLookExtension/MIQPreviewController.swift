@@ -73,6 +73,11 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
             logger.notice("automatic termination disabled")
         }
 
+        // Quick Look keeps the previous file's controller alive, so this request is
+        // the only reliable sign that the user moved on. Stop the other files'
+        // background reads before this one starts competing with them for the mount.
+        MIQPreviewModel.stopBackgroundWork(exceptFor: url)
+
         if currentURL == url, let model {
             switch model.state {
             case .loading:
@@ -119,6 +124,11 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
             }
             self.refreshPreviewView(from: model, flushDisplay: shouldFlushDisplay)
         }
+        // Defensive: Quick Look has so far always used a fresh controller per file
+        // (`stopBackgroundWork(exceptFor:)` above is what actually stops the old
+        // file's reads), but if it ever reuses this one, don't leave the old
+        // model's work running.
+        self.model?.cancelInFlightWork()
         self.model = model
 
         beginLoad(forceFullRead: false)
@@ -140,13 +150,16 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
             self?.previewView?.showLoading()
         }
 
-        loadTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+        // `self` stays weak across the await: holding the controller for the whole
+        // load kept `deinit` (which cancels this task) from running when Quick Look
+        // dismissed the preview mid-load, so a dismissed network read ran on.
+        loadTask = Task { @MainActor [weak self, logger] in
             logger.notice("starting async model load (forceFullRead=\(forceFullRead, privacy: .public))")
             await model.load(forceFullRead: forceFullRead)
+            guard let self else { return }
             self.loadingIndicatorTask?.cancel()
             guard !Task.isCancelled, self.model === model else {
-                self.logger.notice("load task canceled or superseded before UI update")
+                logger.notice("load task canceled or superseded before UI update")
                 return
             }
             self.refreshPreviewView(from: model, flushDisplay: false)
