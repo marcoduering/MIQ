@@ -81,14 +81,20 @@ final class MIQPreviewModel {
     /// Set on a cache hit for a file the large-network gate would defer: the
     /// cached frame is shown, but the full read waits for the first interaction.
     private var interactivePreparationDeferred = false
+    /// Volume count from a cache hit's bundle, until the interactive state lands.
+    private var cachedVolumeCount: Int?
     private var expansionState: ExpansionState = .notNeeded
     private var expansionTask: Task<Void, Never>?
     /// The cold parse `load()` is awaiting. Owned by the model (not only by the
-    /// controller's load task) so `stopBackgroundWork()` can cancel it.
+    /// controller's load task) so `deinit` can cancel it.
     private var coldLoadTask: Task<RawPreviewData, Error>?
-    /// Set when `stopBackgroundWork()` cancelled `coldLoadTask`, so `load()` can
-    /// tell that apart from the controller tearing the load down.
-    private var coldLoadInterrupted = false
+    /// Whether this file is on a network volume, from `load()`'s probe. Its reads
+    /// then go through `NetworkReadLane`.
+    private var readsOverNetwork = false
+    /// The last load's read was dropped because no preview wanted the file any
+    /// more (`NetworkReadLane.Superseded`) — so this preview was off screen. The
+    /// model is `.idle`; the controller reloads if it comes back into view.
+    private(set) var loadSuperseded = false
     private var currentCursor: MIQVolumeCursor?
     private var displayedCursor: MIQVolumeCursor?
     private var windowAdjustment: MIQIntensityWindowBounds?
@@ -115,52 +121,6 @@ final class MIQPreviewModel {
     init(url: URL) {
         self.url = url
         self.fileKind = MIQFileKind(url: url)
-        Self.liveModels.add(self)
-    }
-
-    /// Every model still alive in this extension process. Quick Look creates a new
-    /// controller (and so a new model) per file and keeps the previous ones alive
-    /// after the user moves on, so neither replacement nor `deinit` is a signal that
-    /// a preview left the screen. A request for another file is. Weak, so the
-    /// registry never extends a model's lifetime.
-    private static let liveModels = NSHashTable<MIQPreviewModel>.weakObjects()
-
-    /// Stops the background reads of every live preview of a file other than `url`:
-    /// the cold parse, the 4D expansion re-parse and the cache-hit interactive-state
-    /// prep. On a network volume those keep pulling the old file off the mount, and
-    /// the new file's first stat and reads queue behind them (measured: a 305 MB
-    /// expansion held the next file's stat probe for 5–7 s). The cold parse matters
-    /// for every kind but canonical NIfTI, which reads only volume 0 up front:
-    /// `.mif(.gz)`/`.mgz`/`.nrrd` read (and decompress) the whole file there.
-    /// Previews of `url` itself are untouched — the Finder preview pane and the
-    /// Space panel each run one.
-    static func stopBackgroundWork(exceptFor url: URL) {
-        for model in liveModels.allObjects where model.url != url {
-            model.stopBackgroundWork()
-        }
-    }
-
-    /// Cancels the cold parse, expansion and interactive-state prep. A cancelled
-    /// cold parse leaves the model `.idle` (see `load()`); the other two are
-    /// re-armed so that coming back to this preview and interacting restarts them.
-    /// The cancelled tasks return without touching state (their
-    /// `!Task.isCancelled` guards), so the re-armed values stick.
-    private func stopBackgroundWork() {
-        if let coldLoadTask {
-            coldLoadTask.cancel()
-            self.coldLoadTask = nil
-            coldLoadInterrupted = true
-        }
-        if let expansionTask {
-            expansionTask.cancel()
-            self.expansionTask = nil
-            expansionState = .pending
-        }
-        if let interactionPreparationTask {
-            interactionPreparationTask.cancel()
-            self.interactionPreparationTask = nil
-            interactivePreparationDeferred = true
-        }
     }
 
     /// Reached only because no task below holds `self` across its `await`: each
@@ -200,10 +160,14 @@ final class MIQPreviewModel {
         volume.volumes > 1 && !volume.containsAllVolumes
     }
 
-    /// - Parameter forceFullRead: when `true` (the placeholder's "Load preview"
-    ///   button), bypass the large-network-preview gate and parse normally. The
-    ///   default cold load respects the gate.
-    func load(forceFullRead: Bool = false) async {
+    /// - Parameters:
+    ///   - forceFullRead: when `true` (the placeholder's "Load preview" button),
+    ///     bypass the large-network-preview gate and parse normally. The default
+    ///     cold load respects the gate.
+    ///   - navigating: from `NetworkReadLane.requestStarted`, which the controller
+    ///     calls before this: the user is moving through files, so a network read
+    ///     waits briefly before starting.
+    func load(forceFullRead: Bool = false, navigating: Bool = false) async {
         state = .loading
         onChange?()
         let fileURL = self.url
@@ -229,10 +193,11 @@ final class MIQPreviewModel {
         // The controller creates one model per URL, and a second load() only comes
         // from the deferred placeholder, so there is never state worth keeping.
         cancelInFlightWork()
-        coldLoadInterrupted = false
+        loadSuperseded = false
         interactivePreparationDeferred = false
         renderingOptions = options
         interactiveState = nil
+        cachedVolumeCount = nil
         expansionState = .notNeeded
         perVolumeWindowCache = [:]
         currentCursor = nil
@@ -247,12 +212,14 @@ final class MIQPreviewModel {
             // size; either can block on a hung network mount, so both run off the
             // MainActor. Only the String key and the size come back — cached
             // bundles hold NSImages, so the lookup itself stays on the MainActor.
-            let probe = try await Self.runCancelableDetached { () -> (cacheKey: String, deferralSizeBytes: Int?) in
+            let probe = try await Self.runCancelableDetached { () -> (cacheKey: String, isLocal: Bool, deferralSizeBytes: Int?) in
                 let cacheKey = MIQPreviewCache.makeKey(fileURL: fileURL, maxDimension: maxDimension, options: options)
-                let deferralSizeBytes = applyNetworkGate ? Self.networkDeferralSizeBytes(fileURL: fileURL, kind: kind) : nil
-                return (cacheKey, deferralSizeBytes)
+                let isLocal = VolumeLocation.isLocal(fileURL)
+                let deferralSizeBytes = applyNetworkGate && !isLocal ? Self.networkDeferralSizeBytes(fileURL: fileURL, kind: kind) : nil
+                return (cacheKey, isLocal, deferralSizeBytes)
             }
             try Task.checkCancellation()
+            readsOverNetwork = !probe.isLocal
 
             if let cached = MIQPreviewCache.bundle(for: probe.cacheKey) {
                 apply(bundle: cached)
@@ -264,8 +231,13 @@ final class MIQPreviewModel {
                     interactivePreparationDeferred = true
                     logger.notice("load() cache hit — interactive state deferred to first interaction (large network file)")
                 } else {
+                    // On a share this re-read goes through the lane like a cold
+                    // load: it waits `dwell` while the user navigates and is
+                    // stopped as soon as they move on, so revisiting cached files
+                    // doesn't compete with Finder — but it is ready (or under way)
+                    // by the time the user interacts.
                     logger.notice("load() cache hit — applying cached center preview, preparing interactive state")
-                    prepareInteractiveState(fileURL: fileURL, options: options)
+                    prepareInteractiveState(fileURL: fileURL, options: options, navigating: navigating, claimsNewest: false)
                 }
                 return
             }
@@ -277,9 +249,12 @@ final class MIQPreviewModel {
                 return
             }
 
+            let overNetwork = readsOverNetwork
             let coldLoad = Task {
                 try await Self.sharedColdLoad(key: probe.cacheKey) {
-                    try MIQPreviewModel.loadPreviewData(fileURL: fileURL, options: options, maxDimension: maxDimension)
+                    try await MIQPreviewModel.runRead(overNetwork: overNetwork, url: fileURL, navigating: navigating, claimsNewest: false, label: "load \(fileURL.lastPathComponent)") { parser in
+                        try MIQPreviewModel.loadPreviewData(parser: parser, fileURL: fileURL, options: options, maxDimension: maxDimension)
+                    }
                 }
             }
             coldLoadTask = coldLoad
@@ -305,16 +280,11 @@ final class MIQPreviewModel {
                 logger.notice("load() finished successfully")
             }
             onChange?()
+        } catch is NetworkReadLane.Superseded {
+            state = .idle
+            loadSuperseded = true
+            logger.notice("load() dropped: no preview wants this file any more")
         } catch is CancellationError {
-            if coldLoadInterrupted {
-                // The user moved on to another file (`stopBackgroundWork()`). Back
-                // to `.idle`, not stuck in `.loading`: a later request for this
-                // file then reloads (the controller only reuses a model that is
-                // loading or has something to show).
-                state = .idle
-                logger.notice("load() interrupted: user moved to another file")
-                return
-            }
             // Preview dismissed/replaced mid-parse (e.g. a large file abandoned on
             // a slow network mount). The load task is being torn down — leave state
             // untouched and don't surface a failure.
@@ -397,7 +367,7 @@ final class MIQPreviewModel {
     }
 
     /// Total number of volumes along the 4th axis (1 for 3D).
-    var volumeCount: Int { interactiveState?.volume.volumes ?? 1 }
+    var volumeCount: Int { interactiveState?.volume.volumes ?? cachedVolumeCount ?? 1 }
 
     /// Current timepoint the preview is showing.
     var currentVolumeIndex: Int { currentCursor?.t ?? 0 }
@@ -445,13 +415,15 @@ final class MIQPreviewModel {
         let maxDimension = interactiveState.maxDimension
         let windowBounds = interactiveState.windowBounds
         let segmentationLut = interactiveState.segmentationLut
+        let overNetwork = readsOverNetwork
 
         // `self` stays weak across the await (see deinit) and the statics are named
         // by type, not `Self`, so nothing in the closure retains the model.
         expansionTask = Task { [weak self] in
             do {
-                let expanded = try await MIQPreviewModel.runCancelableDetached { () -> InteractivePreviewState in
+                let expanded = try await MIQPreviewModel.runRead(overNetwork: overNetwork, url: fileURL, navigating: false, claimsNewest: true, label: "expand \(fileURL.lastPathComponent)") { parser in
                     try MIQPreviewModel.loadExpandedInteractiveState(
+                        parser: parser,
                         fileURL: fileURL,
                         options: options,
                         maxDimension: maxDimension,
@@ -471,6 +443,12 @@ final class MIQPreviewModel {
                 // The cursor is unchanged but the underlying volume is not, so
                 // force every plane to re-render against the real data.
                 self.scheduleFullRender()
+                self.onChange?()
+            } catch is NetworkReadLane.Superseded {
+                // Another file took the link; the next 4D step retries.
+                guard let self, !Task.isCancelled else { return }
+                self.expansionTask = nil
+                self.expansionState = .pending
                 self.onChange?()
             } catch {
                 guard let self, !Task.isCancelled else { return }
@@ -586,6 +564,7 @@ final class MIQPreviewModel {
         sagittalOrientation = bundle.orientations[.sagittal] ?? .placeholderSagittal
         axialOrientation = bundle.orientations[.axial] ?? .placeholderAxial
         metadataEntries = bundle.metadataEntries
+        cachedVolumeCount = bundle.volumeCount
     }
 
     private func apply(raw: RawPreviewData) {
@@ -640,18 +619,30 @@ final class MIQPreviewModel {
         return MIQPreviewBundle(
             slices: nsSlices,
             orientations: raw.orientations,
-            metadataEntries: raw.metadataEntries
+            metadataEntries: raw.metadataEntries,
+            volumeCount: raw.interactiveState.volume.volumes
         )
     }
 
-    private func prepareInteractiveState(fileURL: URL, options: RenderingOptions) {
+    /// - Parameters:
+    ///   - navigating: see `load(navigating:)`; only for the cache-hit path.
+    ///   - claimsNewest: `true` when an interaction asked for it (the user is on
+    ///     this file); `false` right after a cache hit, where it is part of that
+    ///     file's request, already registered.
+    private func prepareInteractiveState(
+        fileURL: URL,
+        options: RenderingOptions,
+        navigating: Bool = false,
+        claimsNewest: Bool = true
+    ) {
         let maxDimension = self.maxDimension
+        let overNetwork = readsOverNetwork
         interactionPreparationTask?.cancel()
         // Weak across the await; see deinit.
         interactionPreparationTask = Task { [weak self] in
             do {
-                let interactiveState = try await MIQPreviewModel.runCancelableDetached { () -> InteractivePreviewState in
-                    try MIQPreviewModel.loadInteractiveState(fileURL: fileURL, options: options, maxDimension: maxDimension)
+                let interactiveState = try await MIQPreviewModel.runRead(overNetwork: overNetwork, url: fileURL, navigating: navigating, claimsNewest: claimsNewest, label: "prepare \(fileURL.lastPathComponent)") { parser in
+                    try MIQPreviewModel.loadInteractiveState(parser: parser, fileURL: fileURL, options: options, maxDimension: maxDimension)
                 }
                 guard let self, !Task.isCancelled else { return }
                 self.interactionPreparationTask = nil
@@ -667,6 +658,11 @@ final class MIQPreviewModel {
                 // its successor.
                 guard let self, !Task.isCancelled, !(error is CancellationError) else { return }
                 self.interactionPreparationTask = nil
+                if error is NetworkReadLane.Superseded {
+                    // Another file took the link; the next interaction retries.
+                    self.interactivePreparationDeferred = true
+                    return
+                }
                 self.logger.error("interactive state preparation failed: \(error.localizedDescription, privacy: .public)")
             }
         }
@@ -769,12 +765,12 @@ final class MIQPreviewModel {
     ///
     /// The shared task belongs to no single preview, so one leaving doesn't stop
     /// it for the others: a cancelled waiter just drops out, and only the last one
-    /// out cancels the parse (which `runCancelableDetached` forwards into the
-    /// chunked network reads). A cancelled waiter still waits for the shared result
+    /// out cancels the parse (which `runRead` forwards into the chunked network
+    /// reads). A cancelled waiter still waits for the shared result
     /// before its `load()` returns; its caller has already been torn down.
     private static func sharedColdLoad(
         key: String,
-        work: @Sendable @escaping () throws -> RawPreviewData
+        work: @escaping @MainActor () async throws -> RawPreviewData
     ) async throws -> RawPreviewData {
         let shared: SharedColdLoad
         if let existing = sharedColdLoads[key] {
@@ -787,7 +783,7 @@ final class MIQPreviewModel {
                         MIQPreviewModel.sharedColdLoads[key] = nil
                     }
                 }
-                return try await MIQPreviewModel.runCancelableDetached(work)
+                return try await work()
             }
             sharedColdLoads[key] = shared
         }
@@ -805,6 +801,28 @@ final class MIQPreviewModel {
                 }
                 shared.task.cancel()
             }
+        }
+    }
+
+    /// Runs a parse that reads `fileURL`'s data. On a network volume it goes through
+    /// `NetworkReadLane` — one read at a time, the newest request first — and
+    /// throws `NetworkReadLane.Superseded` if no preview wants the file any more;
+    /// a local file is memory-mapped and runs straight away. `claimsNewest` is for
+    /// work an interaction starts (4D expansion, cache-hit prep): it makes this
+    /// file the newest request.
+    private static func runRead<T: Sendable>(
+        overNetwork: Bool,
+        url: URL,
+        navigating: Bool,
+        claimsNewest: Bool,
+        label: String,
+        _ work: @Sendable @escaping (MIQParser) throws -> T
+    ) async throws -> T {
+        guard overNetwork else {
+            return try await runCancelableDetached { try work(MIQParser()) }
+        }
+        return try await NetworkReadLane.shared.run(label, url: url, navigating: navigating, claimsNewest: claimsNewest) { readFinished in
+            try work(MIQParser(onNetworkReadFinished: readFinished))
         }
     }
 
@@ -827,24 +845,24 @@ final class MIQPreviewModel {
     /// On a network volume, the on-disk size (bytes) at which a non-boundable
     /// kind's cold preview should be deferred behind a placeholder rather than
     /// pulling the whole file (which would stall Finder's I/O on a slow mount).
-    /// `nil` ⇒ load normally (local disk, canonical NIfTI, or under threshold).
-    /// Runs inside the detached task: `VolumeLocation.isLocal` (statfs) and the
-    /// size stat can block on a hung mount, so they stay off the MainActor.
+    /// `nil` ⇒ load normally (canonical NIfTI, or under threshold). The caller
+    /// has already established that the file is on a network volume. Runs inside
+    /// the detached task: the size stat can block on a hung mount.
     private nonisolated static func networkDeferralSizeBytes(fileURL: URL, kind: MIQFileKind?) -> Int? {
         guard let kind, !kind.supportsBoundedNetworkRead else { return nil }
-        guard !VolumeLocation.isLocal(fileURL) else { return nil }
         guard let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
               size > MIQConfig.networkPreviewThresholdBytes else { return nil }
         return size
     }
 
     private nonisolated static func loadPreviewData(
+        parser: MIQParser,
         fileURL: URL,
         options: RenderingOptions,
         maxDimension: Int
     ) throws -> RawPreviewData {
         try withSecurityScopedAccess(to: fileURL) {
-            let image = try MIQParser().parse(url: fileURL)
+            let image = try parser.parse(url: fileURL)
             let volume = MIQVolume(image: image)
             MIQLogger.make(category: "model").notice("cold parse: \(volume.containsAllVolumes ? "full payload" : "volume-0 capped", privacy: .public), volumes=\(volume.volumes, privacy: .public), payload=\(image.payloadCount / 1024, privacy: .public)KB")
             // Single decode of the center slices: the pooled buffer that derives the
@@ -885,12 +903,13 @@ final class MIQPreviewModel {
     }
 
     private nonisolated static func loadInteractiveState(
+        parser: MIQParser,
         fileURL: URL,
         options: RenderingOptions,
         maxDimension: Int
     ) throws -> InteractivePreviewState {
         try withSecurityScopedAccess(to: fileURL) {
-            let image = try MIQParser().parse(url: fileURL)
+            let image = try parser.parse(url: fileURL)
             let volume = MIQVolume(image: image)
             return makeInteractiveState(volume: volume, options: options, maxDimension: maxDimension)
         }
@@ -919,6 +938,7 @@ final class MIQPreviewModel {
     /// `windowBounds` and `segmentationLut` from the capped state so rendering
     /// stays constant across the timeseries.
     private nonisolated static func loadExpandedInteractiveState(
+        parser: MIQParser,
         fileURL: URL,
         options: RenderingOptions,
         maxDimension: Int,
@@ -926,7 +946,7 @@ final class MIQPreviewModel {
         segmentationLut: SegmentationLut?
     ) throws -> InteractivePreviewState {
         try withSecurityScopedAccess(to: fileURL) {
-            let image = try MIQParser().parse(url: fileURL, fullyDecompress: true)
+            let image = try parser.parse(url: fileURL, fullyDecompress: true)
             let volume = MIQVolume(image: image)
             return InteractivePreviewState(
                 volume: volume,

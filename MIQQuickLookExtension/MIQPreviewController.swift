@@ -5,7 +5,7 @@ import QuickLook
 import QuickLookUI
 import MIQCore
 
-final class MIQPreviewController: NSViewController, QLPreviewingController {
+final class MIQPreviewController: NSViewController, QLPreviewingController, NetworkReadClient {
     private let logger = MIQLogger.make(category: "preview")
     private var previewView: MIQPreviewAppKitView?
     private var model: MIQPreviewModel?
@@ -48,17 +48,43 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
         self.view = root
     }
 
+    /// Between `viewWillAppear` and `viewDidDisappear`. Quick Look can show two
+    /// previews at once (the Space panel and the Finder pane, one lagging behind
+    /// the other); `NetworkReadLane` never drops the read of a file on screen.
+    private var isOnScreen = false
+    /// Set by `viewDidDisappear`, cleared by a new request or reappearing: until
+    /// then the preview still wants its file, even before it first appears.
+    private var hasDisappeared = false
+
+    var readURL: URL? { currentURL }
+    var isShown: Bool { isOnScreen }
+    var wantsRead: Bool { !hasDisappeared }
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        isOnScreen = true
+        hasDisappeared = false
+        NetworkReadLane.shared.clientVisibilityChanged(self)
+        // Its read was dropped while it was off screen: load again.
+        if model?.loadSuperseded == true {
+            logger.notice("reloading dropped preview")
+            beginLoad(forceFullRead: false)
+        }
+    }
+
+    override func viewDidDisappear() {
+        super.viewDidDisappear()
+        isOnScreen = false
+        hasDisappeared = true
+        NetworkReadLane.shared.clientVisibilityChanged(self)
+    }
+
     nonisolated func preparePreviewOfFile(at url: URL, completionHandler handler: @escaping (Error?) -> Void) {
         nonisolated(unsafe) let completion = handler
         logger.notice("preparePreviewOfFile called for: \(url.path, privacy: .public)")
 
         guard MIQFileKind(url: url) != nil else {
             logger.notice("declining unsupported preview file: \(url.path, privacy: .public)")
-            // Moving on to a file we decline is still moving on: stop the previous
-            // previews' reads (see `prepareAndStartLoading`).
-            Task { @MainActor in
-                MIQPreviewModel.stopBackgroundWork(exceptFor: url)
-            }
             completion(MIQError.unsupportedFileFormat)
             return
         }
@@ -78,12 +104,6 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
             logger.notice("automatic termination disabled")
         }
 
-        // Quick Look releases the previous file's controller (whose `deinit` cancels
-        // its load) only 0.5–1.5 s after the next request, so a quick arrow-through
-        // left two or three old reads competing for the mount. This request is the
-        // earliest sign that the user moved on: stop the other files' reads now.
-        MIQPreviewModel.stopBackgroundWork(exceptFor: url)
-
         if currentURL == url, let model {
             switch model.state {
             case .loading:
@@ -99,6 +119,7 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
         }
 
         currentURL = url
+        hasDisappeared = false
 
         guard previewView != nil else {
             logger.error("preview root view missing")
@@ -130,10 +151,8 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
             }
             self.refreshPreviewView(from: model, flushDisplay: shouldFlushDisplay)
         }
-        // Defensive: Quick Look has so far always used a fresh controller per file
-        // (`stopBackgroundWork(exceptFor:)` above is what actually stops the old
-        // file's reads), but if it ever reuses this one, don't leave the old
-        // model's work running.
+        // Defensive: Quick Look has so far always used a fresh controller per file,
+        // but if it ever reuses this one, don't leave the old model's work running.
         self.model?.cancelInFlightWork()
         self.model = model
 
@@ -149,6 +168,10 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
         loadTask?.cancel()
         loadingIndicatorTask?.cancel()
         previewView?.hideStatus()
+        let started = Date()
+        // Before the model's probe: the lane stops other files' reads now, or the
+        // probe's stat queues behind them on the share.
+        let navigating = currentURL.map { NetworkReadLane.shared.requestStarted(for: $0, client: self) } ?? false
 
         loadingIndicatorTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
@@ -161,7 +184,7 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
         // dismissed the preview mid-load, so a dismissed network read ran on.
         loadTask = Task { @MainActor [weak self, logger] in
             logger.notice("starting async model load (forceFullRead=\(forceFullRead, privacy: .public))")
-            await model.load(forceFullRead: forceFullRead)
+            await model.load(forceFullRead: forceFullRead, navigating: navigating)
             guard let self else { return }
             self.loadingIndicatorTask?.cancel()
             guard !Task.isCancelled, self.model === model else {
@@ -169,7 +192,8 @@ final class MIQPreviewController: NSViewController, QLPreviewingController {
                 return
             }
             self.refreshPreviewView(from: model, flushDisplay: false)
-            logger.notice("async model load finished")
+            let elapsedMs = Int(Date().timeIntervalSince(started) * 1000)
+            logger.notice("async model load finished in \(elapsedMs, privacy: .public) ms, state=\(String(describing: model.state), privacy: .public)")
         }
     }
 
