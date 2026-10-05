@@ -3,6 +3,37 @@
     <channel>
         <title>MIQ</title>
         <item>
+            <title>1.5.3</title>
+            <pubDate>Mon, 05 Oct 2026 08:43:45 +0200</pubDate>
+            <link>https://miq.marco-duering.net/</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/marcoduering/MIQ/releases</sparkle:fullReleaseNotesLink>
+            <sparkle:version>1.5.3</sparkle:version>
+            <sparkle:shortVersionString>1.5.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description>&lt;style&gt;
+body { line-height: 1.45; margin: 10px 12px; }
+h1, h2, h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
+h1:first-child, h2:first-child, h3:first-child, p:first-child { margin-top: 0; }
+p { margin: 0 0 8px; }
+ul, ol { margin: 0 0 10px; padding-left: 20px; }
+li { margin: 2px 0; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em; background: rgba(128,128,128,.14);
+  border-radius: 3px; padding: 1px 4px;
+}
+&lt;/style&gt;
+&lt;p dir="auto"&gt;&lt;strong&gt;Performance improvements:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul dir="auto"&gt;
+&lt;li&gt;&lt;strong&gt;Focus on network share performance&lt;/strong&gt;&lt;/li&gt;
+&lt;li&gt;Browsing a network share no longer makes Finder freeze or beachball while previews load, even over a slow VPN.&lt;/li&gt;
+&lt;li&gt;Moving quickly through files on a network share no longer starts a full read for every file you pass.&lt;/li&gt;
+&lt;li&gt;A file shown in both the Finder preview pane and the Quick Look window is no longer left stuck on "Loading…".&lt;/li&gt;
+&lt;li&gt;Reopening a 4D file on a network share shows the Volumes slider right away.&lt;/li&gt;
+&lt;/ul&gt;</description>
+            <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.5.3/MIQ.app.zip" length="4387831" type="application/octet-stream" sparkle:edSignature="kgOD25TCCaGcYTEaQhFMb39sMExUcXr5CkBGPpswuoVb9rtCJ/kKjIg8kGJZzgf25FD69Oc+F8EAeHnjo/T3Dw==" />
+        </item>
+        <item>
             <title>1.5.2</title>
             <pubDate>Sun, 27 Sep 2026 15:49:47 +0200</pubDate>
             <link>https://miq.marco-duering.net/</link>
@@ -78,44 +109,6 @@ code {
 &lt;li&gt;NIfTI-2 files are now labelled "NIfTI-2" in the metadata panel.&lt;/li&gt;
 &lt;/ul&gt;</description>
             <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.5.1/MIQ.app.zip" length="4264974" type="application/octet-stream" sparkle:edSignature="Qw7o8Z//yQ9so6uTYl8jKubGOIrPPbe+zt77n8D/mT0t/+XF9Q5Jdr5UkGbFd88xkEOyVko5pY9DQLeJdzXSAw==" />
-        </item>
-        <item>
-            <title>1.5.0</title>
-            <pubDate>Tue, 15 Sep 2026 07:57:35 +0200</pubDate>
-            <link>https://miq.marco-duering.net/</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/marcoduering/MIQ/releases</sparkle:fullReleaseNotesLink>
-            <sparkle:version>1.5.0</sparkle:version>
-            <sparkle:shortVersionString>1.5.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description>&lt;style&gt;
-body { line-height: 1.45; margin: 10px 12px; }
-h1, h2, h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
-h1:first-child, h2:first-child, h3:first-child, p:first-child { margin-top: 0; }
-p { margin: 0 0 8px; }
-ul, ol { margin: 0 0 10px; padding-left: 20px; }
-li { margin: 2px 0; }
-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.92em; background: rgba(128,128,128,.14);
-  border-radius: 3px; padding: 1px 4px;
-}
-&lt;/style&gt;
-&lt;p dir="auto"&gt;&lt;strong&gt;New features:&lt;/strong&gt;&lt;/p&gt;
-&lt;ul dir="auto"&gt;
-&lt;li&gt;Segmentation colouring for Finder thumbnails&lt;/li&gt;
-&lt;li&gt;Support for the MIF &lt;code class="notranslate"&gt;Bit&lt;/code&gt; datatype (bit-packed masks).&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p dir="auto"&gt;&lt;strong&gt;Performance improvements:&lt;/strong&gt;&lt;/p&gt;
-&lt;ul dir="auto"&gt;
-&lt;li&gt;Segmentation colouring &lt;code class="notranslate"&gt;auto&lt;/code&gt; by default for preview and thumbnails.&lt;/li&gt;
-&lt;li&gt;Improved handling of NaN and Inf voxels.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p dir="auto"&gt;&lt;strong&gt;Fixes:&lt;/strong&gt;&lt;/p&gt;
-&lt;ul dir="auto"&gt;
-&lt;li&gt;Fixed MIF anatomical orientation ignoring the &lt;code class="notranslate"&gt;transform&lt;/code&gt; header, which could mislabel left/right on obliquely-transformed volumes.&lt;/li&gt;
-&lt;li&gt;Minor GUI fixes in the main app&lt;/li&gt;
-&lt;/ul&gt;</description>
-            <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.5.0/MIQ.app.zip" length="4255922" type="application/octet-stream" sparkle:edSignature="R6jYHrKVINWM0QH06/j71BOOyUSXj15mZ7sO7ylx7F7FF4A9WNsqWqlOVoOGOUZH0ELNC/k4J9h8X0xB72T+Cg==" />
         </item>
     </channel>
 </rss>
