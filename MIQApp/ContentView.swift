@@ -9,14 +9,11 @@ extension ViewOrientation {
 
     var label: String {
         switch self {
-        case .stored:        return "As stored"
-        case .neurological:  return "Neurological view"
-        case .radiological:  return "Radiological view"
+        case .stored:        return "As Stored"
+        case .neurological:  return "Neurological"
+        case .radiological:  return "Radiological"
         }
     }
-
-    /// See `markDefault(_:isDefault:)`.
-    func label(default defaultCase: Self) -> String { markDefault(label, isDefault: self == defaultCase) }
 }
 
 extension SegmentationColoring {
@@ -26,21 +23,10 @@ extension SegmentationColoring {
     var label: String {
         switch self {
         case .off:    return "Off"
-        case .auto:   return "Auto (FreeSurfer or random)"
-        case .random: return "Random colours"
+        case .auto:   return "Auto"
+        case .random: return "Random"
         }
     }
-
-    /// See `markDefault(_:isDefault:)`.
-    func label(default defaultCase: Self) -> String { markDefault(label, isDefault: self == defaultCase) }
-}
-
-/// The "(default)" marker on a picker row is *derived* from the pane's own
-/// default, never spelled into the case's label. The preview and the thumbnail
-/// each carry their own default for both of these settings, and a marker baked
-/// into one case silently became a lie the moment that default changed.
-private func markDefault(_ label: String, isDefault: Bool) -> String {
-    isDefault ? "\(label) (default)" : label
 }
 
 // Persists a Color as a comma-separated sRGB string for @AppStorage.
@@ -65,6 +51,14 @@ struct StoredColor: RawRepresentable, Equatable {
     }
 
     static let defaultValue = StoredColor(rawValue: MIQConfig.Defaults.axisLabelColor)!
+
+    /// `Color` equality doesn't survive the sRGB string round trip, so
+    /// "is this still the default?" compares components with a tolerance.
+    func isApproximately(_ other: StoredColor) -> Bool {
+        let a = rawValue.split(separator: ",").compactMap { Double($0) }
+        let b = other.rawValue.split(separator: ",").compactMap { Double($0) }
+        return a.count == b.count && zip(a, b).allSatisfy { abs($0 - $1) < 0.002 }
+    }
 }
 
 // Persists an ordered list of metadata fields as a CSV of raw values.
@@ -111,86 +105,144 @@ private func metadataHelpText(_ field: MetadataField) -> String? {
 }
 
 
-/// One interaction in the Usage pane: a title, an optional explanatory note,
-/// and the mouse / trackpad gestures that trigger it.
-private struct InteractionRow: View {
-    let title: String
-    var icon: String? = nil
-    var note: String? = nil
-    var mouse: String? = nil
-    var trackpad: String? = nil
+
+/// An (i) button that shows a short explanation in a popover. Explanations
+/// live here rather than in captions under each row, so rows stay one line and
+/// nothing shifts when a selection changes.
+private struct InfoButton: View {
+    let text: String
+    @State private var isPresented = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 5) {
-            if let icon {
-                Image(systemName: icon)
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 30)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.body)
+        Button {
+            isPresented.toggle()
+        } label: {
+            Image(systemName: isPresented ? "info.circle.fill" : "info.circle")
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("More information")
+        .popover(isPresented: $isPresented, arrowEdge: .top) {
+            Text(text)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: 280, alignment: .leading)
+                .padding(12)
+        }
+    }
+}
+
+/// A row title with an optional info button beside it.
+private struct RowTitle: View {
+    let title: String
+    var info: String? = nil
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(title)
+            if let info { InfoButton(text: info) }
+        }
+    }
+}
+
+/// The input device the Controls pane describes. Only one device's gestures
+/// are shown at a time, halving what the pane has to say.
+private enum InputDevice: String, CaseIterable, Hashable {
+    case mouse
+    case trackpad
+
+    var label: String {
+        switch self {
+        case .trackpad: return "Trackpad"
+        case .mouse:    return "Mouse"
+        }
+    }
+}
+
+/// One interaction on the Controls pane, as a card: what it does and how to
+/// trigger it with the selected input device.
+private struct GestureCard: View {
+    let title: String
+    let systemImage: String
+    let gesture: String
+    var modifierKey: String? = nil
+    var note: String? = nil
+
+    var body: some View {
+        // A system GroupBox, so the card background is the OS's own and
+        // follows each macOS version's styling — no colour of ours to tune.
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 28))
+                    .foregroundStyle(.tint)
+                    .frame(height: 34, alignment: .leading)
+                Text(title)
+                    .fontWeight(.semibold)
+                HStack(spacing: 5) {
+                    if let modifierKey {
+                        Text(modifierKey)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(.background, in: RoundedRectangle(cornerRadius: 5))
+                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(.separator))
+                        Text("+").foregroundStyle(.secondary)
+                    }
+                    Text(gesture)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+                }
+                .font(.callout)
                 if let note {
                     Text(note)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if mouse != nil || trackpad != nil {
-                    HStack(spacing: 18) {
-                        if let mouse {
-                            Label(mouse, systemImage: "computermouse")
-                        }
-                        if let trackpad {
-                            Label(trackpad, systemImage: "rectangle.filled.and.hand.point.up.left")
-                        }
-                    }
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                }
             }
+            .padding(6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding(.vertical, 2)
-    }
-}
-
-/// A settings pane's header glyph: hierarchical, accent-tinted, static.
-private struct SettingsHeaderIcon: View {
-    let systemName: String
-
-    var body: some View {
-        Image(systemName: systemName)
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(.tint)
-            .font(.system(size: 28))
-            .frame(width: 32, height: 36)
+        .accessibilityElement(children: .combine)
     }
 }
 
 private enum SettingsTab: String, CaseIterable, Hashable {
-    case about
-    case usage
-    case imageDisplay
-    case metadataPanel
+    case general
+    case preview
+    case metadata
     case thumbnails
+    case controls
 
     var label: String {
         switch self {
-        case .about:         return "About"
-        case .usage:         return "Usage"
-        case .imageDisplay:  return "Image Display"
-        case .metadataPanel: return "Metadata Panel"
-        case .thumbnails:    return "Thumbnails"
+        case .general:    return "General"
+        case .preview:    return "Preview"
+        case .metadata:   return "Metadata"
+        case .thumbnails: return "Thumbnails"
+        case .controls:   return "Controls"
         }
     }
 
     var symbol: String {
         switch self {
-        case .about:         return "info.circle"
-        case .usage:         return "computermouse"
-        case .imageDisplay:  return "photo"
-        case .metadataPanel: return "list.bullet.rectangle"
-        case .thumbnails:    return "photo.on.rectangle"
+        case .general:    return "gearshape"
+        case .preview:    return "eye"
+        case .metadata:   return "list.bullet.rectangle"
+        case .thumbnails: return "photo.on.rectangle"
+        case .controls:   return "computermouse"
+        }
+    }
+
+    /// Panes that show a live preview beside their settings.
+    var hasSideColumn: Bool {
+        switch self {
+        case .preview, .metadata, .thumbnails: return true
+        case .general, .controls:              return false
         }
     }
 
@@ -376,6 +428,15 @@ private struct SettingsToolbarInstaller: NSViewRepresentable {
 struct ContentView: View {
     private static let store = UserDefaults(suiteName: MIQConfig.appGroupID)
 
+    /// One fixed size for every pane: panes don't resize the window, and none
+    /// of them scrolls — a pane that outgrows this gets trimmed, not a scroller.
+    private static let windowSize = CGSize(width: 640, height: 520)
+    private static let sideColumnWidth: CGFloat = 180
+    /// Header for the first section of each Form pane: on panes with a side
+    /// column it drops that group level with the column's box (tuned by eye),
+    /// and General uses the same top space for consistency.
+    private static var sideColumnAlignmentSpacer: some View { Color.clear.frame(height: 10) }
+
     @AppStorage(MIQConfig.Keys.imageOrientation, store: Self.store)
     private var imageOrientation: ViewOrientation = ViewOrientation.defaultValue
     @AppStorage(MIQConfig.Keys.segmentationColoring, store: Self.store)
@@ -426,11 +487,13 @@ struct ContentView: View {
     private var thumbnailUpperPercentile: Double = MIQConfig.Defaults.thumbnailWindowUpperPercentile
 
     @State private var showHideDisclaimerConfirm = false
+    @State private var showResetAllConfirm = false
+    @State private var showFullDisclaimer = false
     @State private var draggedMetadataField: MetadataField?
-    @State private var presentedMetadataInfoField: MetadataField?
-    @State private var selectedTab: SettingsTab = .about
-    @State private var showThumbnailRefreshInfo = false
+    @State private var selectedTab: SettingsTab = .general
     @State private var didCopyRefreshCommand = false
+    @State private var inputDevice: InputDevice = .mouse
+    @State private var sampleMetadata: SampleRenderer.SampleMetadata?
     /// Supplied by `MIQApp`. Sparkle owns the check → download → install →
     /// relaunch flow; this view only offers the entry points.
     @EnvironmentObject private var updater: UpdaterController
@@ -446,20 +509,34 @@ struct ContentView: View {
         """
 
     var body: some View {
-        // One Form for all panes — a Form per pane rebuilt the backing
-        // NSScrollView on every tab switch, blinking the titlebar background.
-        Form {
-            switch selectedTab {
-            case .about:         aboutSettingsView
-            case .usage:         usageSettingsView
-            case .imageDisplay:  imageDisplaySettingsView
-            case .metadataPanel: metadataPanelSettingsView
-            case .thumbnails:    thumbnailSettingsView
+        VStack(spacing: 0) {
+            // One Form for all panes — a Form per pane rebuilt the backing
+            // NSScrollView on every tab switch, blinking the titlebar
+            // background. It always spans the full width: macOS 26 draws the
+            // toolbar background from this scroll view, so a narrower Form
+            // left the bar half-drawn. The side column and the Controls cards
+            // are drawn over it instead, the side column into a reserved margin.
+            Form {
+                switch selectedTab {
+                case .general:    generalPane
+                case .preview:    previewPane
+                case .metadata:   metadataPane
+                case .thumbnails: thumbnailsPane
+                case .controls:   EmptyView()
+                }
             }
+            .formStyle(.grouped)
+            .scrollDisabled(true)
+            .contentMargins(.trailing, selectedTab.hasSideColumn ? Self.sideColumnWidth + 20 : 0, for: .scrollContent)
+            .pinnedTopScrollEdge()
+            .overlay(alignment: .topTrailing) { sideColumn }
+            .overlay(alignment: .topLeading) {
+                if selectedTab == .controls { controlsPane }
+            }
+            footer
         }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
-        .pinnedTopScrollEdge()
+        .frame(width: Self.windowSize.width, height: Self.windowSize.height)
+        .navigationTitle(selectedTab.label)
         .background(SettingsToolbarInstaller(selection: $selectedTab))
         .alert("Hide disclaimer in preview?", isPresented: $showHideDisclaimerConfirm) {
             Button("Cancel", role: .cancel) {
@@ -471,7 +548,17 @@ struct ContentView: View {
         } message: {
             Text(Self.disclaimerText + "\n\nBy hiding the disclaimer in previews, you confirm that you understand and accept these terms.")
         }
-        .frame(minWidth: 550, idealWidth: 550, maxWidth: 550, minHeight: 587, idealHeight: 587, maxHeight: 587)
+        .alert("Reset all settings?", isPresented: $showResetAllConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Reset", role: .destructive) {
+                restoreDefaults()
+            }
+        } message: {
+            Text("Every setting returns to its default, including automatic update checks.")
+        }
+        .task {
+            sampleMetadata = await SampleRenderer.metadata(.intensity)
+        }
         #if DEBUG
         .safeAreaInset(edge: .bottom, spacing: 0) {
             let appDate = BuildDate.formatted(for: Bundle.main.executableURL) ?? "unknown"
@@ -495,61 +582,168 @@ struct ContentView: View {
         #endif
     }
 
-    private var aboutSettingsView: some View {
-        Group {
-            Section {
-                VStack(spacing: 8) {
-                    Image(nsImage: NSApp.applicationIconImage)
-                        .resizable()
-                        .frame(width: 60, height: 60)
-                    Text("MIQ: Medical Image Quick Look")
-                        .font(.title2.weight(.semibold))
-                    // On-demand checking lives in the MIQ menu ("Check for
-                    // Updates…"), the conventional macOS location; Sparkle also
-                    // checks on its own schedule. A second entry point here was
-                    // just clutter on the pane the user sees first.
-                    HStack(spacing: 6) {
-                        Link("github.com/marcoduering/MIQ",
-                             destination: URL(string: "https://github.com/marcoduering/MIQ")!)
-                        Text("Version \(Self.currentVersion)")
-                            .foregroundStyle(.secondary)
-                    }
-                    .font(.callout)
+    // MARK: - Layout
+
+    /// The live preview beside the settings, on the panes that have one.
+    @ViewBuilder
+    private var sideColumn: some View {
+        switch selectedTab {
+        case .preview:
+            sideColumn(title: "Example") {
+                VStack(spacing: 6) {
+                    SampleSliceView(sample: .intensity, options: previewOptions,
+                                    overlayColor: axisLabelColor.color,
+                                    showsLabels: showAxisLabels, showsCrosshair: true)
+                    sampleCaption(.intensity)
+                    SampleSliceView(sample: .labels, options: previewOptions,
+                                    overlayColor: axisLabelColor.color,
+                                    showsLabels: showAxisLabels, showsCrosshair: false)
+                        .padding(.top, 6)
+                    sampleCaption(.labels)
+                }
+                // Full column width, like the other panes' previews, so the
+                // column doesn't change width when switching tabs.
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity)
+                .background(.black, in: RoundedRectangle(cornerRadius: 10))
+            }
+        case .metadata:
+            sideColumn(title: "Example") { metadataPanelPreview }
+        case .thumbnails:
+            sideColumn(title: "Example") {
+                VStack(spacing: 14) {
+                    SampleFinderIcon(sample: .intensity, options: thumbnailOptions, showsThumbnail: showThumbnails)
+                    SampleFinderIcon(sample: .labels, options: thumbnailOptions, showsThumbnail: showThumbnails)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 5)
+                .padding(.vertical, 14)
+                .background(.background, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(.separator, lineWidth: 0.5))
+            }
+        case .general, .controls:
+            EmptyView()
+        }
+    }
+
+    private func sideColumn<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.leading, 4)
+            content()
+        }
+        .frame(width: Self.sideColumnWidth)
+        .padding(.top, 20)
+        .padding(.trailing, 20)
+    }
+
+    private func sampleCaption(_ sample: SettingsSample) -> some View {
+        Text(sample.displayName)
+            .font(.caption)
+            .foregroundStyle(Color(white: 0.78))
+    }
+
+    /// Each pane's reset sits in the same corner, so it never moves when
+    /// switching tabs. It names what it resets and is disabled while that pane
+    /// is already at its defaults.
+    private var footer: some View {
+        HStack {
+            Spacer()
+            switch selectedTab {
+            case .general:
+                Button("Reset All Settings…") { showResetAllConfirm = true }
+            case .preview:
+                Button("Restore Preview Defaults") { restorePreviewDefaults() }
+                    .disabled(previewIsDefault)
+            case .metadata:
+                Button("Restore Metadata Panel Defaults") { restoreMetadataDefaults() }
+                    .disabled(metadataIsDefault)
+            case .thumbnails:
+                Button("Restore Thumbnail Defaults") { restoreThumbnailDefaults() }
+                    .disabled(thumbnailsAreDefault)
+            case .controls:
+                EmptyView()
+            }
+        }
+        .frame(height: 22)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 16)
+    }
+
+    // MARK: - Panes
+
+    private var generalPane: some View {
+        Group {
+            Section {
+                HStack(spacing: 16) {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .frame(width: 72, height: 72)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("MIQ: Medical Image Quick Look")
+                            .font(.title3.weight(.semibold))
+                        HStack(spacing: 4) {
+                            Text("Version \(Self.currentVersion) · MIT License ·")
+                                .foregroundStyle(.secondary)
+                            Link("GitHub", destination: URL(string: "https://github.com/marcoduering/MIQ")!)
+                        }
+                        .font(.callout)
+                        Text("Select an image in Finder and press Space.")
+                            .padding(.top, 6)
+                        HStack(spacing: 5) {
+                            ForEach(["NIfTI", "FreeSurfer MGH", "MRtrix MIF", "NRRD"], id: \.self) { format in
+                                Text(format)
+                                    .font(.callout)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2)
+                                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+                            }
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("Supported formats: NIfTI, FreeSurfer MGH, MRtrix MIF, NRRD")
+                    }
+                }
+                .padding(.vertical, 10)
+            } header: {
+                Self.sideColumnAlignmentSpacer
             }
 
             Section {
-                Text("Changes apply the next time a preview is rendered. Reopen a preview to re-render.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Section("General") {
-                // Not part of `restoreDefaults()` — that resets rendering
-                // settings in the App Group suite, whereas this lives in the
-                // app's own defaults and is Sparkle's to own.
-                Toggle("Automatically check for updates",
-                       isOn: $updater.automaticallyChecksForUpdates)
-
-                HStack {
-                    Text("Restore default settings")
-                    Spacer()
-                    Button("Reset") {
-                        restoreDefaults()
-                    }
+                // Lives in the app's own defaults and is Sparkle's to own, so
+                // `restoreDefaults()` resets it through Sparkle rather than the
+                // App Group suite. On-demand checking stays in the MIQ menu
+                // ("Check for Updates…").
+                Toggle(isOn: $updater.automaticallyChecksForUpdates) {
+                    Text("Check for updates automatically")
+                    Text("You can also choose MIQ › Check for Updates… at any time.")
                 }
+            } header: {
+                // Sets the app's identity apart from the settings below.
+                Color.clear.frame(height: 6)
             }
 
             Section("Disclaimer") {
-                Text(.init(Self.disclaimerText))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                    Text("Not a medical device. Not for diagnostic use.")
+                        .fontWeight(.semibold)
+                    Spacer()
+                    // A popover rather than an expanding row: the window has a
+                    // fixed height and nothing below should move.
+                    Button("Read Full Disclaimer") { showFullDisclaimer.toggle() }
+                        .buttonStyle(.link)
+                        .popover(isPresented: $showFullDisclaimer, arrowEdge: .bottom) {
+                            Text(.init(Self.disclaimerText))
+                                .font(.callout)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(width: 340, alignment: .leading)
+                                .padding(14)
+                        }
+                }
 
-                Toggle("Hide disclaimer in preview", isOn: Binding(
+                Toggle("Hide the disclaimer in previews", isOn: Binding(
                     get: { hideDisclaimerInPreview },
                     set: { newValue in
                         if newValue {
@@ -563,346 +757,332 @@ struct ContentView: View {
         }
     }
 
-    private var usageSettingsView: some View {
+    private var previewPane: some View {
         Group {
-            
             Section {
-                HStack(spacing: 12) {
-                    SettingsHeaderIcon(systemName: "pointer.arrow.rays")
-                    Text("The preview is **fully interactive**. See below for an overview of the available controls.")
-                        .fixedSize(horizontal: false, vertical: true)
+                orientationPicker(selection: $imageOrientation)
+                segmentationPicker(selection: $segmentationColoring)
+                ColorPicker(selection: Binding(
+                    get: { axisLabelColor.color },
+                    set: { axisLabelColor = StoredColor($0) }
+                )) {
+                    Text("Axis labels & crosshair colour")
                 }
+                Toggle("Show axis labels", isOn: $showAxisLabels)
+            } header: {
+                // Invisible: drops the first group level with the side
+                // column's box, below that column's title.
+                Self.sideColumnAlignmentSpacer
             }
 
-            Section("Orthogonal 3D view") {
-                InteractionRow(
-                    title: "Move the crosshair",
-                    icon: "dot.scope",
-                    mouse: "Click or drag",
-                    trackpad: "Click, tap or one-finger drag"
-                )
-                InteractionRow(
-                    title: "Scroll through slices",
-                    icon: "square.stack",
-                    mouse: "Scroll wheel",
-                    trackpad: "Two-finger scroll"
-                )
-                InteractionRow(
-                    title: "Window / level",
-                    icon: "circle.lefthalf.filled",
-                    note: "Vertical = level (brightness), horizontal = window (contrast).",
-                    mouse: "Secondary-click + drag",
-                    trackpad: "Secondary-click + drag"
-                )
-            }
-
-            Section("4D series (multi-volume)") {
-                InteractionRow(
-                    title: "Change volume",
-                    icon: "square.stack.3d.down.forward",
-                    note: "For 4D image series, a slider appears next to Volumes in the metadata panel. Drag the slider or click anywhere on it to change volumes.\nOr use ⌥ **Option-scroll** over any slice or the metadata panel:",
-                    mouse: "⌥ Option key + scroll wheel",
-                    trackpad: "⌥ Option key + two-finger scroll"
-                )
-            }
-        }
-    }
-
-    private var imageDisplaySettingsView: some View {
-        Group {
-            
             Section {
-                HStack(spacing: 12) {
-                    SettingsHeaderIcon(systemName: "gear.badge.checkmark")
-                    Text("Tailor the image display to your preferences.")
-                        .fixedSize(horizontal: false, vertical: true)
+                PercentileRangeControl(lower: $lowerPercentile, upper: $upperPercentile) {
+                    RowTitle(title: "Intensity window",
+                             info: "The initial grey range, as percentiles of the non-zero voxels (default \(Int(MIQConfig.Defaults.windowLowerPercentile))–\(Int(MIQConfig.Defaults.windowUpperPercentile))%). In the preview, secondary-click and drag to adjust it live.")
+                }
+                Toggle(isOn: $perVolumeIntensityWindow) {
+                    RowTitle(title: "Recompute window for each volume",
+                             info: "For 4D series. When off, the window from the first volume is kept while you change volumes.")
                 }
             }
 
             Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    Picker("Orientation", selection: $imageOrientation) {
-                        ForEach(ViewOrientation.allCases, id: \.rawValue) { orientation in
-                            Text(orientation.label(default: .defaultValue)).tag(orientation)
-                        }
-                    }
-                    Text("By default, images are rendered as stored. For a standardized view, use neurological (patient right on right) or radiological (patient right on left).")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Picker(selection: $segmentationColoring) {
-                        ForEach(SegmentationColoring.allCases, id: \.rawValue) { mode in
-                            Text(mode.label(default: .defaultValue)).tag(mode)
-                        }
-                    } label: {
-                        Text("Segmentation colouring")
-                    }
-                    Text("When a label file is detected, render in colour. Auto uses canonical FreeSurfer colours when a FreeSurfer parcellation is detected, otherwise assigns random colours.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Upper intensity clip")
-                        Spacer()
-                        Text("\(Int(upperPercentile))%")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                        Stepper("", value: $upperPercentile, in: 51...100, step: 1)
-                            .labelsHidden()
-                    }
-                    
-                    HStack {
-                        Text("Lower intensity clip")
-                        Spacer()
-                        Text("\(Int(lowerPercentile))%")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                        Stepper("", value: $lowerPercentile, in: 0...49, step: 1)
-                            .labelsHidden()
-                    }
-
-                    Text("Initial intensity range, percentile thresholds for non-zero voxels (default: \(Int(MIQConfig.Defaults.windowLowerPercentile))% - \(Int(MIQConfig.Defaults.windowUpperPercentile))%).")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Per-volume intensity window for multi-volume (4D) data")
-                        Spacer()
-                        Toggle("", isOn: $perVolumeIntensityWindow)
-                            .labelsHidden()
-                    }
-
-                    Text("Off (default): the window is computed once from the first volume and kept constant. On: The window is re-calculated for each volume.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                HStack {
-                    Text("Overlay color (axis labels, interactive mode crosshair)")
-                    Spacer()
-                    ColorPicker("", selection: Binding(
-                        get: { axisLabelColor.color },
-                        set: { axisLabelColor = StoredColor($0) }
-                    ))
-                    .labelsHidden()
-                }
-
-                HStack {
-                    Text("Display axis labels")
-                    Spacer()
-                    Toggle("", isOn: $showAxisLabels)
-                        .labelsHidden()
-                }
-            }
-
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Defer large previews on network volumes")
-                        Spacer()
-                        Toggle("", isOn: $deferLargeNetworkPreviews)
-                            .labelsHidden()
-                    }
-
-                    Text("On by default: files over \(Int(MIQConfig.Defaults.networkPreviewThresholdMB)) MB show a “Load preview” button instead of loading automatically. NIfTI is exempt because MIQ reads only its first volume.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                Toggle(isOn: $deferLargeNetworkPreviews) {
+                    RowTitle(title: "Ask before loading large files on network volumes",
+                             info: "Files over \(Int(MIQConfig.Defaults.networkPreviewThresholdMB)) MB show a Load Preview button instead of loading automatically: loading a large file over a slow share can stall Finder. NIfTI files are always loaded, because MIQ reads only their first volume.")
                 }
             }
         }
     }
 
-    private var metadataPanelSettingsView: some View {
-        Group {
-            
-            Section {
-                HStack(spacing: 12) {
-                    SettingsHeaderIcon(systemName: "checklist")
-                    Text("Choose which fields appear in the metadata panel. Drag and drop to rearrange the order.")
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+    private var metadataPane: some View {
+        Section {
+            ForEach(metadataOrder.fields, id: \.self) { field in
+                metadataRow(field)
             }
-            
-            Section {
-                let fields = metadataOrder.fields
-                ForEach(fields, id: \.self) { field in
-                    HStack {
-                        Image(systemName: "line.3.horizontal")
-                            .foregroundStyle(.secondary)
-                            .padding(.trailing, 4)
-                        Text(metadataLabel(field))
-                        if let helpText = metadataHelpText(field) {
-                            Button {
-                                presentedMetadataInfoField = presentedMetadataInfoField == field ? nil : field
-                            } label: {
-                                Image(systemName: presentedMetadataInfoField == field ? "info.circle.fill" : "info.circle")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .popover(isPresented: metadataInfoPopoverBinding(for: field), arrowEdge: .top) {
-                                Text(helpText)
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .frame(width: 260, alignment: .leading)
-                                    .padding(12)
-                            }
-                        }
-                        Spacer()
-                        Toggle("", isOn: visibilityBinding(for: field))
-                            .labelsHidden()
-                    }
-                    .contentShape(Rectangle())
-                    .opacity(draggedMetadataField == field ? 0.4 : 1.0)
-                    .onDrag {
-                        draggedMetadataField = field
-                        return NSItemProvider(object: field.rawValue as NSString)
-                    }
-                    .onDrop(of: [UTType.text], delegate: MetadataReorderDropDelegate(
-                        destination: field,
-                        order: $metadataOrder,
-                        draggedField: $draggedMetadataField
-                    ))
-                }
-            }
+        } header: {
+            Self.sideColumnAlignmentSpacer
+        } footer: {
+            Text("Drag rows to reorder, or use the arrows.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
     }
 
-    private var thumbnailSettingsView: some View {
+    private var thumbnailsPane: some View {
         Group {
-
             Section {
-                HStack(spacing: 12) {
-                    SettingsHeaderIcon(systemName: "photo.on.rectangle")
-                    Text("Show an image slice as the file thumbnail in Finder\n(optional feature, off by default).")
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Toggle("Show slice thumbnails in Finder", isOn: $showThumbnails)
+            } header: {
+                Self.sideColumnAlignmentSpacer
             }
 
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Show thumbnails in Finder")
-                        Spacer()
-                        Toggle("", isOn: $showThumbnails)
-                            .labelsHidden()
+            if showThumbnails {
+                Section {
+                    orientationPicker(selection: $thumbnailImageOrientation)
+                    segmentationPicker(selection: $thumbnailSegmentationColoring)
+                    PercentileRangeControl(lower: $thumbnailLowerPercentile, upper: $thumbnailUpperPercentile) {
+                        Text("Intensity window")
                     }
+                } header: {
+                    HStack {
+                        Text("Appearance")
+                        Spacer()
+                        Button(thumbnailsMatchPreview ? "Matches Preview" : "Use Preview Settings") {
+                            copyPreviewSettingsToThumbnails()
+                        }
+                        .buttonStyle(.plain)
+                        .fontWeight(.regular)
+                        .foregroundStyle(thumbnailsMatchPreview ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
+                        .disabled(thumbnailsMatchPreview)
+                        .help("Copies orientation, segmentation colours and intensity window from the Preview pane.")
+                    }
+                }
 
-                    Text("New thumbnails appear automatically; existing ones refresh when the file changes or when forcing a refresh via Terminal.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    HStack(spacing: 8) {
+                Section {
+                    Toggle(isOn: $showThumbnailsOnNetworkVolumes) {
+                        RowTitle(title: "Include network volumes",
+                                 info: "Off by default: generating thumbnails reads each file over the network, which is slow on remote shares.")
+                    }
+                    HStack {
+                        RowTitle(title: "Refresh existing thumbnails",
+                                 info: "Finder caches thumbnails. New files pick up changes automatically; existing ones refresh when the file changes, or right away with this Terminal command.\n\nIf they still look stale, also run:\nrm -rf \"$(getconf DARWIN_USER_CACHE_DIR)com.apple.iconservices.store\" && killall Dock Finder\n\nTo stop generating thumbnails, disable the extension in System Settings › General › Login Items & Extensions.")
+                        Spacer()
                         Button {
                             copyThumbnailRefreshCommand()
                         } label: {
-                            Label(didCopyRefreshCommand ? "Copied" : "Copy refresh command",
+                            Label(didCopyRefreshCommand ? "Copied" : "Copy Command",
                                   systemImage: didCopyRefreshCommand ? "checkmark" : "doc.on.doc")
                         }
-
-                        Button {
-                            showThumbnailRefreshInfo.toggle()
-                        } label: {
-                            Image(systemName: showThumbnailRefreshInfo ? "info.circle.fill" : "info.circle")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .popover(isPresented: $showThumbnailRefreshInfo, arrowEdge: .top) {
-                            Text("Paste into Terminal to refresh already-cached thumbnails.\n\nIf they still look stale, also run:\nrm -rf \"$(getconf DARWIN_USER_CACHE_DIR)com.apple.iconservices.store\" && killall Dock Finder\n\nTo stop generating thumbnails, disable the extension in System Settings › General › Login Items & Extensions.")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(width: 300, alignment: .leading)
-                                .padding(12)
-                        }
                     }
-                    .padding(.top, 2)
                 }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Include network volumes")
-                        Spacer()
-                        Toggle("", isOn: $showThumbnailsOnNetworkVolumes)
-                            .labelsHidden()
-                    }
-                    Text("Off by default: thumbnailing files on a network share reads each one while browsing, which can be slow on a remote mount.")
-                        .font(.callout)
+            } else {
+                Section {
+                    Text("Thumbnails are off. Finder shows its standard document icons.")
                         .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .disabled(!showThumbnails)
-            }
-
-            Section("Thumbnail display options") {
-                VStack(alignment: .leading, spacing: 6) {
-                    Picker("Orientation", selection: $thumbnailImageOrientation) {
-                        ForEach(ViewOrientation.allCases, id: \.rawValue) { orientation in
-                            Text(orientation.label(default: .thumbnailDefaultValue)).tag(orientation)
-                        }
-                    }
-                    Text("Same options as Image Display, applied independently to thumbnails.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Picker(selection: $thumbnailSegmentationColoring) {
-                        ForEach(SegmentationColoring.allCases, id: \.rawValue) { mode in
-                            Text(mode.label(default: .thumbnailDefaultValue)).tag(mode)
-                        }
-                    } label: {
-                        Text("Segmentation colouring")
-                    }
-                    Text("When a label file is detected, render the thumbnail in colour.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Upper intensity clip")
-                        Spacer()
-                        Text("\(Int(thumbnailUpperPercentile))%")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                        Stepper("", value: $thumbnailUpperPercentile, in: 51...100, step: 1)
-                            .labelsHidden()
-                    }
-
-                    HStack {
-                        Text("Lower intensity clip")
-                        Spacer()
-                        Text("\(Int(thumbnailLowerPercentile))%")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                        Stepper("", value: $thumbnailLowerPercentile, in: 0...49, step: 1)
-                            .labelsHidden()
-                    }
-
-                    Text("Grayscale intensity range, as percentiles of non-zero voxels (default \(Int(MIQConfig.Defaults.thumbnailWindowLowerPercentile))–\(Int(MIQConfig.Defaults.thumbnailWindowUpperPercentile))%).")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .disabled(!showThumbnails)
         }
+    }
+
+    /// The single reference for the preview's input model — keep it in sync
+    /// with MIQSliceCanvas, MIQVolumeScrubber, ScrollStepResolver and the
+    /// model's cursor/volume methods.
+    private var controlsPane: some View {
+        let trackpad = inputDevice == .trackpad
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Text("Show gestures for")
+                    .foregroundStyle(.secondary)
+                Picker("Show gestures for", selection: $inputDevice) {
+                    ForEach(InputDevice.allCases, id: \.self) { device in
+                        Text(device.label).tag(device)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+                GridRow {
+                    GestureCard(
+                        title: "Move the crosshair",
+                        systemImage: "dot.scope",
+                        gesture: trackpad ? "Click, tap or one-finger drag" : "Click or drag"
+                    )
+                    GestureCard(
+                        title: "Scroll through slices",
+                        systemImage: "square.stack",
+                        gesture: trackpad ? "Two-finger scroll" : "Scroll wheel"
+                    )
+                }
+                GridRow {
+                    GestureCard(
+                        title: "Adjust brightness & contrast",
+                        systemImage: "circle.lefthalf.filled",
+                        gesture: "Secondary-click + drag",
+                        note: "Up/down changes brightness (level), left/right changes contrast (window)."
+                    )
+                    GestureCard(
+                        title: "Change volume (4D)",
+                        systemImage: "square.stack.3d.down.forward",
+                        gesture: trackpad ? "Two-finger scroll" : "Scroll wheel",
+                        modifierKey: "⌥",
+                        note: "Over any slice or the metadata panel. Or drag the Volumes slider in the metadata panel, or click anywhere on it."
+                    )
+                }
+            }
+            // Only as tall as its content; the cards' maxHeight then just
+            // equalises the two cards in a row instead of filling the pane.
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(20)
+    }
+
+    // MARK: - Rows
+
+    private func orientationPicker(selection: Binding<ViewOrientation>) -> some View {
+        Picker(selection: selection) {
+            ForEach(ViewOrientation.allCases, id: \.rawValue) { orientation in
+                Text(orientation.label).tag(orientation)
+            }
+        } label: {
+            RowTitle(title: "Orientation",
+                     info: "As Stored shows voxels in file order, with edge labels for the anatomy. Neurological puts the patient’s right on the right of the screen; Radiological on the left.")
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private func segmentationPicker(selection: Binding<SegmentationColoring>) -> some View {
+        Picker(selection: selection) {
+            ForEach(SegmentationColoring.allCases, id: \.rawValue) { mode in
+                Text(mode.label).tag(mode)
+            }
+        } label: {
+            RowTitle(title: "Segmentation colours",
+                     info: "Label files render in colour. Auto uses FreeSurfer colours when it recognises a FreeSurfer parcellation, distinct colours otherwise. Off renders them in greyscale.")
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private func metadataRow(_ field: MetadataField) -> some View {
+        let fields = metadataOrder.fields
+        let index = fields.firstIndex(of: field) ?? 0
+        return HStack(spacing: 8) {
+            Toggle(isOn: visibilityBinding(for: field)) {
+                HStack(spacing: 4) {
+                    Text(metadataLabel(field))
+                    if let helpText = metadataHelpText(field) {
+                        InfoButton(text: helpText)
+                    }
+                }
+            }
+            .toggleStyle(.checkbox)
+            Spacer()
+            Button {
+                moveMetadataField(field, by: -1)
+            } label: {
+                Image(systemName: "chevron.up")
+            }
+            .buttonStyle(.borderless)
+            .disabled(index == 0)
+            .accessibilityLabel("Move \(metadataLabel(field)) up")
+            Button {
+                moveMetadataField(field, by: 1)
+            } label: {
+                Image(systemName: "chevron.down")
+            }
+            .buttonStyle(.borderless)
+            .disabled(index == fields.count - 1)
+            .accessibilityLabel("Move \(metadataLabel(field)) down")
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        }
+        .contentShape(Rectangle())
+        .opacity(draggedMetadataField == field ? 0.4 : 1.0)
+        .onDrag {
+            draggedMetadataField = field
+            return NSItemProvider(object: field.rawValue as NSString)
+        }
+        .onDrop(of: [UTType.text], delegate: MetadataReorderDropDelegate(
+            destination: field,
+            order: $metadataOrder,
+            draggedField: $draggedMetadataField
+        ))
+    }
+
+    /// The preview's own panel text (`MetadataPanelText`, shared with the
+    /// extension) for the sample, in the user's order and visibility. The
+    /// voxel value — shown in the preview only while interacting — appears as
+    /// the value under a centred crosshair, and the disclaimer footer follows
+    /// the General pane's setting.
+    @ViewBuilder
+    private var metadataPanelPreview: some View {
+        if let sampleMetadata {
+            let fontSize: CGFloat = 11
+            let layout = MetadataPanelText.layout(
+                entries: sampleMetadata.entries,
+                order: metadataOrder.fields,
+                isVisible: { visibilityBinding(for: $0).wrappedValue },
+                isFourD: false,
+                showsValue: false,
+                staticValueText: sampleMetadata.centreValue
+            )
+            let labelColumnX = MetadataPanelText.labelColumnOrigin(
+                for: layout.rows.map(\.label),
+                font: .systemFont(ofSize: fontSize)
+            )
+            MetadataPanelSample(text: MetadataPanelText.attributedString(
+                from: layout.rows,
+                fontSize: fontSize,
+                labelColumnX: labelColumnX,
+                showsDisclaimer: !hideDisclaimerInPreview
+            ))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    // MARK: - State helpers
+
+    private var previewOptions: RenderingOptions {
+        RenderingOptions(lowerPercentile: lowerPercentile, upperPercentile: upperPercentile,
+                         orientation: imageOrientation, segmentationColoring: segmentationColoring)
+    }
+
+    private var thumbnailOptions: RenderingOptions {
+        RenderingOptions(lowerPercentile: thumbnailLowerPercentile, upperPercentile: thumbnailUpperPercentile,
+                         orientation: thumbnailImageOrientation, segmentationColoring: thumbnailSegmentationColoring)
+    }
+
+    private var thumbnailsMatchPreview: Bool {
+        thumbnailImageOrientation == imageOrientation
+            && thumbnailSegmentationColoring == segmentationColoring
+            && thumbnailLowerPercentile == lowerPercentile
+            && thumbnailUpperPercentile == upperPercentile
+    }
+
+    private var previewIsDefault: Bool {
+        imageOrientation == .defaultValue
+            && segmentationColoring == .defaultValue
+            && lowerPercentile == MIQConfig.Defaults.windowLowerPercentile
+            && upperPercentile == MIQConfig.Defaults.windowUpperPercentile
+            && perVolumeIntensityWindow == MIQConfig.Defaults.perVolumeIntensityWindow
+            && showAxisLabels == MIQConfig.Defaults.showAxisLabels
+            && axisLabelColor.isApproximately(.defaultValue)
+            && deferLargeNetworkPreviews == MIQConfig.Defaults.deferLargeNetworkPreviews
+    }
+
+    private var metadataIsDefault: Bool {
+        metadataOrder == .defaultValue
+            && MetadataField.allCases.allSatisfy { field in
+                visibilityBinding(for: field).wrappedValue == Self.defaultVisibility(field)
+            }
+    }
+
+    private var thumbnailsAreDefault: Bool {
+        showThumbnails == MIQConfig.Defaults.showThumbnails
+            && showThumbnailsOnNetworkVolumes == MIQConfig.Defaults.showThumbnailsOnNetworkVolumes
+            && thumbnailImageOrientation == .thumbnailDefaultValue
+            && thumbnailSegmentationColoring == .thumbnailDefaultValue
+            && thumbnailLowerPercentile == MIQConfig.Defaults.thumbnailWindowLowerPercentile
+            && thumbnailUpperPercentile == MIQConfig.Defaults.thumbnailWindowUpperPercentile
+    }
+
+    private func copyPreviewSettingsToThumbnails() {
+        thumbnailImageOrientation = imageOrientation
+        thumbnailSegmentationColoring = segmentationColoring
+        thumbnailLowerPercentile = lowerPercentile
+        thumbnailUpperPercentile = upperPercentile
+    }
+
+    private func moveMetadataField(_ field: MetadataField, by offset: Int) {
+        var fields = metadataOrder.fields
+        guard let from = fields.firstIndex(of: field) else { return }
+        let to = from + offset
+        guard fields.indices.contains(to) else { return }
+        fields.swapAt(from, to)
+        metadataOrder = StoredMetadataOrder(fields)
     }
 
     /// Terminal command that drops Quick Look's thumbnail cache and restarts the
@@ -933,16 +1113,20 @@ struct ContentView: View {
         }
     }
 
-    private func metadataInfoPopoverBinding(for field: MetadataField) -> Binding<Bool> {
-        Binding(
-            get: { presentedMetadataInfoField == field },
-            set: { isPresented in
-                presentedMetadataInfoField = isPresented ? field : nil
-            }
-        )
+    private static func defaultVisibility(_ field: MetadataField) -> Bool {
+        switch field {
+        case .format:      return MIQConfig.Defaults.showMetadataFormat
+        case .dimensions:  return MIQConfig.Defaults.showMetadataDimensions
+        case .spacing:     return MIQConfig.Defaults.showMetadataSpacing
+        case .orientation: return MIQConfig.Defaults.showMetadataOrientation
+        case .datatype:    return MIQConfig.Defaults.showMetadataDatatype
+        case .volumes:     return MIQConfig.Defaults.showMetadataVolumes
+        case .scaling:     return MIQConfig.Defaults.showMetadataScaling
+        case .value:       return MIQConfig.Defaults.showMetadataValue
+        }
     }
 
-    private func restoreDefaults() {
+    private func restorePreviewDefaults() {
         imageOrientation  = ViewOrientation.defaultValue
         segmentationColoring = SegmentationColoring.defaultValue
         lowerPercentile   = MIQConfig.Defaults.windowLowerPercentile
@@ -950,6 +1134,10 @@ struct ContentView: View {
         perVolumeIntensityWindow = MIQConfig.Defaults.perVolumeIntensityWindow
         showAxisLabels    = MIQConfig.Defaults.showAxisLabels
         axisLabelColor    = StoredColor.defaultValue
+        deferLargeNetworkPreviews = MIQConfig.Defaults.deferLargeNetworkPreviews
+    }
+
+    private func restoreMetadataDefaults() {
         showMetadataFormat      = MIQConfig.Defaults.showMetadataFormat
         showMetadataDimensions  = MIQConfig.Defaults.showMetadataDimensions
         showMetadataSpacing     = MIQConfig.Defaults.showMetadataSpacing
@@ -959,14 +1147,25 @@ struct ContentView: View {
         showMetadataScaling     = MIQConfig.Defaults.showMetadataScaling
         showMetadataValue       = MIQConfig.Defaults.showMetadataValue
         metadataOrder           = StoredMetadataOrder.defaultValue
-        hideDisclaimerInPreview = MIQConfig.Defaults.hideDisclaimerInPreview
-        deferLargeNetworkPreviews = MIQConfig.Defaults.deferLargeNetworkPreviews
+    }
+
+    private func restoreThumbnailDefaults() {
         showThumbnails            = MIQConfig.Defaults.showThumbnails
         showThumbnailsOnNetworkVolumes = MIQConfig.Defaults.showThumbnailsOnNetworkVolumes
         thumbnailImageOrientation = ViewOrientation.thumbnailDefaultValue
         thumbnailSegmentationColoring = SegmentationColoring.thumbnailDefaultValue
         thumbnailLowerPercentile  = MIQConfig.Defaults.thumbnailWindowLowerPercentile
         thumbnailUpperPercentile  = MIQConfig.Defaults.thumbnailWindowUpperPercentile
+    }
+
+    private func restoreDefaults() {
+        restorePreviewDefaults()
+        restoreMetadataDefaults()
+        restoreThumbnailDefaults()
+        hideDisclaimerInPreview = MIQConfig.Defaults.hideDisclaimerInPreview
+        // The default is SUEnableAutomaticChecks in Info.plist (on); see
+        // the Sparkle convention in CLAUDE.md for why it ships on.
+        updater.automaticallyChecksForUpdates = true
     }
 }
 

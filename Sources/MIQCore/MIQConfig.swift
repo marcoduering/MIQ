@@ -50,7 +50,7 @@ public enum MIQConfig {
         public static let showAxisLabels        = true
         public static let windowLowerPercentile = 2.0
         public static let windowUpperPercentile = 98.0
-        public static let perVolumeIntensityWindow = false
+        public static let perVolumeIntensityWindow = true
         public static let imageOrientation      = "stored"
         public static let axisLabelColor        = "1.0,0.15,0.1,1.0"
         public static let showMetadataFormat      = true

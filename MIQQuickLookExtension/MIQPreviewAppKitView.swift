@@ -21,24 +21,12 @@ private enum Metrics {
     static let insetMin: CGFloat = 6
     static let insetMax: CGFloat = 24
 
-    // Derived from the resolved metadata font size.
-    static let rowSpacingFactor: CGFloat = 0.3
-    static let labelGutterFactor: CGFloat = 0.9
-    static let disclaimerFontFactor: CGFloat = 0.8
-    static let disclaimerFontMin: CGFloat = 6
-    static let disclaimerGapFactor: CGFloat = 2
+    // Row spacing, label gutter and disclaimer sizing are derived from the
+    // resolved font size in `MetadataPanelText`.
 }
 
 final class MIQPreviewAppKitView: NSView {
     private static let loadingStatusText = "Loading image preview..."
-
-    /// An empty `label` opts the row out of the two-column layout — both halves
-    /// empty for an overlay-drawn row (Volumes, voxel value), value-only for a row
-    /// that spans the panel (the debug build stamp).
-    private struct MetadataRow {
-        let label: String
-        let value: String
-    }
 
     private struct MetadataRenderInputs {
         let entries: [MetadataEntry]
@@ -258,57 +246,25 @@ final class MIQPreviewAppKitView: NSView {
             return
         }
 
-        let orderIndex: [MetadataField: Int] = Dictionary(
-            uniqueKeysWithValues: order.enumerated().map { ($1, $0) }
+        let layout = MetadataPanelText.layout(
+            entries: metadataEntries,
+            order: order,
+            isVisible: MIQConfig.showMetadataField,
+            isFourD: isFourD,
+            showsValue: showValueLine
         )
-        // The value field carries no header-derived text — inject an empty entry so
-        // it takes its configured order position. Its slot is reserved blank below
-        // and the overlay draws both halves, so nothing from here is ever shown (and
-        // it never churns this rebuild).
-        var entries = metadataEntries
-        if showValueLine {
-            entries.append(MetadataEntry(field: .value, label: "", value: ""))
-        }
-        let sorted = entries.sorted { a, b in
-            let ai = a.field.flatMap { orderIndex[$0] } ?? Int.max
-            let bi = b.field.flatMap { orderIndex[$0] } ?? Int.max
-            return ai < bi
-        }
-
-        // Build the drawn rows. The 4D Volumes line and the live Value line are
-        // each reserved as an empty line of identical height: the matching overlay
-        // draws over exactly that slot, every other line keeps its position. For
-        // the Volumes case the live value renders inside the scrubber instead.
-        var rows: [MetadataRow] = []
-        var volumesLineIndex: Int?
-        var valueLineIndex: Int?
-        for entry in sorted {
-            if let field = entry.field, !MIQConfig.showMetadataField(field) { continue }
-            if isFourD, entry.field == .volumes {
-                volumesLineIndex = rows.count
-                rows.append(MetadataRow(label: "", value: ""))
-            } else if entry.field == .value {
-                valueLineIndex = rows.count
-                rows.append(MetadataRow(label: "", value: ""))
-            } else if entry.field == nil {
-                // Not a configurable field (only the debug build stamp): span the
-                // panel rather than joining the column, whose width it would
-                // otherwise drive — "DEBUG BUILD" is wider than any shipping label,
-                // so a Debug build would misrepresent Release geometry.
-                rows.append(MetadataRow(label: "", value: entry.text))
-            } else {
-                rows.append(MetadataRow(label: entry.label, value: entry.value))
-            }
-        }
+        let rows = layout.rows
+        let volumesLineIndex = layout.volumesLineIndex
+        let valueLineIndex = layout.valueLineIndex
 
         let rowFont = NSFont.systemFont(ofSize: fontSize, weight: .regular)
         // Overlay-drawn labels are blank in `rows`, so measure them explicitly.
         // Value counts whenever *enabled*, not only while shown, or the column
         // would shift the first time the user moves the crosshair.
         var columnLabels = rows.map(\.label)
-        if volumesLineIndex != nil { columnLabels.append(MIQVolumeScrubber.rowLabel) }
-        if MIQConfig.showMetadataField(.value) { columnLabels.append(MIQValueReadout.rowLabel) }
-        let labelColumnX = labelColumnOrigin(for: columnLabels, font: rowFont)
+        if volumesLineIndex != nil { columnLabels.append(MetadataPanelText.volumesRowLabel) }
+        if MIQConfig.showMetadataField(.value) { columnLabels.append(MetadataPanelText.valueRowLabel) }
+        let labelColumnX = MetadataPanelText.labelColumnOrigin(for: columnLabels, font: rowFont)
 
         if abs(metadata.inset - inset) > 0.001 {
             metadata.inset = inset
@@ -321,10 +277,11 @@ final class MIQPreviewAppKitView: NSView {
         // The metadata panel shares the sagittal panel's x-range, so the
         // sagittal image's right edge is usable verbatim as the scrubber limit.
         metadata.scrubberRightLimit = sagittal.renderedImageRightEdge
-        metadata.attributedText = makeMetadataAttributedString(
+        metadata.attributedText = MetadataPanelText.attributedString(
             from: rows,
             fontSize: fontSize,
-            labelColumnX: labelColumnX
+            labelColumnX: labelColumnX,
+            showsDisclaimer: !MIQConfig.hideDisclaimerInPreview
         )
         // Reflect the now-known reserved slots immediately so the scrubber / value
         // readout show on first paint (not only after the next model change).
@@ -689,79 +646,6 @@ final class MIQPreviewAppKitView: NSView {
     private func clamp(_ value: CGFloat, min minValue: CGFloat, max maxValue: CGFloat) -> CGFloat {
         max(minValue, min(maxValue, value))
     }
-
-    /// Value-column x: widest label plus a gutter. Empty labels are skipped.
-    private func labelColumnOrigin(for labels: [String], font: NSFont) -> CGFloat {
-        let attributes: [NSAttributedString.Key: Any] = [.font: font]
-        let widest = labels.reduce(CGFloat.zero) { widest, label in
-            guard !label.isEmpty else { return widest }
-            return max(widest, (label as NSString).size(withAttributes: attributes).width)
-        }
-        return widest + font.pointSize * Metrics.labelGutterFactor
-    }
-
-    private func makeMetadataAttributedString(
-        from rows: [MetadataRow],
-        fontSize: CGFloat,
-        labelColumnX: CGFloat
-    ) -> NSAttributedString {
-        let labelColor = NSColor(calibratedWhite: 0.68, alpha: 1.0)
-        let valueColor = NSColor(calibratedWhite: 0.95, alpha: 1.0)
-        let font = NSFont.systemFont(ofSize: fontSize, weight: .regular)
-        // Breathing room between rows. Trailing (not leading) spacing keeps each
-        // line's glyphs at its fragment top, so the scrubber — drawn at its
-        // fragment top — still aligns with its neighbours.
-        let rowStyle = NSMutableParagraphStyle()
-        rowStyle.paragraphSpacing = fontSize * Metrics.rowSpacingFactor
-        // Two columns, one tab apart; `headIndent` hangs a wrapped value.
-        rowStyle.tabStops = [NSTextTab(textAlignment: .left, location: labelColumnX)]
-        rowStyle.defaultTabInterval = labelColumnX
-        rowStyle.headIndent = labelColumnX
-        let labelAttrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: labelColor,
-            .paragraphStyle: rowStyle
-        ]
-        let valueAttrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: valueColor,
-            .paragraphStyle: rowStyle
-        ]
-        let result = NSMutableAttributedString()
-
-        for (index, row) in rows.enumerated() {
-            if !row.label.isEmpty {
-                result.append(NSAttributedString(string: row.label + "\t", attributes: labelAttrs))
-            }
-            if !row.value.isEmpty {
-                result.append(NSAttributedString(string: row.value, attributes: valueAttrs))
-            }
-
-            if index < rows.count - 1 {
-                result.append(NSAttributedString(string: "\n", attributes: labelAttrs))
-            }
-        }
-
-        if !MIQConfig.hideDisclaimerInPreview {
-            let disclaimerFont = NSFont.systemFont(ofSize: max(Metrics.disclaimerFontMin, fontSize * Metrics.disclaimerFontFactor), weight: .regular)
-            let disclaimerColor = NSColor(calibratedWhite: 0.35, alpha: 1.0)
-            let firstLineStyle = NSMutableParagraphStyle()
-            firstLineStyle.paragraphSpacingBefore = fontSize * Metrics.disclaimerGapFactor
-            let firstLineAttrs: [NSAttributedString.Key: Any] = [
-                .font: disclaimerFont,
-                .foregroundColor: disclaimerColor,
-                .paragraphStyle: firstLineStyle
-            ]
-            let secondLineAttrs: [NSAttributedString.Key: Any] = [
-                .font: disclaimerFont,
-                .foregroundColor: disclaimerColor
-            ]
-            result.append(NSAttributedString(string: "\nNot for clinical or diagnostic use.", attributes: firstLineAttrs))
-            result.append(NSAttributedString(string: "\nNo warranty expressed or implied.", attributes: secondLineAttrs))
-        }
-
-        return result
-    }
 }
 
 private final class MetadataView: NSView {
@@ -890,7 +774,7 @@ private final class MetadataView: NSView {
 
     /// Character index where the `index`-th line begins (counting "\n"s).
     ///
-    /// Invariant: this assumes `attributedText` is the `makeMetadataAttributedString`
+    /// Invariant: this assumes `attributedText` is the `MetadataPanelText.attributedString`
     /// output — one metadata row per paragraph, rows joined by a single "\n",
     /// the reserved 4D row an empty string. The scrubber's position depends on
     /// it; if that builder ever stops being newline-joined (e.g. switches to
@@ -1023,7 +907,7 @@ private final class MetadataView: NSView {
 /// `setText`, change-gated so a static crosshair never repaints.
 private final class MIQValueReadout: NSView {
     /// Also measured by the metadata builder when it sizes the value column.
-    static let rowLabel = "Voxel value"
+    static let rowLabel = MetadataPanelText.valueRowLabel
 
     var font: NSFont = .systemFont(ofSize: 13, weight: .regular) { didSet { needsDisplay = true } }
     var labelColumnX: CGFloat = 0 {
@@ -1062,7 +946,7 @@ private final class MIQValueReadout: NSView {
 /// interactive token in an otherwise grey pane reads as "touch me".
 private final class MIQVolumeScrubber: NSView {
     /// Also measured by the metadata builder when it sizes the value column.
-    static let rowLabel = "Volumes"
+    static let rowLabel = MetadataPanelText.volumesRowLabel
 
     var onScrub: (@MainActor (Int) -> Void)?
     private(set) var overlayColor: NSColor = .systemBlue
