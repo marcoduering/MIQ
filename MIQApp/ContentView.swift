@@ -546,7 +546,8 @@ struct ContentView: View {
                 hideDisclaimerInPreview = true
             }
         } message: {
-            Text(Self.disclaimerText + "\n\nBy hiding the disclaimer in previews, you confirm that you understand and accept these terms.")
+            // Alerts render plain text, so drop the Markdown emphasis.
+            Text(Self.disclaimerText.replacingOccurrences(of: "**", with: "") + "\n\nBy hiding the disclaimer in previews, you confirm that you understand and accept these terms.")
         }
         .alert("Reset all settings?", isPresented: $showResetAllConfirm) {
             Button("Cancel", role: .cancel) {}

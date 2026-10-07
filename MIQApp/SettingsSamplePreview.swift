@@ -21,7 +21,7 @@ enum SettingsSample: String, Sendable, CaseIterable {
     var displayName: String {
         switch self {
         case .intensity: return "T1w.nii.gz"
-        case .labels:    return "aseg.mgh"
+        case .labels:    return "aseg.mgz"
         }
     }
 }
@@ -168,7 +168,8 @@ struct SampleSliceView: View {
                     path.move(to: CGPoint(x: 0, y: side * Self.crosshair.y))
                     path.addLine(to: CGPoint(x: side, y: side * Self.crosshair.y))
                 }
-                .stroke(overlayColor.opacity(0.9), lineWidth: 1)
+                // Same stroke as `MIQSliceCanvas.drawCrosshair`.
+                .stroke(overlayColor.opacity(0.9), style: StrokeStyle(lineWidth: 1.5, dash: [5, 5]))
             }
             if showsLabels, let labels = render?.labels {
                 edgeLabels(labels)

@@ -15,7 +15,8 @@ position in world space. --flip-rows stores the rows in reverse order (with
 the sform adjusted to match, and the qform cleared), so the sample's "As
 Stored" view genuinely differs from the neurological and radiological ones.
 --flip-cols does the same for the columns (both together: an LPS sample from
-an RAS volume).
+an RAS volume). --transpose swaps rows and columns (applied after any
+flips), so "As Stored" shows the slice on its side.
 Check the result by pressing Space on it in Finder.
 
 It also writes OUTPUT's window table (SampleX.nii.gz -> SampleX.window.json):
@@ -78,6 +79,7 @@ def main():
     parser.add_argument("--slice", type=int, help="index along the third storage axis (default: centre)")
     parser.add_argument("--flip-rows", action="store_true", help="store the rows in reverse order")
     parser.add_argument("--flip-cols", action="store_true", help="store the columns in reverse order")
+    parser.add_argument("--transpose", action="store_true", help="swap rows and columns")
     args = parser.parse_args()
 
     with open_any(args.input, "rb") as f:
@@ -153,6 +155,22 @@ def main():
             srow[0] = -srow[0]
             hdr[row:row + 16] = struct.pack(e + "4f", *srow)
         hdr[252:254] = struct.pack(e + "h", 0)
+
+    if args.transpose:
+        if struct.unpack(e + "h", hdr[254:256])[0] <= 0:
+            sys.exit("--transpose needs an sform (sform_code > 0).")
+        vb = bitpix // 8
+        payload = b"".join(payload[(j * nx + i) * vb:(j * nx + i + 1) * vb] for i in range(nx) for j in range(ny))
+        # Voxel (i, j) now holds former (j, i): swap the first two columns.
+        for row in (280, 296, 312):
+            srow = list(struct.unpack(e + "4f", hdr[row:row + 16]))
+            srow[0], srow[1] = srow[1], srow[0]
+            hdr[row:row + 16] = struct.pack(e + "4f", *srow)
+        hdr[252:254] = struct.pack(e + "h", 0)
+        dim[1], dim[2] = ny, nx
+        pixdim[1], pixdim[2] = pixdim[2], pixdim[1]
+        hdr[76:108] = struct.pack(e + "8f", *pixdim)
+        nx, ny = ny, nx
 
     dim[0], dim[3], dim[4] = 3, 1, 1
     hdr[40:56] = struct.pack(e + "8h", *dim)
