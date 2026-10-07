@@ -3,6 +3,37 @@
     <channel>
         <title>MIQ</title>
         <item>
+            <title>1.6.0</title>
+            <pubDate>Wed, 07 Oct 2026 14:30:25 +0200</pubDate>
+            <link>https://miq.marco-duering.net/</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/marcoduering/MIQ/releases</sparkle:fullReleaseNotesLink>
+            <sparkle:version>1.6.0</sparkle:version>
+            <sparkle:shortVersionString>1.6.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description>&lt;style&gt;
+body { line-height: 1.45; margin: 10px 12px; }
+h1, h2, h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
+h1:first-child, h2:first-child, h3:first-child, p:first-child { margin-top: 0; }
+p { margin: 0 0 8px; }
+ul, ol { margin: 0 0 10px; padding-left: 20px; }
+li { margin: 2px 0; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em; background: rgba(128,128,128,.14);
+  border-radius: 3px; padding: 1px 4px;
+}
+&lt;/style&gt;
+&lt;p dir="auto"&gt;&lt;strong&gt;Redesigned settings&lt;/strong&gt;&lt;/p&gt;
+&lt;ul dir="auto"&gt;
+&lt;li&gt;New settings user interface for improved clarity&lt;/li&gt;
+&lt;li&gt;Live examples show how each setting changes the preview, the metadata panel and the Finder icons as you change it.&lt;/li&gt;
+&lt;li&gt;New two-thumb slider for the intensity window.&lt;/li&gt;
+&lt;li&gt;Each pane has its own reset button.&lt;/li&gt;
+&lt;li&gt;For 4D images, each volume now gets its own intensity window by default. You can switch back to using volume 0's window for all volumes in the Preview pane.&lt;/li&gt;
+&lt;/ul&gt;</description>
+            <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.6.0/MIQ.app.zip" length="4574010" type="application/octet-stream" sparkle:edSignature="0DWcpEYtwa2vz+l0go1/uae/tnuKWhWKlTZUgy6hsXTAb76V52q34lmBXIUsW/EyJs6UjmkR961oliYguQukDA==" />
+        </item>
+        <item>
             <title>1.5.3</title>
             <pubDate>Mon, 05 Oct 2026 08:43:45 +0200</pubDate>
             <link>https://miq.marco-duering.net/</link>
@@ -72,43 +103,6 @@ code {
 &lt;li&gt;The other views no longer show outdated images when scrolling right after adjusting window/level or loading a 4D file's volumes.&lt;/li&gt;
 &lt;/ul&gt;</description>
             <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.5.2/MIQ.app.zip" length="4314029" type="application/octet-stream" sparkle:edSignature="L43aXHpGawb+ojhz9g/kZ6kQWafLGch85abtlMI167V+wAFCTy90wtcVcmk+rqtHHLD5GdSbNZOk5/T+bDT0Ag==" />
-        </item>
-        <item>
-            <title>1.5.1</title>
-            <pubDate>Thu, 24 Sep 2026 09:37:00 +0200</pubDate>
-            <link>https://miq.marco-duering.net/</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/marcoduering/MIQ/releases</sparkle:fullReleaseNotesLink>
-            <sparkle:version>1.5.1</sparkle:version>
-            <sparkle:shortVersionString>1.5.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description>&lt;style&gt;
-body { line-height: 1.45; margin: 10px 12px; }
-h1, h2, h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
-h1:first-child, h2:first-child, h3:first-child, p:first-child { margin-top: 0; }
-p { margin: 0 0 8px; }
-ul, ol { margin: 0 0 10px; padding-left: 20px; }
-li { margin: 2px 0; }
-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.92em; background: rgba(128,128,128,.14);
-  border-radius: 3px; padding: 1px 4px;
-}
-&lt;/style&gt;
-&lt;p dir="auto"&gt;&lt;strong&gt;Performance improvements:&lt;/strong&gt;&lt;/p&gt;
-&lt;ul dir="auto"&gt;
-&lt;li&gt;Reopening a file on an unresponsive network share no longer freezes the Quick Look window.&lt;/li&gt;
-&lt;li&gt;Reopening a large file on a network share no longer re-reads the whole file until you scroll or click in the preview.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p dir="auto"&gt;&lt;strong&gt;Fixes:&lt;/strong&gt;&lt;/p&gt;
-&lt;ul dir="auto"&gt;
-&lt;li&gt;With per-volume windowing on, a timepoint viewed while a 4D &lt;code class="notranslate"&gt;.nii.gz&lt;/code&gt; was still decompressing could stay stuck in black and white, with window/level not responding.&lt;/li&gt;
-&lt;li&gt;Images with very small intensity values (e.g. ADC maps in SI units) now display with full contrast, and window/level dragging works on them.&lt;/li&gt;
-&lt;li&gt;Compressed files larger than 4 GB no longer crash the preview.&lt;/li&gt;
-&lt;li&gt;Files with zero or invalid voxel sizes now display instead of crashing the preview.&lt;/li&gt;
-&lt;li&gt;Fixed NRRD files that could be misread when their image data contained certain byte patterns.&lt;/li&gt;
-&lt;li&gt;NIfTI-2 files are now labelled "NIfTI-2" in the metadata panel.&lt;/li&gt;
-&lt;/ul&gt;</description>
-            <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.5.1/MIQ.app.zip" length="4264974" type="application/octet-stream" sparkle:edSignature="Qw7o8Z//yQ9so6uTYl8jKubGOIrPPbe+zt77n8D/mT0t/+XF9Q5Jdr5UkGbFd88xkEOyVko5pY9DQLeJdzXSAw==" />
         </item>
     </channel>
 </rss>
