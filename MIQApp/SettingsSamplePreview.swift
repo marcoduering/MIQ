@@ -288,7 +288,7 @@ struct MetadataPanelSample: NSViewRepresentable {
             textStorage.addLayoutManager(layoutManager)
         }
 
-        required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+        required init?(coder _: NSCoder) { fatalError("init(coder:) is not used") }
 
         func height(forWidth width: CGFloat) -> CGFloat {
             layOut(width: width)

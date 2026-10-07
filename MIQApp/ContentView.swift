@@ -550,7 +550,7 @@ struct ContentView: View {
             Text(Self.disclaimerText.replacingOccurrences(of: "**", with: "") + "\n\nBy hiding the disclaimer in previews, you confirm that you understand and accept these terms.")
         }
         .alert("Reset all settings?", isPresented: $showResetAllConfirm) {
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) { /* role: .cancel dismisses the alert */ }
             Button("Reset", role: .destructive) {
                 restoreDefaults()
             }
