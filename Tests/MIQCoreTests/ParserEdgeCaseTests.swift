@@ -234,7 +234,8 @@ struct VoxelSpacingTests {
                 return [image.width, image.height]
             }
         }
-        let tiny = try sizes(pixdim: 1e-9), unit = try sizes(pixdim: 1)
+        let tiny = try sizes(pixdim: 1e-9)
+        let unit = try sizes(pixdim: 1)
         #expect(tiny == unit)
     }
 
@@ -276,7 +277,8 @@ struct GunzipOutputWindowTests {
         let gz = try TestZlib.gzip(Self.raw)
         let outcome = await Task.detached { () -> (full: Error?, capped: Error?) in
             withUnsafeCurrentTask { $0?.cancel() }
-            var full: Error?, capped: Error?
+            var full: Error?
+            var capped: Error?
             do { _ = try MIQBinaryReader.gunzip(gz) } catch { full = error }
             do { _ = try MIQBinaryReader.gunzip(gz, maxOutputBytes: Self.raw.count) } catch { capped = error }
             return (full, capped)

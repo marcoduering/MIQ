@@ -499,7 +499,8 @@ final class MIQPreviewModel {
         // by the value's own magnitude instead, or 1 for an all-zero volume.
         let span = initialBounds.high - initialBounds.low
         let magnitude = abs(initialBounds.low)
-        let initialRange = span > 0 ? span : (magnitude > 0 ? magnitude : 1)
+        let fallbackRange: Float = magnitude > 0 ? magnitude : 1
+        let initialRange = span > 0 ? span : fallbackRange
         let sensitivity = initialRange * 0.005
         let minWidth = initialRange * 0.01
 
