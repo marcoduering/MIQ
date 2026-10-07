@@ -46,9 +46,10 @@ The app and extension can be installed manually or via the package manager [Home
 
 #### Updating
 
-MIQ updates itself. Open the MIQ app and choose MIQ → Check for Updates…, or leave Automatically check for updates enabled in Settings → About. 
+MIQ updates itself. Open the MIQ app and choose MIQ → Check for Updates…, or leave **Check for updates automatically** enabled in the app's **General** pane (on by default).
 
 Automatic checks and updates happen when you open the main app, so make sure to do this from time to time.
+
 ### Installation via Homebrew
 
 1. Install on the command line:
@@ -78,20 +79,20 @@ MIQ is a lightweight convenience tool for quickly inspecting medical image files
 
 ### Customization
 
-Use the settings (main app) to tailor the preview and thumbnails to your needs. The app's **Usage** panel documents the full set of preview and 4D-scrubbing gestures.
+Use the MIQ app to tailor the preview, metadata panel and thumbnails. Live examples show the effect of each setting as you change it. The **Controls** pane lists all gestures for the interactive preview.
 
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings1_dark.webp">
-    <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings1.webp" width="32%" alt="MIQ settings, Image Display pane: render orientation, upper and lower intensity clip percentiles, per-volume intensity window for 4D data, overlay colour, and a toggle for axis labels.">
+    <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings1.webp" width="32%" alt="MIQ settings, Preview pane: orientation, segmentation colours, axis label and crosshair colour, and intensity window controls beside a live example of the rendered preview.">
   </picture>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings2_dark.webp">
-    <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings2.webp" width="32%" alt="MIQ settings, Metadata Panel pane: a drag-and-drop list of the fields shown in the preview's metadata panel (format, dimensions, spacing, orientation, datatype, volumes and scaling), each with its own on/off toggle.">
+    <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings2.webp" width="32%" alt="MIQ settings, Metadata pane: a reorderable list of metadata fields, each with an on/off toggle, beside a live example of the metadata panel.">
   </picture>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings3_dark.webp">
-    <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings3.webp" width="32%" alt="MIQ settings, Thumbnails pane: a toggle to show image slices as Finder file thumbnails (off by default), a button to copy the refresh command, and independent orientation and intensity clip controls for thumbnails.">
+    <img src="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_settings3.webp" width="32%" alt="MIQ settings, Thumbnails pane: a toggle for Finder slice thumbnails with orientation, segmentation colour and intensity window controls, beside a live example of the Finder icons.">
   </picture>
 </div>
 

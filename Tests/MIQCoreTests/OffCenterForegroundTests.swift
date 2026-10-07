@@ -77,7 +77,8 @@ struct OffCenterForegroundTests {
         let lut = try #require(volume.buildSegmentationLut(options: Self.auto))
         #expect(lut.kind == .random)
         // Both labels are in the ranked palette, so they get distinct colours.
-        let a = lut.lookup(3), b = lut.lookup(7)
+        let a = lut.lookup(3)
+        let b = lut.lookup(7)
         #expect((a.r, a.g, a.b) != (b.r, b.g, b.b))
     }
 

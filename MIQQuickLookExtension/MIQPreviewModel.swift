@@ -499,7 +499,8 @@ final class MIQPreviewModel {
         // by the value's own magnitude instead, or 1 for an all-zero volume.
         let span = initialBounds.high - initialBounds.low
         let magnitude = abs(initialBounds.low)
-        let initialRange = span > 0 ? span : (magnitude > 0 ? magnitude : 1)
+        let fallbackRange: Float = magnitude > 0 ? magnitude : 1
+        let initialRange = span > 0 ? span : fallbackRange
         let sensitivity = initialRange * 0.005
         let minWidth = initialRange * 0.01
 
@@ -535,7 +536,7 @@ final class MIQPreviewModel {
         guard showsVoxelValue, let interactiveState, let cursor = currentCursor else { return nil }
         if cursor.t > 0, !interactiveState.volume.containsAllVolumes { return "—" }
         let value = interactiveState.volume.voxel(x: cursor.x, y: cursor.y, z: cursor.z, t: cursor.t)
-        return Self.formatVoxelValue(value)
+        return MetadataPanelText.formatVoxelValue(value)
     }
 
     /// Whole numbers (integer datatypes, identity-scaled data) render as plain
@@ -547,15 +548,6 @@ final class MIQPreviewModel {
     /// (parametric and statistical maps spell "not computed" with it) and windowing
     /// draws it at the window minimum, indistinguishable from background — so this
     /// readout is the only place it shows, and "—" means "no value available".
-    private static func formatVoxelValue(_ value: Float) -> String {
-        if value.isNaN { return "NaN" }
-        if value.isInfinite { return value < 0 ? "-Inf" : "+Inf" }
-        if value == value.rounded(), abs(value) < 1e7 {
-            return String(Int(value))
-        }
-        return String(format: "%.6g", Double(value))
-    }
-
     private func apply(bundle: MIQPreviewBundle) {
         coronal = bundle.slices[.coronal]
         sagittal = bundle.slices[.sagittal]

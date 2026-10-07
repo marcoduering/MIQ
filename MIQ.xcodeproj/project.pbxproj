@@ -7,6 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5E77A000000000000000000F /* SampleIntensity.window.json in Resources */ = {isa = PBXBuildFile; fileRef = 5E77A000000000000000000E /* SampleIntensity.window.json */; };
+		5E77A0000000000000000011 /* SampleLabels.window.json in Resources */ = {isa = PBXBuildFile; fileRef = 5E77A0000000000000000010 /* SampleLabels.window.json */; };
+		5E77A000000000000000000C /* MetadataPanelText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E77A000000000000000000B /* MetadataPanelText.swift */; };
+		5E77A000000000000000000D /* MetadataPanelText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E77A000000000000000000B /* MetadataPanelText.swift */; };
+		5E77A0000000000000000002 /* SettingsSamplePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E77A0000000000000000001 /* SettingsSamplePreview.swift */; };
+		5E77A0000000000000000004 /* PercentileRangeControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E77A0000000000000000003 /* PercentileRangeControl.swift */; };
+		5E77A0000000000000000005 /* MIQImageBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45FE4A9B7D1340FBAA8AEB29 /* MIQImageBridge.swift */; };
+		5E77A0000000000000000008 /* SampleIntensity.nii.gz in Resources */ = {isa = PBXBuildFile; fileRef = 5E77A0000000000000000007 /* SampleIntensity.nii.gz */; };
+		5E77A000000000000000000A /* SampleLabels.nii.gz in Resources */ = {isa = PBXBuildFile; fileRef = 5E77A0000000000000000009 /* SampleLabels.nii.gz */; };
 		00B97D85B148478FBA844F26 /* MIQImageBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45FE4A9B7D1340FBAA8AEB29 /* MIQImageBridge.swift */; };
 		0F5A0000000000000000A005 /* UpdaterController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F5A0000000000000000A004 /* UpdaterController.swift */; };
 		0F5A0000000000000000A003 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 0F5A0000000000000000A002 /* Sparkle */; };
@@ -63,6 +72,13 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		5E77A000000000000000000E /* SampleIntensity.window.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = SampleIntensity.window.json; sourceTree = "<group>"; };
+		5E77A0000000000000000010 /* SampleLabels.window.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = SampleLabels.window.json; sourceTree = "<group>"; };
+		5E77A000000000000000000B /* MetadataPanelText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataPanelText.swift; sourceTree = "<group>"; };
+		5E77A0000000000000000001 /* SettingsSamplePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSamplePreview.swift; sourceTree = "<group>"; };
+		5E77A0000000000000000003 /* PercentileRangeControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PercentileRangeControl.swift; sourceTree = "<group>"; };
+		5E77A0000000000000000007 /* SampleIntensity.nii.gz */ = {isa = PBXFileReference; lastKnownFileType = file; path = SampleIntensity.nii.gz; sourceTree = "<group>"; };
+		5E77A0000000000000000009 /* SampleLabels.nii.gz */ = {isa = PBXFileReference; lastKnownFileType = file; path = SampleLabels.nii.gz; sourceTree = "<group>"; };
 		00FF4BD21CCF016F9EE93B3D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		1069830D6ED40B3AB5757858 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		24EC29AEA4504CC7AE152ACC /* MIQSliceCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIQSliceCanvas.swift; sourceTree = "<group>"; };
@@ -117,6 +133,17 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		5E77A0000000000000000006 /* SettingsSamples */ = {
+			isa = PBXGroup;
+			children = (
+				5E77A0000000000000000007 /* SampleIntensity.nii.gz */,
+				5E77A0000000000000000009 /* SampleLabels.nii.gz */,
+				5E77A000000000000000000E /* SampleIntensity.window.json */,
+				5E77A0000000000000000010 /* SampleLabels.window.json */,
+			);
+			path = SettingsSamples;
+			sourceTree = "<group>";
+		};
 		0ED64C3613347F16C87F4D91 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
@@ -134,6 +161,9 @@
 				C35E6221C4BB0043A82D4EA0 /* MIQApp.swift */,
 				0F5A0000000000000000A004 /* UpdaterController.swift */,
 				4CFCB7FD2FAD03EF00715102 /* AppIcon.icon */,
+				5E77A0000000000000000003 /* PercentileRangeControl.swift */,
+				5E77A0000000000000000001 /* SettingsSamplePreview.swift */,
+				5E77A0000000000000000006 /* SettingsSamples */,
 			);
 			path = MIQApp;
 			sourceTree = "<group>";
@@ -154,6 +184,7 @@
 				45FE4A9B7D1340FBAA8AEB29 /* MIQImageBridge.swift */,
 				BA1109BAE7000002000003E6 /* MIQLogger.swift */,
 				C034A78ADECC902D98B3BF2F /* MIQPreviewController.swift */,
+				5E77A000000000000000000B /* MetadataPanelText.swift */,
 				B9BA3B91B2654D418D9CD49E /* MIQPreviewAppKitView.swift */,
 				901139238A3C73F5F746D7A0 /* MIQPreviewModel.swift */,
 				24EC29AEA4504CC7AE152ACC /* MIQSliceCanvas.swift */,
@@ -299,6 +330,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				4CFCB7FE2FAD03EF00715102 /* AppIcon.icon in Resources */,
+				5E77A0000000000000000008 /* SampleIntensity.nii.gz in Resources */,
+				5E77A000000000000000000A /* SampleLabels.nii.gz in Resources */,
+				5E77A000000000000000000F /* SampleIntensity.window.json in Resources */,
+				5E77A0000000000000000011 /* SampleLabels.window.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -312,6 +347,10 @@
 				1525C5A90753349409A6DC7B /* ContentView.swift in Sources */,
 				E9D1739EF930782E62D9FE97 /* MIQApp.swift in Sources */,
 				0F5A0000000000000000A005 /* UpdaterController.swift in Sources */,
+				5E77A0000000000000000002 /* SettingsSamplePreview.swift in Sources */,
+				5E77A0000000000000000004 /* PercentileRangeControl.swift in Sources */,
+				5E77A0000000000000000005 /* MIQImageBridge.swift in Sources */,
+				5E77A000000000000000000D /* MetadataPanelText.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -323,6 +362,7 @@
 				BA1109BAE7000001000003E5 /* MIQLogger.swift in Sources */,
 				E9B000A957C87B753436028A /* MIQPreviewController.swift in Sources */,
 				EC5608D3469B46449C5FE429 /* MIQPreviewAppKitView.swift in Sources */,
+				5E77A000000000000000000C /* MetadataPanelText.swift in Sources */,
 				C56348DEE1CC6B4E25B8E49F /* MIQPreviewModel.swift in Sources */,
 				E8089EA1F58D4F049738209C /* MIQSliceCanvas.swift in Sources */,
 				1F7BAF3D389C4B31A8A8EA6E /* MIQPreviewCache.swift in Sources */,
