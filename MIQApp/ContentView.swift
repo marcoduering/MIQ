@@ -688,6 +688,7 @@ struct ContentView: View {
                             Text("Version \(Self.currentVersion) · MIT License ·")
                                 .foregroundStyle(.secondary)
                             Link("GitHub", destination: URL(string: "https://github.com/marcoduering/MIQ")!)
+                                .foregroundStyle(.tint)
                         }
                         .font(.callout)
                         Text("Select an image in Finder and press Space.")
@@ -735,6 +736,7 @@ struct ContentView: View {
                     // fixed height and nothing below should move.
                     Button("Read Full Disclaimer") { showFullDisclaimer.toggle() }
                         .buttonStyle(.link)
+                        .foregroundStyle(.tint)
                         .popover(isPresented: $showFullDisclaimer, arrowEdge: .bottom) {
                             Text(.init(Self.disclaimerText))
                                 .font(.callout)
