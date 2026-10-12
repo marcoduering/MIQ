@@ -35,6 +35,7 @@ public enum MIQConfig {
         public static let segmentationColoring           = "segmentationColoring"
         public static let hideDisclaimerInPreview = "hideDisclaimerInPreview"
         public static let deferLargeNetworkPreviews = "deferLargeNetworkPreviews"
+        public static let starBannerDismissed     = "starBannerDismissed"
         public static let showThumbnails                 = "showThumbnails"
         public static let showThumbnailsOnNetworkVolumes = "showThumbnailsOnNetworkVolumes"
         public static let thumbnailImageOrientation      = "thumbnailImageOrientation"
@@ -65,6 +66,9 @@ public enum MIQConfig {
         public static let segmentationColoring           = "auto"
         public static let hideDisclaimerInPreview = false
         public static let deferLargeNetworkPreviews = true
+        /// App-only (the Settings window's "star on GitHub" banner); the
+        /// extensions never read it.
+        public static let starBannerDismissed     = false
         /// Size (MB) above which `deferLargeNetworkPreviews` defers a network
         /// preview. Not user-configurable (no `Keys` entry / UI control).
         public static let networkPreviewThresholdMB = 100.0

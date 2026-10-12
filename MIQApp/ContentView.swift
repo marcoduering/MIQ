@@ -473,6 +473,9 @@ struct ContentView: View {
     private var deferLargeNetworkPreviews: Bool = MIQConfig.Defaults.deferLargeNetworkPreviews
     @AppStorage(MIQConfig.Keys.hideDisclaimerInPreview, store: Self.store)
     private var hideDisclaimerInPreview: Bool = MIQConfig.Defaults.hideDisclaimerInPreview
+    @State private var starBounce = 0
+    @AppStorage(MIQConfig.Keys.starBannerDismissed, store: Self.store)
+    private var starBannerDismissed: Bool = MIQConfig.Defaults.starBannerDismissed
     @AppStorage(MIQConfig.Keys.showThumbnails, store: Self.store)
     private var showThumbnails: Bool = MIQConfig.Defaults.showThumbnails
     @AppStorage(MIQConfig.Keys.showThumbnailsOnNetworkVolumes, store: Self.store)
@@ -687,7 +690,7 @@ struct ContentView: View {
                         HStack(spacing: 4) {
                             Text("Version \(Self.currentVersion) · MIT License ·")
                                 .foregroundStyle(.secondary)
-                            Link("GitHub", destination: URL(string: "https://github.com/marcoduering/MIQ")!)
+                            Link("GitHub", destination: Self.repositoryURL)
                                 .foregroundStyle(.tint)
                         }
                         .font(.callout)
@@ -707,6 +710,10 @@ struct ContentView: View {
                     }
                 }
                 .padding(.vertical, 10)
+
+                if !starBannerDismissed {
+                    starBanner
+                }
             } header: {
                 Self.sideColumnAlignmentSpacer
             }
@@ -721,8 +728,9 @@ struct ContentView: View {
                     Text("You can also choose MIQ › Check for Updates… at any time.")
                 }
             } header: {
-                // Sets the app's identity apart from the settings below.
-                Color.clear.frame(height: 6)
+                // Sets the app's identity apart from the settings below; the
+                // star banner already does that while it is shown.
+                Color.clear.frame(height: starBannerDismissed ? 6 : 0)
             }
 
             Section("Disclaimer") {
@@ -758,6 +766,77 @@ struct ContentView: View {
                 ))
             }
         }
+    }
+
+    private static let repositoryURL = URL(string: "https://github.com/marcoduering/MIQ")!
+
+    /// Dismissed once, gone until Reset All Settings….
+    /// The whole banner opens the repository; only the ✕ is separate.
+    private var starBanner: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Link(destination: Self.repositoryURL) {
+                HStack(alignment: .center, spacing: 12) {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(LinearGradient(colors: [.yellow, .orange],
+                                                        startPoint: .top, endPoint: .bottom))
+                        .symbolEffect(.bounce, value: starBounce)
+                        .frame(width: 26, height: 26)
+                        .background(.white.opacity(0.9), in: Circle())
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("Enjoying MIQ?")
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.white)
+                        Text("A star on GitHub helps others discover it.")
+                            .font(.callout)
+                            .foregroundStyle(.white.opacity(0.85))
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    // GitHub's own Star button: light grey, hairline
+                    // border, 6 pt corners, dark text. Fixed colours — it
+                    // sits on the accent background in both appearances.
+                    HStack(spacing: 5) {
+                        Image(systemName: "star")
+                            .foregroundStyle(Color(red: 0.40, green: 0.44, blue: 0.48))
+                        Text("Star")
+                    }
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(Color(red: 0.14, green: 0.16, blue: 0.18))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 3)
+                    .background(Color(red: 0.96, green: 0.97, blue: 0.98),
+                                in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(Color(red: 0.82, green: 0.84, blue: 0.87)))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { if $0 { starBounce += 1 } }
+            .help("Open MIQ on GitHub")
+            Button {
+                withAnimation { starBannerDismissed = true }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 18))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(Color.accentColor, .white.opacity(0.85))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Dismiss")
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.75)],
+                           startPoint: .leading, endPoint: .trailing),
+            in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8)
+            .strokeBorder(.white.opacity(0.15)))
+        .listRowInsets(EdgeInsets())
     }
 
     private var previewPane: some View {
@@ -1166,6 +1245,7 @@ struct ContentView: View {
         restoreMetadataDefaults()
         restoreThumbnailDefaults()
         hideDisclaimerInPreview = MIQConfig.Defaults.hideDisclaimerInPreview
+        starBannerDismissed = MIQConfig.Defaults.starBannerDismissed
         // The default is SUEnableAutomaticChecks in Info.plist (on); see
         // the Sparkle convention in CLAUDE.md for why it ships on.
         updater.automaticallyChecksForUpdates = true
