@@ -12,8 +12,9 @@ extension MIQParser {
         // Per-axis direction vectors in NRRD space; nil entry = non-spatial ("none")
         let spaceDirections: [[Float]?]?
         let spaceOrigin: [Float]?
-        // Multipliers to convert NRRD (x,y,z) components to RAS (R,A,S)
-        let toRasSigns: (rx: Float, ry: Float, rz: Float)
+        // Multipliers to convert NRRD (x,y,z) components to RAS (R,A,S);
+        // nil when `space` is absent or not anatomical (scanner-xyz, 3D-…-handed)
+        let toRasSigns: (rx: Float, ry: Float, rz: Float)?
         // Fallback voxel spacings when spaceDirections is absent
         let spacings: [Float]?
     }
@@ -207,12 +208,9 @@ extension MIQParser {
         let computedStrides = [xStride, yStride, zStride, tStride]
         let customStrides: [Int]? = computedStrides == defaultStrides ? nil : computedStrides
 
-        let (pixX, pixY, pixZ, srowX, srowY, srowZ) = nrrdAffine(nrrd: nrrd, spatialAxes: spatialAxes)
-        let hasSform = srowX.prefix(3).contains(where: { $0 != 0 })
-            || srowY.prefix(3).contains(where: { $0 != 0 })
-            || srowZ.prefix(3).contains(where: { $0 != 0 })
+        let (pixX, pixY, pixZ, srowX, srowY, srowZ, hasAffine) = nrrdAffine(nrrd: nrrd, spatialAxes: spatialAxes)
 
-        let orientationFrame: OrientationFrame? = hasSform
+        let orientationFrame: OrientationFrame? = hasAffine
             ? OrientationFrame.from(srowX: srowX, srowY: srowY, srowZ: srowZ, source: .nrrdSpaceDirections)
             : nil
 
@@ -225,7 +223,7 @@ extension MIQParser {
             sclSlope: 1.0,
             sclInter: 0.0,
             qformCode: 0,
-            sformCode: hasSform ? 1 : 0,
+            sformCode: orientationFrame != nil ? 1 : 0,
             srowX: srowX,
             srowY: srowY,
             srowZ: srowZ,
@@ -296,9 +294,7 @@ extension MIQParser {
     private func nrrdAffine(
         nrrd: NrrdParsedHeader,
         spatialAxes: [Int]
-    ) -> (Float, Float, Float, [Float], [Float], [Float]) {
-        let (rx, ry, rz) = (nrrd.toRasSigns.rx, nrrd.toRasSigns.ry, nrrd.toRasSigns.rz)
-
+    ) -> (Float, Float, Float, [Float], [Float], [Float], Bool) {
         if let dirs = nrrd.spaceDirections {
             let v0 = dirs[spatialAxes[0]] ?? [1, 0, 0]
             let v1 = dirs[spatialAxes[1]] ?? [0, 1, 0]
@@ -307,6 +303,13 @@ extension MIQParser {
             let pixX = sqrt(v0[0]*v0[0] + v0[1]*v0[1] + v0[2]*v0[2])
             let pixY = sqrt(v1[0]*v1[0] + v1[1]*v1[1] + v1[2]*v1[2])
             let pixZ = sqrt(v2[0]*v2[0] + v2[1]*v2[1] + v2[2]*v2[2])
+
+            // Directions without an anatomical space say nothing about which side
+            // is which: keep the spacing, build no affine (resolver shows "?").
+            guard let signs = nrrd.toRasSigns else {
+                return (pixX, pixY, pixZ, [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], false)
+            }
+            let (rx, ry, rz) = (signs.rx, signs.ry, signs.rz)
 
             let ox = (nrrd.spaceOrigin?[safe: 0] ?? 0) * rx
             let oy = (nrrd.spaceOrigin?[safe: 1] ?? 0) * ry
@@ -318,22 +321,19 @@ extension MIQParser {
             let srowY: [Float] = [v0[1]*ry, v1[1]*ry, v2[1]*ry, oy]
             let srowZ: [Float] = [v0[2]*rz, v1[2]*rz, v2[2]*rz, oz]
 
-            return (pixX, pixY, pixZ, srowX, srowY, srowZ)
+            return (pixX, pixY, pixZ, srowX, srowY, srowZ, true)
         }
 
-        // Fallback: use spacings if available, identity orientation
+        // Fallback: spacings only — no directions means no orientation, whatever
+        // `space` says, so keep the spacing and build no affine (resolver shows "?").
         let pixX = abs(nrrd.spacings?[safe: spatialAxes[0]] ?? 1)
         let pixY = abs(nrrd.spacings?[safe: spatialAxes[1]] ?? 1)
         let pixZ = abs(nrrd.spacings?[safe: spatialAxes[2]] ?? 1)
 
-        let srowX: [Float] = [pixX * rx, 0, 0, 0]
-        let srowY: [Float] = [0, pixY * ry, 0, 0]
-        let srowZ: [Float] = [0, 0, pixZ * rz, 0]
-
-        return (pixX, pixY, pixZ, srowX, srowY, srowZ)
+        return (pixX, pixY, pixZ, [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], false)
     }
 
-    private func nrrdSpaceToRasSigns(_ space: String?) -> (rx: Float, ry: Float, rz: Float) {
+    private func nrrdSpaceToRasSigns(_ space: String?) -> (rx: Float, ry: Float, rz: Float)? {
         switch space {
         case "right-anterior-superior", "ras":           return (1,  1,  1)
         case "left-anterior-superior", "las":            return (-1, 1,  1)
@@ -343,7 +343,7 @@ extension MIQParser {
         case "left-anterior-inferior", "lai":            return (-1, 1,  -1)
         case "left-posterior-inferior", "lpi":           return (-1, -1, -1)
         case "right-posterior-inferior", "rpi":          return (1,  -1, -1)
-        default:                                          return (1,  1,  1)
+        default:                                          return nil
         }
     }
 
