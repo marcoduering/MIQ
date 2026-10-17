@@ -42,7 +42,6 @@
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>
-				<string>public.gzip</string>
 			</array>
 			<key>UTTypeDescription</key>
 			<string>NIfTI-1 Image</string>
@@ -64,7 +63,7 @@
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>
-				<string>public.gzip</string>
+				<string>org.gnu.gnu-zip-archive</string>
 			</array>
 			<key>UTTypeDescription</key>
 			<string>Gzipped NIfTI-1 Image</string>
@@ -107,7 +106,7 @@
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>
-				<string>public.gzip</string>
+				<string>org.gnu.gnu-zip-archive</string>
 			</array>
 			<key>UTTypeDescription</key>
 			<string>FreeSurfer MGZ Volume</string>
@@ -151,7 +150,7 @@
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>
-				<string>public.gzip</string>
+				<string>org.gnu.gnu-zip-archive</string>
 			</array>
 			<key>UTTypeDescription</key>
 			<string>Compressed MRtrix Image Format</string>
