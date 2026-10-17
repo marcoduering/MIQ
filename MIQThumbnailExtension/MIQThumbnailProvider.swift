@@ -25,7 +25,7 @@ final class MIQThumbnailProvider: QLThumbnailProvider {
         }
 
         guard let kind = MIQFileKind(url: url) else {
-            logger.notice("declining non-volume file, deferring to system icon: \(url.lastPathComponent, privacy: .public)")
+            logger.notice("declining non-volume file, deferring to system icon: \(url.lastPathComponent, privacy: .private(mask: .hash))")
             handler(nil, nil)
             return
         }
@@ -34,7 +34,7 @@ final class MIQThumbnailProvider: QLThumbnailProvider {
         // while browsing, which can hammer a slow mount. Local files are unaffected.
         let isLocal = VolumeLocation.isLocal(url)
         if !MIQConfig.showThumbnailsOnNetworkVolumes, !isLocal {
-            logger.notice("declining thumbnail on network volume (disabled in settings): \(url.lastPathComponent, privacy: .public)")
+            logger.notice("declining thumbnail on network volume (disabled in settings): \(url.lastPathComponent, privacy: .private(mask: .hash))")
             handler(nil, nil)
             return
         }
@@ -44,7 +44,7 @@ final class MIQThumbnailProvider: QLThumbnailProvider {
         // large-network gate.
         let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
         if kind.declinesThumbnail(fileSizeBytes: fileSize, isLocal: isLocal, thresholdBytes: MIQConfig.networkPreviewThresholdBytes) {
-            logger.notice("declining thumbnail for large \(kind.displayName, privacy: .public) file (\((fileSize ?? 0) / 1_048_576, privacy: .public) MB): \(url.lastPathComponent, privacy: .public)")
+            logger.notice("declining thumbnail for large \(kind.displayName, privacy: .public) file (\((fileSize ?? 0) / 1_048_576, privacy: .public) MB): \(url.lastPathComponent, privacy: .private(mask: .hash))")
             handler(nil, nil)
             return
         }
@@ -56,10 +56,10 @@ final class MIQThumbnailProvider: QLThumbnailProvider {
                 image.draw(in: NSRect(origin: .zero, size: contextSize))
                 return true
             })
-            logger.notice("thumbnail rendered for: \(url.lastPathComponent, privacy: .public)")
+            logger.notice("thumbnail rendered for: \(url.lastPathComponent, privacy: .private(mask: .hash))")
             handler(reply, nil)
         } catch {
-            logger.error("thumbnail failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            logger.error("thumbnail failed for \(url.lastPathComponent, privacy: .private(mask: .hash)): \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)")
             handler(nil, error)
         }
     }

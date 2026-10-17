@@ -37,6 +37,19 @@ final class MIQPreviewModel {
         /// Not `.failed` — nothing went wrong, there is just nothing to render, and
         /// the resulting black grid is otherwise indistinguishable from a bug.
         case noFiniteVoxels
+
+        /// The case name alone, safe to log publicly: `.failed` and `.deferred`
+        /// carry an error message / file name that may identify a subject.
+        var logName: String {
+            switch self {
+            case .idle: "idle"
+            case .loading: "loading"
+            case .ready: "ready"
+            case .failed: "failed"
+            case .deferred: "deferred"
+            case .noFiniteVoxels: "noFiniteVoxels"
+            }
+        }
     }
 
     /// Lifecycle of the lazy full-decompression for 4D `.nii.gz`. Every other
@@ -187,7 +200,7 @@ final class MIQPreviewModel {
         // on a cache hit too (the setting only affects volumes > 0, never the
         // cached volume-0 cold preview — see MIQConfig.perVolumeIntensityWindow).
         perVolumeWindow = MIQConfig.perVolumeIntensityWindow
-        logger.notice("load() started for: \(fileURL.lastPathComponent, privacy: .public)")
+        logger.notice("load() started for: \(fileURL.lastPathComponent, privacy: .private(mask: .hash))")
         logger.notice("MIQConfig percentiles: lower=\(options.lowerPercentile, privacy: .public), upper=\(options.upperPercentile, privacy: .public), orientation=\(options.orientation.rawValue, privacy: .public), showAxisLabels=\(MIQConfig.showAxisLabels, privacy: .public)")
 
         // The controller creates one model per URL, and a second load() only comes
@@ -252,7 +265,7 @@ final class MIQPreviewModel {
             let overNetwork = readsOverNetwork
             let coldLoad = Task {
                 try await Self.sharedColdLoad(key: probe.cacheKey) {
-                    try await MIQPreviewModel.runRead(overNetwork: overNetwork, url: fileURL, navigating: navigating, claimsNewest: false, label: "load \(fileURL.lastPathComponent)") { parser in
+                    try await MIQPreviewModel.runRead(overNetwork: overNetwork, url: fileURL, navigating: navigating, claimsNewest: false, label: "load") { parser in
                         try MIQPreviewModel.loadPreviewData(parser: parser, fileURL: fileURL, options: options, maxDimension: maxDimension)
                     }
                 }
@@ -290,7 +303,7 @@ final class MIQPreviewModel {
             // untouched and don't surface a failure.
             logger.notice("load() canceled before completion")
         } catch {
-            logger.error("load() failed: \(error.localizedDescription, privacy: .public)")
+            logger.error("load() failed: \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)")
             state = .failed(error.localizedDescription)
             onChange?()
         }
@@ -421,7 +434,7 @@ final class MIQPreviewModel {
         // by type, not `Self`, so nothing in the closure retains the model.
         expansionTask = Task { [weak self] in
             do {
-                let expanded = try await MIQPreviewModel.runRead(overNetwork: overNetwork, url: fileURL, navigating: false, claimsNewest: true, label: "expand \(fileURL.lastPathComponent)") { parser in
+                let expanded = try await MIQPreviewModel.runRead(overNetwork: overNetwork, url: fileURL, navigating: false, claimsNewest: true, label: "expand") { parser in
                     try MIQPreviewModel.loadExpandedInteractiveState(
                         parser: parser,
                         fileURL: fileURL,
@@ -459,7 +472,7 @@ final class MIQPreviewModel {
                 // transient failure (I/O, security scope) isn't permanent.
                 // Volumes > 0 keep the zero backstop; volume 0 stays correct.
                 self.expansionState = .failed
-                self.logger.error("4D expansion failed: \(error.localizedDescription, privacy: .public)")
+                self.logger.error("4D expansion failed: \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)")
                 // Repaint so the Volumes line drops "decompressing…" and says so.
                 self.onChange?()
             }
@@ -633,7 +646,7 @@ final class MIQPreviewModel {
         // Weak across the await; see deinit.
         interactionPreparationTask = Task { [weak self] in
             do {
-                let interactiveState = try await MIQPreviewModel.runRead(overNetwork: overNetwork, url: fileURL, navigating: navigating, claimsNewest: claimsNewest, label: "prepare \(fileURL.lastPathComponent)") { parser in
+                let interactiveState = try await MIQPreviewModel.runRead(overNetwork: overNetwork, url: fileURL, navigating: navigating, claimsNewest: claimsNewest, label: "prepare") { parser in
                     try MIQPreviewModel.loadInteractiveState(parser: parser, fileURL: fileURL, options: options, maxDimension: maxDimension)
                 }
                 guard let self, !Task.isCancelled else { return }
@@ -655,7 +668,7 @@ final class MIQPreviewModel {
                     self.interactivePreparationDeferred = true
                     return
                 }
-                self.logger.error("interactive state preparation failed: \(error.localizedDescription, privacy: .public)")
+                self.logger.error("interactive state preparation failed: \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)")
             }
         }
     }
