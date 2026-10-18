@@ -81,10 +81,10 @@ final class MIQPreviewController: NSViewController, QLPreviewingController, Netw
 
     nonisolated func preparePreviewOfFile(at url: URL, completionHandler handler: @escaping (Error?) -> Void) {
         nonisolated(unsafe) let completion = handler
-        logger.notice("preparePreviewOfFile called for: \(url.path, privacy: .private(mask: .hash))")
+        logger.notice("preparePreviewOfFile called for: \(url.lastPathComponent, privacy: .private(mask: .hash))")
 
         guard MIQFileKind(url: url) != nil else {
-            logger.notice("declining unsupported preview file: \(url.path, privacy: .private(mask: .hash))")
+            logger.notice("declining unsupported preview file: \(url.lastPathComponent, privacy: .private(mask: .hash))")
             completion(MIQError.unsupportedFileFormat)
             return
         }
