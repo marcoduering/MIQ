@@ -59,7 +59,7 @@ final class MIQThumbnailProvider: QLThumbnailProvider {
             logger.notice("thumbnail rendered for: \(url.lastPathComponent, privacy: .private(mask: .hash))")
             handler(reply, nil)
         } catch {
-            logger.error("thumbnail failed for \(url.lastPathComponent, privacy: .private(mask: .hash)): \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)")
+            logger.error("thumbnail failed for \(url.lastPathComponent, privacy: .private(mask: .hash)): \(error.logCode, privacy: .public): \(error.localizedDescription, privacy: .private)")
             handler(nil, error)
         }
     }

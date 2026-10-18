@@ -2159,6 +2159,25 @@ struct MIQCoreTests {
     }
 
     @Test
+    func nrrdAnatomicalSpaceWithoutDirectionsBuildsNoFrame() throws {
+        // `space` names the world frame, but without `space directions` nothing
+        // says how the storage axes lie in it.
+        let data = TestMIQFactory.makeNrrd(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            space: "left-posterior-superior", spaceDirections: nil, spacings: "0.5 2 3"
+        )
+        let url = Self.tempURL(suffix: ".nrrd")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try data.write(to: url)
+        let image = try MIQParser().parse(url: url)
+
+        #expect(image.header.orientationFrame == nil)
+        #expect(image.header.sformCode == 0)
+        #expect(image.header.pixdim == [1.0, 0.5, 2.0, 3.0])
+        #expect(OrientationResolver(image: image).displayOrientation(for: .axial).isUnknown)
+    }
+
+    @Test
     func nrrdNonAnatomicalSpaceBuildsNoFrame() throws {
         let data = TestMIQFactory.makeNrrd(
             width: 4, height: 3, depth: 2, datatype: .uint8,
@@ -2173,6 +2192,35 @@ struct MIQCoreTests {
         #expect(image.header.sformCode == 0)
         #expect(image.header.pixdim == [1.0, 2.0, 1.0, 1.0])
         #expect(OrientationResolver(image: image).displayOrientation(for: .axial).isUnknown)
+    }
+
+    @Test(arguments: ["left-posterior-superior-time", "LPST"])
+    func nrrdTimeSpaceKeepsAnatomicalFrame(space: String) throws {
+        // A "-time" space has 4-component directions; the time axis is (0,0,0,dt).
+        let header = """
+        NRRD0004
+        type: uint8
+        dimension: 4
+        space: \(space)
+        sizes: 4 3 2 2
+        space directions: (2,0,0,0) (0,1,0,0) (0,0,1,0) (0,0,0,1.5)
+        kinds: domain domain domain time
+        endian: little
+        encoding: raw
+        space origin: (0,0,0,0)
+
+
+        """
+        let image = try MIQParser().parseNrrd(Data(header.utf8) + Data(count: 4 * 3 * 2 * 2))
+
+        #expect(image.header.dimensions == [4, 3, 2, 2])
+        #expect(image.header.pixdim == [1.0, 2.0, 1.0, 1.0])
+        #expect(image.header.orientationFrame?.axes == [
+            StorageAxisOrientation(axis: .rightLeft, positive: false),
+            StorageAxisOrientation(axis: .anteriorPosterior, positive: false),
+            StorageAxisOrientation(axis: .superiorInferior, positive: true)
+        ])
+        #expect(image.header.sformCode == 1)
     }
 
     // MARK: - Segmentation colouring

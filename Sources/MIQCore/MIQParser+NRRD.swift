@@ -334,6 +334,14 @@ extension MIQParser {
     }
 
     private func nrrdSpaceToRasSigns(_ space: String?) -> (rx: Float, ry: Float, rz: Float)? {
+        // The "-time" spaces (RAST, LPST, …) add a temporal world axis after the
+        // three anatomical ones, which keep their meaning.
+        guard var space else { return nil }
+        if space.hasSuffix("-time") {
+            space.removeLast(5)
+        } else if space.count == 4, space.hasSuffix("t") {
+            space.removeLast()
+        }
         switch space {
         case "right-anterior-superior", "ras":           return (1,  1,  1)
         case "left-anterior-superior", "las":            return (-1, 1,  1)
@@ -396,7 +404,7 @@ extension MIQParser {
                 result.append(nil)
                 cursor = cursor.dropFirst(4)
             } else if let group = parseParenthesisedFloats(cursor) {
-                result.append(group.components.count == 3 ? group.components : nil)
+                result.append(spatialDirection(group.components))
                 cursor = group.remainder
             } else {
                 cursor = cursor.drop(while: { !$0.isWhitespace })
@@ -404,6 +412,17 @@ extension MIQParser {
         }
         while result.count < axisCount { result.append(nil) }
         return result
+    }
+
+    /// The (x, y, z) direction of a spatial axis, or nil for a non-spatial one.
+    /// A "-time" space writes 4-component vectors: a spatial axis has no time
+    /// component, the time axis has nothing else.
+    private func spatialDirection(_ components: [Float]) -> [Float]? {
+        switch components.count {
+        case 3: return components
+        case 4 where components[3] == 0: return Array(components.prefix(3))
+        default: return nil
+        }
     }
 
     /// Parses a parenthesised vector like `(x, y, z)`.

@@ -303,7 +303,7 @@ final class MIQPreviewModel {
             // untouched and don't surface a failure.
             logger.notice("load() canceled before completion")
         } catch {
-            logger.error("load() failed: \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)")
+            logger.error("load() failed: \(error.logCode, privacy: .public): \(error.localizedDescription, privacy: .private)")
             state = .failed(error.localizedDescription)
             onChange?()
         }
@@ -472,7 +472,7 @@ final class MIQPreviewModel {
                 // transient failure (I/O, security scope) isn't permanent.
                 // Volumes > 0 keep the zero backstop; volume 0 stays correct.
                 self.expansionState = .failed
-                self.logger.error("4D expansion failed: \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)")
+                self.logger.error("4D expansion failed: \(error.logCode, privacy: .public): \(error.localizedDescription, privacy: .private)")
                 // Repaint so the Volumes line drops "decompressing…" and says so.
                 self.onChange?()
             }
@@ -668,7 +668,7 @@ final class MIQPreviewModel {
                     self.interactivePreparationDeferred = true
                     return
                 }
-                self.logger.error("interactive state preparation failed: \(String(describing: type(of: error)), privacy: .public): \(error.localizedDescription, privacy: .private)")
+                self.logger.error("interactive state preparation failed: \(error.logCode, privacy: .public): \(error.localizedDescription, privacy: .private)")
             }
         }
     }

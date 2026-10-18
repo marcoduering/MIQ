@@ -106,7 +106,6 @@
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>
-				<string>org.gnu.gnu-zip-archive</string>
 			</array>
 			<key>UTTypeDescription</key>
 			<string>FreeSurfer MGZ Volume</string>

@@ -7,7 +7,7 @@ Maintainer-only. This is the running order; the reasoning behind each rule lives
 - Developer ID Application certificate, plus the `MIQ_Provisioning`, `MIQ_Extension_Provisioning` and `MIQ_Thumbnails_Provisioning` profiles.
 - A notarytool profile: `xcrun notarytool store-credentials "<profile>" --apple-id <email> --team-id <id> --password <app-specific>`.
 - `gh` authenticated (`gh auth login`).
-- Sparkle's private EdDSA key in the login keychain
+- Sparkle's private EdDSA key in the login keychain, plus an offline export (`generate_keys -x <file>`). It cannot be recovered: lose it and no installed copy can ever update again.
 - A checkout of the tap `github.com/marcoduering/homebrew-miq`.
 
 ## Release
@@ -31,10 +31,14 @@ Run everything from the repo root. Set the version once; the later steps use `$V
 3. **Commit and tag** with an otherwise clean tree and `Package.resolved` committed.
 
    ```bash
-   git commit -am "v$V" && git tag "v$V" && git push origin main "v$V"
+   git commit -am "v$V" && git tag "v$V" && git push --atomic origin main "v$V"
    ```
 
-   If the push is rejected, `main` moved on GitHub after your pull: delete the local tag (`git tag -d "v$V"`) and go back to step 1.
+   If the push is rejected, `main` moved on GitHub after your pull. `--atomic` means nothing reached GitHub, the tag included. Drop the local bump and tag, then go back to step 1:
+
+   ```bash
+   git tag -d "v$V" && git reset --hard origin/main
+   ```
 
 4. **Notarize.** Produces `build/release-<timestamp>/MIQ.app.zip`. It fails on a bad Sparkle signature, missing mach-lookup entitlements, an unauthorized App Group, a non-production feed URL, or an unbumped version.
 
