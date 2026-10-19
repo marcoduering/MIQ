@@ -265,9 +265,7 @@ final class MIQPreviewModel {
             let overNetwork = readsOverNetwork
             let coldLoad = Task {
                 try await Self.sharedColdLoad(key: probe.cacheKey) {
-                    try await MIQPreviewModel.runRead(overNetwork: overNetwork, url: fileURL, navigating: navigating, claimsNewest: false, label: "load") { parser in
-                        try MIQPreviewModel.loadPreviewData(parser: parser, fileURL: fileURL, options: options, maxDimension: maxDimension)
-                    }
+                    try await MIQPreviewModel.coldRead(fileURL: fileURL, options: options, maxDimension: maxDimension, overNetwork: overNetwork, navigating: navigating)
                 }
             }
             coldLoadTask = coldLoad
@@ -858,6 +856,19 @@ final class MIQPreviewModel {
         guard let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
               size > MIQConfig.networkPreviewThresholdBytes else { return nil }
         return size
+    }
+
+    /// The cold load's read: `loadPreviewData` through `runRead`.
+    private static func coldRead(
+        fileURL: URL,
+        options: RenderingOptions,
+        maxDimension: Int,
+        overNetwork: Bool,
+        navigating: Bool
+    ) async throws -> RawPreviewData {
+        try await runRead(overNetwork: overNetwork, url: fileURL, navigating: navigating, claimsNewest: false, label: "load") { parser in
+            try loadPreviewData(parser: parser, fileURL: fileURL, options: options, maxDimension: maxDimension)
+        }
     }
 
     private nonisolated static func loadPreviewData(
