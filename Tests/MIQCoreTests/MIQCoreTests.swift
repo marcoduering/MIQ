@@ -2138,6 +2138,89 @@ struct MIQCoreTests {
             StorageAxisOrientation(axis: .anteriorPosterior, positive: true),
             StorageAxisOrientation(axis: .superiorInferior, positive: true)
         ])
+        #expect(image.header.sformCode == 1)
+    }
+
+    @Test
+    func nrrdWithoutSpaceBuildsNoFrameButKeepsSpacing() throws {
+        let data = TestMIQFactory.makeNrrd(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            space: nil, spaceDirections: nil, spacings: "0.5 2 3"
+        )
+        let url = Self.tempURL(suffix: ".nrrd")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try data.write(to: url)
+        let image = try MIQParser().parse(url: url)
+
+        #expect(image.header.orientationFrame == nil)
+        #expect(image.header.sformCode == 0)
+        #expect(image.header.pixdim == [1.0, 0.5, 2.0, 3.0])
+        #expect(OrientationResolver(image: image).displayOrientation(for: .axial).isUnknown)
+    }
+
+    @Test
+    func nrrdAnatomicalSpaceWithoutDirectionsBuildsNoFrame() throws {
+        // `space` names the world frame, but without `space directions` nothing
+        // says how the storage axes lie in it.
+        let data = TestMIQFactory.makeNrrd(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            space: "left-posterior-superior", spaceDirections: nil, spacings: "0.5 2 3"
+        )
+        let url = Self.tempURL(suffix: ".nrrd")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try data.write(to: url)
+        let image = try MIQParser().parse(url: url)
+
+        #expect(image.header.orientationFrame == nil)
+        #expect(image.header.sformCode == 0)
+        #expect(image.header.pixdim == [1.0, 0.5, 2.0, 3.0])
+        #expect(OrientationResolver(image: image).displayOrientation(for: .axial).isUnknown)
+    }
+
+    @Test
+    func nrrdNonAnatomicalSpaceBuildsNoFrame() throws {
+        let data = TestMIQFactory.makeNrrd(
+            width: 4, height: 3, depth: 2, datatype: .uint8,
+            space: "scanner-xyz", spaceDirections: "(2,0,0) (0,1,0) (0,0,1)"
+        )
+        let url = Self.tempURL(suffix: ".nrrd")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try data.write(to: url)
+        let image = try MIQParser().parse(url: url)
+
+        #expect(image.header.orientationFrame == nil)
+        #expect(image.header.sformCode == 0)
+        #expect(image.header.pixdim == [1.0, 2.0, 1.0, 1.0])
+        #expect(OrientationResolver(image: image).displayOrientation(for: .axial).isUnknown)
+    }
+
+    @Test(arguments: ["left-posterior-superior-time", "LPST"])
+    func nrrdTimeSpaceKeepsAnatomicalFrame(space: String) throws {
+        // A "-time" space has 4-component directions; the time axis is (0,0,0,dt).
+        let header = """
+        NRRD0004
+        type: uint8
+        dimension: 4
+        space: \(space)
+        sizes: 4 3 2 2
+        space directions: (2,0,0,0) (0,1,0,0) (0,0,1,0) (0,0,0,1.5)
+        kinds: domain domain domain time
+        endian: little
+        encoding: raw
+        space origin: (0,0,0,0)
+
+
+        """
+        let image = try MIQParser().parseNrrd(Data(header.utf8) + Data(count: 4 * 3 * 2 * 2))
+
+        #expect(image.header.dimensions == [4, 3, 2, 2])
+        #expect(image.header.pixdim == [1.0, 2.0, 1.0, 1.0])
+        #expect(image.header.orientationFrame?.axes == [
+            StorageAxisOrientation(axis: .rightLeft, positive: false),
+            StorageAxisOrientation(axis: .anteriorPosterior, positive: false),
+            StorageAxisOrientation(axis: .superiorInferior, positive: true)
+        ])
+        #expect(image.header.sformCode == 1)
     }
 
     // MARK: - Segmentation colouring
@@ -3084,21 +3167,25 @@ END
         height: Int,
         depth: Int,
         datatype: MIQDatatype,
-        space: String = "right-anterior-superior"
+        space: String? = "right-anterior-superior",
+        spaceDirections: String? = "(1,0,0) (0,1,0) (0,0,1)",
+        spacings: String? = nil
     ) -> Data {
         let typeLabel = nrrdTypeLabel(for: datatype)
+        // `nil` omits the field, so a fixture can lack `space` / `space directions`.
         let headerLines = [
             "NRRD0004",
             "type: \(typeLabel)",
             "dimension: 3",
-            "space: \(space)",
+            space.map { "space: \($0)" },
             "sizes: \(width) \(height) \(depth)",
-            "space directions: (1,0,0) (0,1,0) (0,0,1)",
+            spaceDirections.map { "space directions: \($0)" },
+            spacings.map { "spacings: \($0)" },
             "kinds: domain domain domain",
             "endian: little",
             "encoding: raw",
-            "space origin: (0,0,0)"
-        ]
+            space == nil ? nil : "space origin: (0,0,0)"
+        ].compactMap { $0 }
         let header = headerLines.joined(separator: "\n") + "\n\n"
 
         let voxelCount = width * height * depth

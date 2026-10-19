@@ -161,7 +161,7 @@ final class NetworkReadLane {
                     try Task.checkCancellation()
                     if ticket.superseded || !isWanted(ticket.url) {
                         ticket.superseded = true
-                        logger.notice("\(ticket.label, privacy: .public): dropped before reading, no preview wants it")
+                        logger.notice("\(ticket.label, privacy: .public) \(ticket.url.lastPathComponent, privacy: .private(mask: .hash)): dropped before reading, no preview wants it")
                         throw Superseded()
                     }
                     scheduleQuietWakeIfNeeded()
@@ -173,7 +173,7 @@ final class NetworkReadLane {
                 ticket.preempted = false
                 let start = Date()
                 let role = ticket.url == newestURL ? "newest" : "on screen"
-                logger.notice("\(ticket.label, privacy: .public) [\(role, privacy: .public)]: reading after \(Self.ms(since: arrived), privacy: .public) ms")
+                logger.notice("\(ticket.label, privacy: .public) \(ticket.url.lastPathComponent, privacy: .private(mask: .hash)) [\(role, privacy: .public)]: reading after \(Self.ms(since: arrived), privacy: .public) ms")
                 let task = Task.detached(priority: .userInitiated) { try work(readFinished) }
                 ticket.cancelWork = { task.cancel() }
                 // Stopped or cancelled between the checks above and now: those
@@ -185,16 +185,16 @@ final class NetworkReadLane {
 
                 switch result {
                 case .success(let value):
-                    logger.notice("\(ticket.label, privacy: .public): done in \(Self.ms(since: start), privacy: .public) ms")
+                    logger.notice("\(ticket.label, privacy: .public) \(ticket.url.lastPathComponent, privacy: .private(mask: .hash)): done in \(Self.ms(since: start), privacy: .public) ms")
                     return value
                 case .failure(let error):
                     if error is CancellationError, !Task.isCancelled {
                         if ticket.superseded {
-                            logger.notice("\(ticket.label, privacy: .public): dropped after \(Self.ms(since: start), privacy: .public) ms of reading, no preview wants it")
+                            logger.notice("\(ticket.label, privacy: .public) \(ticket.url.lastPathComponent, privacy: .private(mask: .hash)): dropped after \(Self.ms(since: start), privacy: .public) ms of reading, no preview wants it")
                             throw Superseded()
                         }
                         if ticket.preempted {
-                            logger.notice("\(ticket.label, privacy: .public): stopped for a newer request after \(Self.ms(since: start), privacy: .public) ms, waiting")
+                            logger.notice("\(ticket.label, privacy: .public) \(ticket.url.lastPathComponent, privacy: .private(mask: .hash)): stopped for a newer request after \(Self.ms(since: start), privacy: .public) ms, waiting")
                             continue
                         }
                     }

@@ -81,10 +81,10 @@ final class MIQPreviewController: NSViewController, QLPreviewingController, Netw
 
     nonisolated func preparePreviewOfFile(at url: URL, completionHandler handler: @escaping (Error?) -> Void) {
         nonisolated(unsafe) let completion = handler
-        logger.notice("preparePreviewOfFile called for: \(url.path, privacy: .public)")
+        logger.notice("preparePreviewOfFile called for: \(url.lastPathComponent, privacy: .private(mask: .hash))")
 
         guard MIQFileKind(url: url) != nil else {
-            logger.notice("declining unsupported preview file: \(url.path, privacy: .public)")
+            logger.notice("declining unsupported preview file: \(url.lastPathComponent, privacy: .private(mask: .hash))")
             completion(MIQError.unsupportedFileFormat)
             return
         }
@@ -193,7 +193,7 @@ final class MIQPreviewController: NSViewController, QLPreviewingController, Netw
             }
             self.refreshPreviewView(from: model, flushDisplay: false)
             let elapsedMs = Int(Date().timeIntervalSince(started) * 1000)
-            logger.notice("async model load finished in \(elapsedMs, privacy: .public) ms, state=\(String(describing: model.state), privacy: .public)")
+            logger.notice("async model load finished in \(elapsedMs, privacy: .public) ms, state=\(model.state.logName, privacy: .public)")
         }
     }
 
