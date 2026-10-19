@@ -14,7 +14,7 @@ Maintainer-only. This is the running order; the reasoning behind each rule lives
 
 Run everything from the repo root. Set the version once; the later steps use `$V`.
 
-1. **Pull, then bump.** Pull first: a PR merged on GitHub but not pulled is silently missing from the release (1.6.1 shipped without its UI tweaks this way and was withdrawn). Then set `MARKETING_VERSION` in `Config/Shared.xcconfig`, never in Xcode's General tab. Sparkle compares `CFBundleVersion`, which follows it. No bump means no update is ever offered.
+1. **Pull, then bump.** Pull first: a PR merged on GitHub but not pulled is silently missing from the release. Then set `MARKETING_VERSION` in `Config/Shared.xcconfig`, never in Xcode's General tab. Sparkle compares `CFBundleVersion`, which follows it. No bump means no update is ever offered.
 
    ```bash
    V=X.Y.Z
@@ -28,16 +28,16 @@ Run everything from the repo root. Set the version once; the later steps use `$V
    REPO=$PWD; (cd /tmp && swift test --package-path "$REPO" --scratch-path /tmp/miq-build)
    ```
 
-3. **Commit and tag** with an otherwise clean tree and `Package.resolved` committed.
+3. **Commit the bump** (skip if it already landed, e.g. via a PR), with `Package.resolved` committed.
 
    ```bash
-   git commit -am "v$V" && git tag "v$V" && git push --atomic origin main "v$V"
+   git commit -am "v$V" && git push origin main
    ```
 
-   If the push is rejected, `main` moved on GitHub after your pull. `--atomic` means nothing reached GitHub, the tag included. Drop the local bump and tag, then go back to step 1:
+   **Then tag** the commit you're releasing:
 
    ```bash
-   git tag -d "v$V" && git reset --hard origin/main
+   git tag "v$V" && git push origin "v$V"
    ```
 
 4. **Notarize.** Produces `build/release-<timestamp>/MIQ.app.zip`. It fails on a bad Sparkle signature, missing mach-lookup entitlements, an unauthorized App Group, a non-production feed URL, or an unbumped version.

@@ -285,7 +285,7 @@ PY
 # .../download/<tag>/MIQ.app.zip asset. Anything else means an older item was
 # rewritten after all (or the feed was hand-edited into a shape this script
 # doesn't understand) — refuse to publish it.
-if grep -o 'url="[^"]*"' "$ARCHIVES_DIR/appcast.xml" \
+if grep -o '<enclosure url="[^"]*"' "$ARCHIVES_DIR/appcast.xml" | sed 's/^<enclosure //' \
      | grep -v -E "^url=\"https://github.com/$REPO/releases/download/v[0-9][^/\"]*/MIQ\.app\.zip\"$" >/dev/null; then
   echo "ERROR: an enclosure URL in the generated feed is not a per-tag MIQ.app.zip asset URL:" >&2
   grep -o 'url="[^"]*"' "$ARCHIVES_DIR/appcast.xml" >&2
