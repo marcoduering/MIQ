@@ -2141,30 +2141,13 @@ struct MIQCoreTests {
         #expect(image.header.sformCode == 1)
     }
 
-    @Test
-    func nrrdWithoutSpaceBuildsNoFrameButKeepsSpacing() throws {
+    // With no `space`, or a `space` but no `space directions`, nothing says how
+    // the storage axes lie in the world frame.
+    @Test(arguments: [nil, "left-posterior-superior"] as [String?])
+    func nrrdWithoutSpaceDirectionsBuildsNoFrameButKeepsSpacing(space: String?) throws {
         let data = TestMIQFactory.makeNrrd(
             width: 4, height: 3, depth: 2, datatype: .uint8,
-            space: nil, spaceDirections: nil, spacings: "0.5 2 3"
-        )
-        let url = Self.tempURL(suffix: ".nrrd")
-        defer { try? FileManager.default.removeItem(at: url) }
-        try data.write(to: url)
-        let image = try MIQParser().parse(url: url)
-
-        #expect(image.header.orientationFrame == nil)
-        #expect(image.header.sformCode == 0)
-        #expect(image.header.pixdim == [1.0, 0.5, 2.0, 3.0])
-        #expect(OrientationResolver(image: image).displayOrientation(for: .axial).isUnknown)
-    }
-
-    @Test
-    func nrrdAnatomicalSpaceWithoutDirectionsBuildsNoFrame() throws {
-        // `space` names the world frame, but without `space directions` nothing
-        // says how the storage axes lie in it.
-        let data = TestMIQFactory.makeNrrd(
-            width: 4, height: 3, depth: 2, datatype: .uint8,
-            space: "left-posterior-superior", spaceDirections: nil, spacings: "0.5 2 3"
+            space: space, spaceDirections: nil, spacings: "0.5 2 3"
         )
         let url = Self.tempURL(suffix: ".nrrd")
         defer { try? FileManager.default.removeItem(at: url) }
