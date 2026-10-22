@@ -124,8 +124,11 @@ enum MIQBinaryReader {
     /// typical stream inflated in a single call and a dismissed preview's
     /// decompression (a large local `.mgz`/`.mif.gz`, the 4D `.nii.gz` expansion)
     /// could not stop until it finished. Chunking `avail_out` never changes
-    /// inflate's output, and at ~16 MiB the per-call overhead is immaterial.
-    static let inflateOutputWindow = 16 << 20
+    /// inflate's output, and at 4 MiB the per-call overhead is immaterial (warm
+    /// 611 MB `.mif.gz`: same minimum as 16 MiB windows). Each window is also one
+    /// progress report for `ReadAhead.Rolling`, whose lead must cover the input a
+    /// window consumes — don't raise this without raising that lead.
+    static let inflateOutputWindow = 4 << 20
 
     /// `maxInputWindow` is internal and exists only so tests can exercise input
     /// refills without a 4 GiB fixture; production uses the `avail_in` maximum.

@@ -101,11 +101,21 @@ enum ReadAhead {
     /// speed just ahead of the decompressor. Rolling rather than one whole-file
     /// hint because a hint can't be withdrawn: when a preview is dismissed the
     /// inflate stops at its next output window, leaving at most `lead + step`
-    /// (192 MiB) advised and unread rather than the rest of the file. Measured Oct 2026 on a cold 611 MB
-    /// `dwi.mif.gz` (system zlib, C prototype): no hint 2.24 s, whole-file hint
-    /// 1.69 s, rolling 1.64 s, file already in memory 1.60 s.
+    /// (6 MiB) advised and unread rather than the rest of the file.
+    ///
+    /// The lead is small on purpose: every advised byte a dismissed preview never
+    /// uses holds the disk for the next file, and on an external HDD a large first
+    /// hint also queues ahead of inflate's own page faults. Measured Oct 2026 on a
+    /// cold 611 MB `dwi.mif.gz` (median of 3–5), 64 MiB steps vs these: internal
+    /// SSD 1.55 vs 1.59 s, external Thunderbolt SSD 1.77 vs 1.69 s, exFAT on the
+    /// same SSD 1.65 s both, USB HDD ~6.5 s both. Dismissed after 1 s, 64 MiB steps
+    /// had read 120–170 MiB past the decompressor, these 1–1.5 MiB; on the HDD,
+    /// inflate had consumed only 9 MiB behind the 128 MiB first hint, 99 MiB
+    /// behind these. Progress arrives once per output window, so the lead must
+    /// cover the input one window consumes: with 16 MiB windows, steps under 8 MiB
+    /// fell behind (2 MiB: 1.95 s), hence the 4 MiB `inflateOutputWindow`.
     final class Rolling {
-        static let step = 64 << 20
+        static let step = 2 << 20
         static let lead = 2 * step
 
         private let fd: Int32

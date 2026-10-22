@@ -76,6 +76,12 @@ struct ReadAheadTests {
         #expect(chunk <= Int(Int32.max))
     }
 
+    /// Progress arrives once per output window; a lead shorter than the input one
+    /// window can consume lets inflate fault past the advised range every window.
+    @Test func rollingLeadCoversOneInflateWindow() {
+        #expect(ReadAhead.Rolling.lead >= MIQBinaryReader.inflateOutputWindow)
+    }
+
     @Test func rollingReadAheadStaysWithinItsLeadOfTheDecompressor() {
         let step = ReadAhead.Rolling.step
         let lead = ReadAhead.Rolling.lead

@@ -80,14 +80,24 @@ public struct MIQParser {
             }
         }
 
-        // Local disk: keep the proven mmap + demand-paging fast path (zero perf
-        // risk). Network volume: `.mappedIfSafe` can't map here and would degrade
-        // to one *uncancelable* full read off the wire — for a large `.mif.gz`
-        // that pins the (already slow) link until completion, stalling Finder's own
-        // I/O on the same mount even after the user dismisses the preview. Read in
-        // cancelable chunks instead so a cancelled parse task stops pulling bytes.
+        // Local volume: mmap + demand paging, so the parse and decode read only the
+        // pages they touch. `.alwaysMapped`, not `.mappedIfSafe`: Foundation deems
+        // only the internal disk "safe" and reads a file on any external drive in
+        // full, uncancelably, before the parse starts (Thunderbolt SSD, USB HDD,
+        // exFAT alike). Mapped, a cold 4D `.nii.gz` there reads 2–3 MiB instead of
+        // 225 MiB (7× faster on SSD, 14× on HDD) and a 755 MB `.mif` costs ~1 MiB
+        // of footprint instead of 721 MiB (measured Oct 2026). The price is the
+        // reason Foundation is careful: a drive pulled mid-preview takes the mapped
+        // pages with it. Tested by hand (Oct 2026): pulling empties the preview
+        // immediately and the next preview works; a normal eject closes the
+        // preview first and then ejects.
+        // Network volume: never mapped — a dropped link would be the same crash,
+        // and the read must stay cancelable: an uncancelable full read of a large
+        // `.mif.gz` pins the (already slow) link until completion, stalling
+        // Finder's own I/O on the same mount even after the user dismisses the
+        // preview. Read in cancelable chunks so a cancelled parse stops pulling.
         let raw = isLocal
-            ? try Data(contentsOf: url, options: [.mappedIfSafe])
+            ? try Data(contentsOf: url, options: [.alwaysMapped])
             : try readCancelable(url: url)
         if !isLocal { onNetworkReadFinished?() }
         guard kind.isCompressed else {
