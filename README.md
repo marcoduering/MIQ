@@ -1,6 +1,10 @@
 # MIQ: Medical Image Quick Look
 
-MIQ is a lightweight **macOS QuickLook extension** for medical volume images. Press **Space** on a supported file in Finder to instantly get an **interactive orthogonal slice view** alongside a metadata panel. A Windows counterpart, [**MIQ-Win**](https://github.com/marcoduering/MIQ-Win), is also available.
+MIQ is a lightweight **macOS QuickLook extension** for medical volume images. Press **Space** on a supported file in Finder to instantly get an **interactive orthogonal slice view** alongside a metadata panel. MIQ is meant for a quick look: it prioritizes speed and ease of use over advanced visualization, and is not meant to replace dedicated medical image viewers. A Windows counterpart, [**MIQ-Win**](https://github.com/marcoduering/MIQ-Win), is also available.
+
+<p align="center">
+  <a href="https://github.com/marcoduering/MIQ/releases/latest/download/MIQ.app.zip"><img src="https://img.shields.io/github/v/release/marcoduering/MIQ?style=for-the-badge&label=Download%20MIQ&logo=apple&color=2ea44f" alt="Download the latest MIQ release (MIQ.app.zip)"></a>
+</p>
 
 <div align="center">
   <picture>
@@ -75,8 +79,6 @@ brew upgrade --cask miq --greedy
 
 ## Usage
 
-MIQ is a lightweight convenience tool for quickly inspecting medical image files directly from the Finder. It prioritizes speed and ease of use over advanced visualization, and is not meant to replace dedicated medical image viewers.
-
 ### Customization
 
 Use the MIQ app to tailor the preview, metadata panel and thumbnails. Live examples show the effect of each setting as you change it. The **Controls** pane lists all gestures for the interactive preview.
@@ -98,7 +100,11 @@ Use the MIQ app to tailor the preview, metadata panel and thumbnails. Live examp
 
 ### Orientation
 
-By default, MIQ displays data **as stored on disk**, without reorienting. Images may appear upside down, mirrored, or rotated depending on acquisition. This is by design, so you can inspect the raw data "as is". Optional settings reorient to **Neurological** or **Radiological view**.
+By default, MIQ displays data **as stored on disk**, without reorienting. Images may appear upside down, mirrored, or rotated depending on acquisition. This is by design, so you can inspect the raw data "as is". Optional settings reorient to **Neurological** or **Radiological view**. Either way, the R/L, A/P and S/I letters at the image edges show the real anatomical directions, even when the image looks flipped or rotated.
+
+## Privacy
+
+Everything runs locally on your Mac, and MIQ collects no telemetry. The only network access is the main app's update check (and the download, if you install an update); the Quick Look and thumbnail extensions have no network access at all. File names and paths are redacted in the system log. See the [privacy policy](https://miq.marco-duering.net/privacy.html) for details.
 
 ## Troubleshooting
 
