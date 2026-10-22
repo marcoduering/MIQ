@@ -929,8 +929,8 @@ struct ContentView: View {
                             Text(Self.thumbnailSizeLimitLabel(mb)).tag(mb)
                         }
                     } label: {
-                        RowTitle(title: "Skip large files",
-                                 info: "Compressed MGH and MIF files and NRRD files over this size keep Finder's standard icon: drawing their thumbnail means decompressing or reading the whole file, which takes seconds per file. Large compressed NIfTI files are not affected, because MIQ reads only their first volume.")
+                        RowTitle(title: "Skip large (compressed) files",
+                                 info: "Compressed MGH, MIF and NRRD files over this size keep Finder's standard icon: drawing their thumbnail means decompressing or reading the whole file, which takes seconds per file. Large compressed NIfTI files are not affected, because MIQ reads only their first volume. On network volumes, large uncompressed MGH and MIF files are skipped too.")
                     }
                     Toggle(isOn: $showThumbnailsOnNetworkVolumes) {
                         RowTitle(title: "Include network volumes",

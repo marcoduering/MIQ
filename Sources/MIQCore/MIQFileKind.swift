@@ -49,14 +49,16 @@ public enum MIQFileKind: Sendable, CaseIterable {
     /// icon, so a folder of large 4D `.mif.gz`/`.mgz` would otherwise fully
     /// decompress one file per icon. Declines only when rendering the centre
     /// slice would pull the whole file: a non-boundable kind over `thresholdBytes`
-    /// that is compressed, is `.nrrd` (the header, not the extension, decides
-    /// whether its payload is gzip), or sits on a network volume. Local
-    /// uncompressed MGH/MIF are memory-mapped, so size costs them nothing. An
-    /// unknown size (`nil`) never declines.
-    public func declinesThumbnail(fileSizeBytes: Int?, isLocal: Bool, thresholdBytes: Int) -> Bool {
+    /// that is compressed, is a gzip-encoded `.nrrd`, or sits on a network volume.
+    /// Local uncompressed MGH/MIF, and local `.nrrd` the caller has confirmed raw
+    /// (`nrrdHasRawPayload`, from `MIQParser.nrrdHasRawPayload(at:)` — the header,
+    /// not the extension, decides), are memory-mapped, so size costs them nothing.
+    /// An unknown size (`nil`) never declines.
+    public func declinesThumbnail(fileSizeBytes: Int?, isLocal: Bool, thresholdBytes: Int,
+                                  nrrdHasRawPayload: Bool = false) -> Bool {
         guard !supportsBoundedNetworkRead,
               let fileSizeBytes, fileSizeBytes > thresholdBytes else { return false }
-        return isCompressed || self == .nrrd || !isLocal
+        return isCompressed || (self == .nrrd && !nrrdHasRawPayload) || !isLocal
     }
 
     public var displayName: String {

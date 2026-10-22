@@ -89,6 +89,36 @@ extension MIQParser {
         return nil
     }
 
+    // MARK: - Thumbnail gate
+
+    /// How many leading bytes `nrrdHasRawPayload(at:)` reads. Real headers are a
+    /// few hundred bytes; one longer than this counts as not raw, the
+    /// conservative answer (the thumbnail is declined rather than a gunzip paid).
+    static let nrrdHeaderProbeBytes = 64 * 1024
+
+    /// Whether a self-contained NRRD stores its payload raw, judged from the
+    /// header alone. The `.nrrd` extension doesn't say: `encoding:` does, and a
+    /// gzip payload must be inflated in full. Lets the thumbnail extension treat a
+    /// local raw NRRD like an uncompressed MIF (memory-mapped, so size costs
+    /// nothing). Any failure (unreadable file, no blank line within the probe, no
+    /// magic, a detached header) answers `false`.
+    public static func nrrdHasRawPayload(at url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        guard let prefix = try? handle.read(upToCount: nrrdHeaderProbeBytes) else { return false }
+        return nrrdHasRawPayload(prefix: prefix)
+    }
+
+    static func nrrdHasRawPayload(prefix: Data) -> Bool {
+        let parser = MIQParser()
+        guard let split = try? parser.splitNrrdHeader(data: prefix) else { return false }
+        let lines = split.0.split(whereSeparator: { $0.isNewline }).map(String.init)
+        guard lines.first?.hasPrefix("NRRD000") == true else { return false }
+        let fields = parser.parseNrrdFields(lines: lines)
+        guard fields["data file"] == nil, fields["datafile"] == nil else { return false }
+        return (fields["encoding"] ?? "raw").lowercased() == "raw"
+    }
+
     // MARK: - Header field parsing
 
     private func parseNrrdFields(lines: [String]) -> [String: String] {
