@@ -102,16 +102,17 @@ public struct MIQParser {
         // needs every volume, e.g. 4D navigation) fall back to full decompression.
         let budget = fullyDecompress ? nil : niftiVolumeZeroBudget(raw: raw, kind: kind)
         // Inflate reads the mapped compressed bytes front to back, faulting them in
-        // one page at a time; advise them first, unless only a prefix is inflated.
-        if readsAhead, isLocal,
-           let range = ReadAhead.compressedRange(fileSize: raw.count, volumeZeroBudget: budget,
-                                                 isizeHint: MIQBinaryReader.gzipSizeHint(raw)) {
-            ReadAhead.advise(url, range: range)
-        }
+        // one page at a time; read ahead of it, unless only a prefix is inflated.
+        let rolling = readsAhead && isLocal
+            && ReadAhead.readsAheadCompressed(fileSize: raw.count, volumeZeroBudget: budget,
+                                              isizeHint: MIQBinaryReader.gzipSizeHint(raw))
+            ? ReadAhead.Rolling(url: url, fileSize: raw.count)
+            : nil
+        let onInputProgress = rolling.map { rolling in { (consumed: Int) in rolling.inputConsumed(consumed) } }
         if let budget {
-            return (try MIQBinaryReader.gunzip(raw, maxOutputBytes: budget), kind, isLocal)
+            return (try MIQBinaryReader.gunzip(raw, maxOutputBytes: budget, onInputProgress: onInputProgress), kind, isLocal)
         }
-        return (try MIQBinaryReader.gunzip(raw), kind, isLocal)
+        return (try MIQBinaryReader.gunzip(raw, onInputProgress: onInputProgress), kind, isLocal)
     }
 
     /// Byte budget covering everything up to and including volume 0 of a

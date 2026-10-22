@@ -132,7 +132,14 @@ enum MIQBinaryReader {
     ///
     /// Throws `CancellationError` (not `MIQError`) when the calling task is
     /// cancelled; that is polled between output windows.
-    static func gunzip(_ data: Foundation.Data, maxInputWindow: Int = Int(UInt32.max)) throws -> Foundation.Data {
+    ///
+    /// `onInputProgress` is called with the compressed bytes consumed so far
+    /// before each output window — what `ReadAhead.Rolling` follows.
+    static func gunzip(
+        _ data: Foundation.Data,
+        maxInputWindow: Int = Int(UInt32.max),
+        onInputProgress: ((Int) -> Void)? = nil
+    ) throws -> Foundation.Data {
         guard data.count >= 18, maxInputWindow >= 1 else {
             throw MIQError.decompressionFailed
         }
@@ -166,6 +173,7 @@ enum MIQBinaryReader {
 
             while true {
                 if Task.isCancelled { cancelled = true; break }
+                onInputProgress?(Int(stream.total_in))
                 feedInputWindow(&stream, base: inBase, count: data.count, fed: &fed, maxWindow: maxInputWindow)
                 status = output.withUnsafeMutableBytes { outBuf -> Int32 in
                     guard let outBase = outBuf.bindMemory(to: Bytef.self).baseAddress else {
@@ -240,7 +248,8 @@ enum MIQBinaryReader {
     static func gunzip(
         _ data: Foundation.Data,
         maxOutputBytes: Int,
-        maxInputWindow: Int = Int(UInt32.max)
+        maxInputWindow: Int = Int(UInt32.max),
+        onInputProgress: ((Int) -> Void)? = nil
     ) throws -> Foundation.Data {
         guard data.count >= 18, maxOutputBytes >= 1, maxInputWindow >= 1 else {
             throw MIQError.decompressionFailed
@@ -277,6 +286,7 @@ enum MIQBinaryReader {
 
             while true {
                 if Task.isCancelled { cancelled = true; break }
+                onInputProgress?(Int(stream.total_in))
                 feedInputWindow(&stream, base: inBase, count: data.count, fed: &fed, maxWindow: maxInputWindow)
                 status = output.withUnsafeMutableBytes { outBuf -> Int32 in
                     guard let outBase = outBuf.bindMemory(to: Bytef.self).baseAddress else {

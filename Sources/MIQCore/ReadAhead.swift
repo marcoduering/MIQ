@@ -1,7 +1,7 @@
 import Foundation
 
-/// Read-ahead for local files: one `F_RDADVISE` hint, so the kernel pulls the bytes
-/// a preview is about to touch in large sequential reads instead of one page fault
+/// Read-ahead for local files: `F_RDADVISE` hints, so the kernel pulls the bytes a
+/// preview is about to touch in large sequential reads instead of one page fault
 /// at a time through the memory map. Measured Oct 2026 (M2 Pro, internal SSD, file
 /// not in the page cache): faulting in a 203 MB `.mif` took 226 ms, the same pages
 /// after the hint 32 ms; a 22 MB `.nii` 25 → 3.6 ms. A file already in the page
@@ -13,17 +13,18 @@ import Foundation
 /// a whole-file read — so the range functions are the part that needs care, and
 /// they are pure so tests can pin them.
 enum ReadAhead {
-    /// Upper bound on one advisory read. Bytes past it are still read, as page
-    /// faults, if the parse gets that far. The hint can't be withdrawn, whereas a
-    /// cancelled decompression stops faulting, so this bounds the I/O a dismissed
-    /// preview leaves queued (~40 ms of an internal SSD, seconds of a USB disk).
-    static let maxAdvisedBytes = 256 << 20
+    /// Largest length one `F_RDADVISE` call takes (`ra_count` is an Int32).
+    static let maxAdviseChunk = 1 << 30
 
     /// The bytes of `fileData` that volume 0 of `image` occupies — from the payload
     /// offset through the last voxel of volume 0, which for every layout MIQ reads
     /// (strides are always positive) covers each voxel of volume 0 and nothing of
     /// later volumes when time is the outermost axis. A volume-interleaved MIF
-    /// (time stride 1) gets nearly the whole file, which its decode touches anyway.
+    /// (time stride 1) gets nearly the whole file, of which the center slices may
+    /// touch only part (a 720 MB DWI `.mif`: about half). Advised anyway, uncapped:
+    /// reading the whole extent sequentially still beats faulting in the touched
+    /// half (measured ~0.5 s faulted), and a local uncompressed parse can't be
+    /// cancelled, so the pages the decode needs are read either way.
     ///
     /// `nil` unless the image's storage *is* `fileData`: a MIF `bit` payload or a
     /// gzip-encoded NRRD is decoded into a fresh buffer at parse time, so its
@@ -46,42 +47,98 @@ enum ReadAhead {
         return start..<upper
     }
 
-    /// The bytes of a compressed file to advise before inflating it: all of them
-    /// when the whole stream will be inflated, none when only a prefix will be.
-    /// A capped `.nii.gz` load inflates the whole stream exactly when its volume-0
-    /// budget reaches the gzip size hint — i.e. a 3D file. The hint wraps at 4 GiB,
-    /// so a stream over 4 GiB can look whole when it isn't; that over-advises, and
-    /// `maxAdvisedBytes` bounds it.
-    static func compressedRange(fileSize: Int, volumeZeroBudget: Int?, isizeHint: UInt32?) -> Range<Int>? {
-        guard fileSize > 0 else { return nil }
+    /// Whether a compressed file is read ahead before inflating it: when the whole
+    /// stream will be inflated, not when only a prefix will be. A capped `.nii.gz`
+    /// load inflates the whole stream exactly when its volume-0 budget reaches the
+    /// gzip size hint — i.e. a 3D file. The hint wraps at 4 GiB, so a stream over
+    /// 4 GiB can look whole when it isn't; `Rolling` then stops advising when the
+    /// capped inflate stops consuming input, so that costs at most `lead + step`.
+    static func readsAheadCompressed(fileSize: Int, volumeZeroBudget: Int?, isizeHint: UInt32?) -> Bool {
+        guard fileSize > 0 else { return false }
         if let volumeZeroBudget {
-            guard let isizeHint, volumeZeroBudget >= Int(isizeHint) else { return nil }
+            guard let isizeHint else { return false }
+            return volumeZeroBudget >= Int(isizeHint)
         }
-        return 0..<fileSize
+        return true
     }
 
-    /// Issues the hint for `range` of the file at `url`, capped at `maxAdvisedBytes`.
-    /// The read is queued on the file, not the descriptor, so closing it straight
-    /// away doesn't cancel it (checked with a cold 61 MB file: 9.8 ms after close).
+    /// Issues the hint for `range` of the file at `url`. The read is queued on the
+    /// file, not the descriptor, so closing it straight away doesn't cancel it
+    /// (checked with a cold 61 MB file: 9.8 ms after close).
     static func advise(_ url: URL, range: Range<Int>) {
-        let range = capped(range)
         guard !range.isEmpty else { return }
         let fd = open(url.path, O_RDONLY | O_CLOEXEC)
         guard fd >= 0 else { return }
         defer { close(fd) }
-        // `ra_count` is an Int32; the cap keeps every range well inside it.
-        var advisory = radvisory(ra_offset: off_t(range.lowerBound), ra_count: Int32(range.count))
-        _ = fcntl(fd, F_RDADVISE, &advisory)
+        advise(fd: fd, range: range)
     }
 
-    static func capped(_ range: Range<Int>) -> Range<Int> {
-        range.lowerBound..<Swift.min(range.upperBound, range.lowerBound + maxAdvisedBytes)
+    /// `range` split into `F_RDADVISE`-sized pieces, in order.
+    static func chunks(of range: Range<Int>) -> [Range<Int>] {
+        stride(from: range.lowerBound, to: range.upperBound, by: maxAdviseChunk).map {
+            $0..<Swift.min($0 + maxAdviseChunk, range.upperBound)
+        }
+    }
+
+    fileprivate static func advise(fd: Int32, range: Range<Int>) {
+        for chunk in chunks(of: range) {
+            var advisory = radvisory(ra_offset: off_t(chunk.lowerBound), ra_count: Int32(chunk.count))
+            _ = fcntl(fd, F_RDADVISE, &advisory)
+        }
     }
 
     private static func sharesBuffer(_ a: Data, _ b: Data) -> Bool {
         guard a.count == b.count, a.startIndex == 0, b.startIndex == 0 else { return false }
         return a.withUnsafeBytes { pa in
             b.withUnsafeBytes { pb in pa.baseAddress == pb.baseAddress }
+        }
+    }
+
+    /// Read-ahead that follows an inflate through a compressed file: it keeps the
+    /// next `lead` bytes past what zlib has consumed advised, a `step` at a time
+    /// (so between `lead` and `lead + step` are ahead of it at any moment).
+    /// Inflate consumes its input front to back, so this reads the file at disk
+    /// speed just ahead of the decompressor. Rolling rather than one whole-file
+    /// hint because a hint can't be withdrawn: when a preview is dismissed the
+    /// inflate stops at its next output window, leaving at most `lead + step`
+    /// (192 MiB) advised and unread rather than the rest of the file. Measured Oct 2026 on a cold 611 MB
+    /// `dwi.mif.gz` (system zlib, C prototype): no hint 2.24 s, whole-file hint
+    /// 1.69 s, rolling 1.64 s, file already in memory 1.60 s.
+    final class Rolling {
+        static let step = 64 << 20
+        static let lead = 2 * step
+
+        private let fd: Int32
+        private let fileSize: Int
+        private var advisedUpTo = 0
+
+        init?(url: URL, fileSize: Int) {
+            guard fileSize > 0 else { return nil }
+            let fd = open(url.path, O_RDONLY | O_CLOEXEC)
+            guard fd >= 0 else { return nil }
+            self.fd = fd
+            self.fileSize = fileSize
+        }
+
+        deinit { close(fd) }
+
+        /// Called with zlib's `total_in` before each output window.
+        func inputConsumed(_ consumed: Int) {
+            guard let range = Self.nextRange(consumed: consumed, advisedUpTo: advisedUpTo, fileSize: fileSize) else {
+                return
+            }
+            ReadAhead.advise(fd: fd, range: range)
+            advisedUpTo = range.upperBound
+        }
+
+        /// The range to advise so that at least `lead` bytes past `consumed` are
+        /// covered, in whole steps from `advisedUpTo` and clipped to the file.
+        /// `nil` when enough is advised already.
+        static func nextRange(consumed: Int, advisedUpTo: Int, fileSize: Int) -> Range<Int>? {
+            let target = Swift.min(consumed + lead, fileSize)
+            guard advisedUpTo < target else { return nil }
+            let steps = (target - advisedUpTo + step - 1) / step
+            return advisedUpTo..<Swift.min(advisedUpTo + steps * step, fileSize)
         }
     }
 }
