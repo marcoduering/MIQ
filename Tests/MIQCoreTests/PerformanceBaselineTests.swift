@@ -576,6 +576,58 @@ struct PerformanceBaselineTests {
         print("")
     }
 
+    /// Corpus list for a *cold* first view: the file is not in the page cache, as
+    /// on a first preview of a study that hasn't been opened since boot. The corpus
+    /// profile can't show this — its COLD run follows a parse of the same file —
+    /// and it is where `ReadAhead` pays off. Driven by `profile.sh --cold`, which
+    /// purges the page cache before each pass (`MIQ_PERF_READ_AHEAD` = 0, then 1).
+    private static let coldCorpusPath = ProcessInfo.processInfo.environment["MIQ_PERF_COLD_CORPUS"]
+
+    @Test(.enabled(if: PerformanceBaselineTests.coldCorpusPath != nil))
+    func coldFirstView() throws {
+        let entries = try Self.readCorpus(URL(fileURLWithPath: try #require(Self.coldCorpusPath)))
+        let readsAhead = ProcessInfo.processInfo.environment["MIQ_PERF_READ_AHEAD"] == "1"
+        print("")
+        print("=== Cold first view (parse + centerPreview, 1×), read-ahead \(readsAhead ? "ON" : "OFF") ===")
+        for entry in entries {
+            // A sample is only cold if the file was not in the page cache: report the
+            // resident share measured just before, and don't trust a row above 0%.
+            guard let resident = Self.residentPercent(path: entry.path) else {
+                print("[skip] \(entry.label) — \(entry.path) not found")
+                continue
+            }
+            let url = URL(fileURLWithPath: entry.path)
+            var parsed = false
+            let duration = ContinuousClock().measure {
+                guard let image = try? MIQParser(readsAhead: readsAhead).parse(url: url) else { return }
+                _ = MIQVolume(image: image).centerPreview(volumeIndex: 0, maxDimension: Self.maxDimension, options: Self.options)
+                parsed = true
+            }
+            print(String(format: "%-12@ %8.1f ms   resident before: %5.1f%%%@",
+                         entry.label as NSString, Self.ms(duration), resident,
+                         (parsed ? "" : "   (parse failed)") as NSString))
+        }
+        print("")
+    }
+
+    /// Share of the file's pages in the page cache (`mincore`), without touching them.
+    private static func residentPercent(path: String) -> Double? {
+        let fd = open(path, O_RDONLY)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_size > 0 else { return nil }
+        let length = Int(info.st_size)
+        guard let map = mmap(nil, length, PROT_READ, MAP_PRIVATE, fd, 0), map != MAP_FAILED else { return nil }
+        defer { munmap(map, length) }
+        let pageSize = Int(getpagesize())
+        let pages = (length + pageSize - 1) / pageSize
+        var vector = [CChar](repeating: 0, count: pages)
+        guard mincore(map, length, &vector) == 0 else { return nil }
+        let resident = vector.reduce(0) { $0 + Int($1 & 1) }
+        return 100 * Double(resident) / Double(pages)
+    }
+
     // MARK: - Profiling core (shared)
 
     private static func readCorpus(_ url: URL) throws -> [(label: String, path: String)] {

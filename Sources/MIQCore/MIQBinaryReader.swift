@@ -73,6 +73,16 @@ enum MIQBinaryReader {
         return data[data.startIndex] == 0x1F && data[data.startIndex + 1] == 0x8B
     }
 
+    /// The gzip trailer's ISIZE field: the uncompressed size mod 2^32, so a hint
+    /// that wraps for streams over 4 GiB (see `initialInflateCapacity`). `nil` when
+    /// the data is too short to be a gzip stream.
+    static func gzipSizeHint(_ data: Foundation.Data) -> UInt32? {
+        guard data.count >= 18 else { return nil }
+        return data.withUnsafeBytes { bytes -> UInt32 in
+            bytes.loadUnaligned(fromByteOffset: data.count - 4, as: UInt32.self)
+        }.littleEndian
+    }
+
     /// Initial output capacity for an in-memory inflate.
     ///
     /// The gzip trailer's ISIZE field is the uncompressed size **mod 2^32**, so it

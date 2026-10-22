@@ -822,7 +822,7 @@ final class MIQPreviewModel {
         _ work: @Sendable @escaping (MIQParser) throws -> T
     ) async throws -> T {
         guard overNetwork else {
-            return try await runCancelableDetached { try work(MIQParser()) }
+            return try await runCancelableDetached { try work(MIQParser(readsAhead: true)) }
         }
         return try await NetworkReadLane.shared.run(label, url: url, navigating: navigating, claimsNewest: claimsNewest) { readFinished in
             try work(MIQParser(onNetworkReadFinished: readFinished))

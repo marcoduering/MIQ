@@ -6,9 +6,15 @@ public struct MIQParser {
     /// network read lane hand the link to the next file early. Never called for a
     /// local file.
     let onNetworkReadFinished: (@Sendable () -> Void)?
+    /// Hint the kernel to read ahead what the parse and the center-slice decode
+    /// will touch of a *local* file (see `ReadAhead`). Off by default; the preview
+    /// turns it on. The thumbnail extension leaves it off: Finder requests many
+    /// icons at once, and each hint queues reads that can't be withdrawn.
+    let readsAhead: Bool
 
-    public init(onNetworkReadFinished: (@Sendable () -> Void)? = nil) {
+    public init(onNetworkReadFinished: (@Sendable () -> Void)? = nil, readsAhead: Bool = false) {
         self.onNetworkReadFinished = onNetworkReadFinished
+        self.readsAhead = readsAhead
     }
 
     /// - Parameter fullyDecompress: When `true`, bypass the volume-0 budget cap
@@ -18,8 +24,15 @@ public struct MIQParser {
     ///   A no-op for every other kind (uncompressed `.nii` is mmap'd; `.mgz` /
     ///   `.mif.gz` already decompress in full).
     public func parse(url: URL, fullyDecompress: Bool = false) throws -> MIQImage {
-        let (data, kind) = try loadAndDecompress(url: url, fullyDecompress: fullyDecompress)
-        return try parseImage(data: data, kind: kind)
+        let (data, kind, isLocal) = try loadAndDecompress(url: url, fullyDecompress: fullyDecompress)
+        let image = try parseImage(data: data, kind: kind)
+        // An uncompressed local file is still only mapped: the header parse
+        // touched a page or two, and the decode that follows faults in the rest.
+        if readsAhead, isLocal, !kind.isCompressed,
+           let range = ReadAhead.volumeZeroRange(of: image, fileData: data) {
+            ReadAhead.advise(url, range: range)
+        }
+        return image
     }
 
     // MARK: - Internal
@@ -35,7 +48,7 @@ public struct MIQParser {
     /// fast share. Local files never reach these reads (they are memory-mapped).
     private static let networkReadChunkBytes = 2 * 1024 * 1024
 
-    private func loadAndDecompress(url: URL, fullyDecompress: Bool = false) throws -> (Data, MIQFileKind) {
+    private func loadAndDecompress(url: URL, fullyDecompress: Bool = false) throws -> (Data, MIQFileKind, isLocal: Bool) {
         guard let kind = MIQFileKind(url: url) else {
             throw MIQError.unsupportedFileFormat
         }
@@ -56,7 +69,7 @@ public struct MIQParser {
             do {
                 if let bounded = try loadBoundedNiftiPrefix(url: url, kind: kind) {
                     onNetworkReadFinished?()
-                    return (bounded, kind)
+                    return (bounded, kind, false)
                 }
             } catch is CancellationError {
                 // The bounded reads poll cancellation; don't let the fallback
@@ -78,7 +91,7 @@ public struct MIQParser {
             : try readCancelable(url: url)
         if !isLocal { onNetworkReadFinished?() }
         guard kind.isCompressed else {
-            return (raw, kind)
+            return (raw, kind, isLocal)
         }
         guard MIQBinaryReader.isLikelyGzip(raw) else {
             throw MIQError.malformedFile("file extension claims gzip but the gzip magic bytes are missing")
@@ -87,10 +100,18 @@ public struct MIQParser {
         // Decompress only the prefix the preview actually reads, when the layout
         // makes that a bounded prefix. Otherwise (or when the caller explicitly
         // needs every volume, e.g. 4D navigation) fall back to full decompression.
-        if !fullyDecompress, let budget = niftiVolumeZeroBudget(raw: raw, kind: kind) {
-            return (try MIQBinaryReader.gunzip(raw, maxOutputBytes: budget), kind)
+        let budget = fullyDecompress ? nil : niftiVolumeZeroBudget(raw: raw, kind: kind)
+        // Inflate reads the mapped compressed bytes front to back, faulting them in
+        // one page at a time; advise them first, unless only a prefix is inflated.
+        if readsAhead, isLocal,
+           let range = ReadAhead.compressedRange(fileSize: raw.count, volumeZeroBudget: budget,
+                                                 isizeHint: MIQBinaryReader.gzipSizeHint(raw)) {
+            ReadAhead.advise(url, range: range)
         }
-        return (try MIQBinaryReader.gunzip(raw), kind)
+        if let budget {
+            return (try MIQBinaryReader.gunzip(raw, maxOutputBytes: budget), kind, isLocal)
+        }
+        return (try MIQBinaryReader.gunzip(raw), kind, isLocal)
     }
 
     /// Byte budget covering everything up to and including volume 0 of a

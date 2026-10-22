@@ -9,6 +9,13 @@
 #   ./scripts/perf/profile.sh                  # profile + compare to baseline
 #   ./scripts/perf/profile.sh --update-baseline # promote this run to the baseline
 #   ./scripts/perf/profile.sh --threshold 1.30  # flag regressions > 30% (default 20%)
+#   ./scripts/perf/profile.sh --cold            # cold first view, read-ahead off vs on
+#
+# --cold purges the page cache (`sudo purge`, asks for your password) before each
+# of two passes over the corpus — read-ahead off, then on — and prints the 1×
+# parse + centerPreview time per file with the share of it that was resident
+# before. No baseline or JSON: cold timings depend on the disk, so compare the two
+# passes of one run. Close other disk-heavy apps first.
 #
 # testcases.txt is gitignored and maintainer-specific (see testcases.txt.example).
 # Timings are machine-dependent: compare trends on the same host, not absolute
@@ -24,10 +31,12 @@ BASELINE="$PERF_DIR/baseline.json"
 RESULTS="$PERF_DIR/results.json"
 THRESHOLD="1.20"
 UPDATE_BASELINE=0
+COLD=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --update-baseline) UPDATE_BASELINE=1; shift ;;
+    --cold) COLD=1; shift ;;
     --threshold) THRESHOLD="${2:?--threshold needs a value}"; shift 2 ;;
     -h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
@@ -41,6 +50,23 @@ if [[ ! -f "$CORPUS" ]]; then
 fi
 
 SCRATCH="${TMPDIR:-/tmp}/miq-perf-build"
+
+if [[ "$COLD" == "1" ]]; then
+  # Build first, so the purge is followed by the measurement and not a compile:
+  # without MIQ_PERF_COLD_CORPUS the test is disabled, so this run only builds.
+  swift test -c release --package-path "$ROOT_DIR" --scratch-path "$SCRATCH" \
+    --filter coldFirstView >/dev/null 2>&1 || true
+  for read_ahead in 0 1; do
+    sudo purge
+    env MIQ_PERF_COLD_CORPUS="$CORPUS" MIQ_PERF_READ_AHEAD="$read_ahead" \
+      swift test -c release --skip-build \
+        --package-path "$ROOT_DIR" \
+        --scratch-path "$SCRATCH" \
+        --filter coldFirstView \
+      2>&1 | grep -vE '^(Building|Compiling|Build complete|Test Suite|Test Case|Executed 0|􀟈|􀄵|􁁛|     )' || true
+  done
+  exit 0
+fi
 
 env \
   MIQ_PERF_CORPUS="$CORPUS" \
