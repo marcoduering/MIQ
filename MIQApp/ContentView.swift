@@ -488,6 +488,8 @@ struct ContentView: View {
     private var thumbnailLowerPercentile: Double = MIQConfig.Defaults.thumbnailWindowLowerPercentile
     @AppStorage(MIQConfig.Keys.thumbnailWindowUpperPercentile, store: Self.store)
     private var thumbnailUpperPercentile: Double = MIQConfig.Defaults.thumbnailWindowUpperPercentile
+    @AppStorage(MIQConfig.Keys.thumbnailSizeLimitMB, store: Self.store)
+    private var thumbnailSizeLimitMB: Double = MIQConfig.Defaults.thumbnailSizeLimitMB
 
     @State private var showHideDisclaimerConfirm = false
     @State private var showResetAllConfirm = false
@@ -922,6 +924,14 @@ struct ContentView: View {
                 }
 
                 Section {
+                    Picker(selection: $thumbnailSizeLimitMB) {
+                        ForEach(Self.thumbnailSizeLimits, id: \.self) { mb in
+                            Text(Self.thumbnailSizeLimitLabel(mb)).tag(mb)
+                        }
+                    } label: {
+                        RowTitle(title: "Skip large files",
+                                 info: "Compressed MGH and MIF files and NRRD files over this size keep Finder's standard icon: drawing their thumbnail means decompressing or reading the whole file, which takes seconds per file. Large compressed NIfTI files are not affected, because MIQ reads only their first volume.")
+                    }
                     Toggle(isOn: $showThumbnailsOnNetworkVolumes) {
                         RowTitle(title: "Include network volumes",
                                  info: "Off by default: generating thumbnails reads each file over the network, which is slow on remote shares.")
@@ -1002,6 +1012,17 @@ struct ContentView: View {
     }
 
     // MARK: - Rows
+
+    /// Choices for the thumbnail size limit, in MB; 0 means no limit.
+    private static let thumbnailSizeLimits: [Double] = [100, 250, 500, 1024, 0]
+
+    private static func thumbnailSizeLimitLabel(_ mb: Double) -> String {
+        switch mb {
+        case 0: return "Never"
+        case 1024...: return "Over \(Int(mb / 1024)) GB"
+        default: return "Over \(Int(mb)) MB"
+        }
+    }
 
     private func orientationPicker(selection: Binding<ViewOrientation>) -> some View {
         Picker(selection: selection) {
@@ -1149,6 +1170,7 @@ struct ContentView: View {
             && thumbnailSegmentationColoring == .thumbnailDefaultValue
             && thumbnailLowerPercentile == MIQConfig.Defaults.thumbnailWindowLowerPercentile
             && thumbnailUpperPercentile == MIQConfig.Defaults.thumbnailWindowUpperPercentile
+            && thumbnailSizeLimitMB == MIQConfig.Defaults.thumbnailSizeLimitMB
     }
 
     private func copyPreviewSettingsToThumbnails() {
@@ -1238,6 +1260,7 @@ struct ContentView: View {
         thumbnailSegmentationColoring = SegmentationColoring.thumbnailDefaultValue
         thumbnailLowerPercentile  = MIQConfig.Defaults.thumbnailWindowLowerPercentile
         thumbnailUpperPercentile  = MIQConfig.Defaults.thumbnailWindowUpperPercentile
+        thumbnailSizeLimitMB      = MIQConfig.Defaults.thumbnailSizeLimitMB
     }
 
     private func restoreDefaults() {

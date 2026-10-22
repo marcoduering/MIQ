@@ -42,6 +42,7 @@ public enum MIQConfig {
         public static let thumbnailSegmentationColoring  = "thumbnailSegmentationColoring"
         public static let thumbnailWindowLowerPercentile = "thumbnailWindowLowerPercentile"
         public static let thumbnailWindowUpperPercentile = "thumbnailWindowUpperPercentile"
+        public static let thumbnailSizeLimitMB           = "thumbnailSizeLimitMB"
         #if DEBUG
         public static let debugShowLayoutBorders  = "debugShowLayoutBorders"
         #endif
@@ -78,6 +79,10 @@ public enum MIQConfig {
         public static let thumbnailSegmentationColoring  = "auto"
         public static let thumbnailWindowLowerPercentile = 2.0
         public static let thumbnailWindowUpperPercentile = 98.0
+        /// Size (MB) above which the thumbnail extension declines files it would
+        /// have to read or decompress in full (`MIQFileKind.declinesThumbnail`).
+        /// 0 means no limit.
+        public static let thumbnailSizeLimitMB           = 100.0
     }
 
     public struct MIQColor: Sendable {
@@ -191,8 +196,7 @@ public enum MIQConfig {
         return d.object(forKey: Keys.deferLargeNetworkPreviews) as? Bool ?? Defaults.deferLargeNetworkPreviews
     }
 
-    /// Byte threshold derived from `Defaults.networkPreviewThresholdMB`. Also the
-    /// thumbnail extension's size cutoff (`MIQFileKind.declinesThumbnail`).
+    /// Byte threshold derived from `Defaults.networkPreviewThresholdMB`.
     public static var networkPreviewThresholdBytes: Int {
         Int(Defaults.networkPreviewThresholdMB * 1024 * 1024)
     }
@@ -233,6 +237,13 @@ public enum MIQConfig {
     public static var thumbnailWindowUpperPercentile: Double {
         let d = defaults
         return d.object(forKey: Keys.thumbnailWindowUpperPercentile) as? Double ?? Defaults.thumbnailWindowUpperPercentile
+    }
+
+    /// Byte form of `thumbnailSizeLimitMB`, ready for
+    /// `MIQFileKind.declinesThumbnail`. A limit of 0 (or less) means no limit.
+    public static var thumbnailSizeLimitBytes: Int {
+        let mb = defaults.object(forKey: Keys.thumbnailSizeLimitMB) as? Double ?? Defaults.thumbnailSizeLimitMB
+        return mb > 0 ? Int(mb * 1024 * 1024) : .max
     }
 
     #if DEBUG

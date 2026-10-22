@@ -43,7 +43,7 @@ final class MIQThumbnailProvider: QLThumbnailProvider {
         // cost one full gunzip per icon. Same threshold as the preview's
         // large-network gate.
         let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
-        if kind.declinesThumbnail(fileSizeBytes: fileSize, isLocal: isLocal, thresholdBytes: MIQConfig.networkPreviewThresholdBytes) {
+        if kind.declinesThumbnail(fileSizeBytes: fileSize, isLocal: isLocal, thresholdBytes: MIQConfig.thumbnailSizeLimitBytes) {
             logger.notice("declining thumbnail for large \(kind.displayName, privacy: .public) file (\((fileSize ?? 0) / 1_048_576, privacy: .public) MB): \(url.lastPathComponent, privacy: .private(mask: .hash))")
             handler(nil, nil)
             return
