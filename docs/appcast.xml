@@ -3,6 +3,38 @@
     <channel>
         <title>MIQ</title>
         <item>
+            <title>1.7.0</title>
+            <pubDate>Thu, 22 Oct 2026 20:09:16 +0200</pubDate>
+            <link>https://miq.marco-duering.net/</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/marcoduering/MIQ/releases</sparkle:fullReleaseNotesLink>
+            <sparkle:version>1.7.0</sparkle:version>
+            <sparkle:shortVersionString>1.7.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description>&lt;style&gt;
+body { line-height: 1.45; margin: 10px 12px; }
+h1, h2, h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
+h1:first-child, h2:first-child, h3:first-child, p:first-child { margin-top: 0; }
+p { margin: 0 0 8px; }
+ul, ol { margin: 0 0 10px; padding-left: 20px; }
+li { margin: 2px 0; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em; background: rgba(128,128,128,.14);
+  border-radius: 3px; padding: 1px 4px;
+}
+&lt;/style&gt;
+&lt;p dir="auto"&gt;&lt;strong&gt;Performance:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul dir="auto"&gt;
+&lt;li&gt;Files on external drives (SSD or HDD, APFS or exFAT) are now memory-mapped instead of being read in full before the preview appears. 4D files open &lt;strong&gt;up to 14× faster&lt;/strong&gt;, and memory use stays low even for files of several hundred MB.&lt;/li&gt;
+&lt;li&gt;Faster first preview of large files: MIQ now tells macOS in advance which parts of a file the preview needs, so they're read in large chunks instead of small pieces.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p dir="auto"&gt;&lt;strong&gt;New:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul dir="auto"&gt;
+&lt;li&gt;Thumbnails: a &lt;strong&gt;Skip large (compressed) files&lt;/strong&gt; setting controls the size limit above which compressed MGH, MIF and NRRD files keep Finder's standard icon (default 100 MB).&lt;/li&gt;
+&lt;/ul&gt;</description>
+            <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.7.0/MIQ.app.zip" length="4640035" type="application/octet-stream" sparkle:edSignature="DxI2UTW5fRy7cvESqCHuAUqg5OIQJ1+aUEGHssAJZ5LtTtlWTNqhMSs52tSXaXsJR1FO0LZhxS7sUa99E5pKBQ==" />
+        </item>
+        <item>
             <title>1.6.3</title>
             <pubDate>Mon, 19 Oct 2026 17:21:13 +0200</pubDate>
             <link>https://miq.marco-duering.net/</link>
@@ -62,37 +94,6 @@ code {
 &lt;li&gt;Minor UI tweaks&lt;/li&gt;
 &lt;/ul&gt;</description>
             <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.6.2/MIQ.app.zip" length="4604178" type="application/octet-stream" sparkle:edSignature="6KIYT4YxPrWMKfts/m4h9JMFeWVMZFafI5JeVCE+2Gn+a7q5L/EyUGQnu7oMiPqDbDTeIazBGbymiYdoWHtbBg==" />
-        </item>
-        <item>
-            <title>1.6.0</title>
-            <pubDate>Wed, 07 Oct 2026 14:30:25 +0200</pubDate>
-            <link>https://miq.marco-duering.net/</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/marcoduering/MIQ/releases</sparkle:fullReleaseNotesLink>
-            <sparkle:version>1.6.0</sparkle:version>
-            <sparkle:shortVersionString>1.6.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description>&lt;style&gt;
-body { line-height: 1.45; margin: 10px 12px; }
-h1, h2, h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
-h1:first-child, h2:first-child, h3:first-child, p:first-child { margin-top: 0; }
-p { margin: 0 0 8px; }
-ul, ol { margin: 0 0 10px; padding-left: 20px; }
-li { margin: 2px 0; }
-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.92em; background: rgba(128,128,128,.14);
-  border-radius: 3px; padding: 1px 4px;
-}
-&lt;/style&gt;
-&lt;p dir="auto"&gt;&lt;strong&gt;Redesigned settings&lt;/strong&gt;&lt;/p&gt;
-&lt;ul dir="auto"&gt;
-&lt;li&gt;New settings user interface for improved clarity&lt;/li&gt;
-&lt;li&gt;Live examples show how each setting changes the preview, the metadata panel and the Finder icons as you change it.&lt;/li&gt;
-&lt;li&gt;New two-thumb slider for the intensity window.&lt;/li&gt;
-&lt;li&gt;Each pane has its own reset button.&lt;/li&gt;
-&lt;li&gt;For 4D images, each volume now gets its own intensity window by default. You can switch back to using volume 0's window for all volumes in the Preview pane.&lt;/li&gt;
-&lt;/ul&gt;</description>
-            <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.6.0/MIQ.app.zip" length="4574010" type="application/octet-stream" sparkle:edSignature="0DWcpEYtwa2vz+l0go1/uae/tnuKWhWKlTZUgy6hsXTAb76V52q34lmBXIUsW/EyJs6UjmkR961oliYguQukDA==" />
         </item>
     </channel>
 </rss>
