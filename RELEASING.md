@@ -24,7 +24,7 @@ Maintainer-only. `scripts/release.sh` runs the whole release; this page covers w
    ./scripts/release.sh X.Y.Z
    ```
 
-   It first checks the certificate, notary profile, `gh`, Sparkle key and tap, so a missing one fails before the notarization round trip. Then it opens `build/release-notes/X.Y.Z.md` in `$EDITOR`, seeded with the four sections and, in a comment, the commits since the last tag. Fill in or delete every section; the comment is removed before publishing. Empty notes or a leftover `-` bullet stop the run. To write the notes ahead of time, create that file first and the editor is skipped. The file is gitignored: the GitHub release keeps the published copy.
+   It first checks the certificate, notary profile, `gh`, Sparkle key and tap, so a missing one fails before the notarization round trip. Then it opens `build/release-notes/X.Y.Z.md` in `$VISUAL`, else `$EDITOR`, else `code --wait`, seeded with the four sections and, in a comment, the commits since the last tag. Fill in or delete every section; the comment is removed before publishing. Empty notes or a leftover `-` bullet stop the run. To write the notes ahead of time, create that file first and the editor is skipped. The file is gitignored: the GitHub release keeps the published copy.
 
    After that it runs unattended:
 

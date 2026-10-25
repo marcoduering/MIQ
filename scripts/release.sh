@@ -12,7 +12,8 @@ set -euo pipefail
 # Stages, in order: notes test notarize appcast commit publish cask feed
 #
 #   notes     build/release-notes/X.Y.Z.md (gitignored). Created from a template
-#             and opened in $EDITOR if missing, used as is if already written.
+#             and opened in $EDITOR (default: code --wait) if missing, used as
+#             is if already written.
 #   test      bump MARKETING_VERSION (not committed yet), run swift test.
 #   notarize  release_notarize.sh on the bumped working tree.
 #   appcast   release_appcast.sh writes docs/appcast.xml.
@@ -186,7 +187,7 @@ require_tty() {
 open_editor() {
   require_tty
   # Unquoted on purpose: EDITOR may carry arguments, e.g. "code --wait".
-  ${VISUAL:-${EDITOR:-vi}} "$NOTES_FILE"
+  ${VISUAL:-${EDITOR:-code --wait}} "$NOTES_FILE"
 }
 
 # Strips the <!-- --> comments, then refuses empty notes or the unedited
