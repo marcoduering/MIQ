@@ -73,16 +73,16 @@ TAG="v$V"
 NOTES_FILE="$NOTES_DIR/$V.md"
 
 stage_index() {
-  local i
+  local stage="$1" i
   for i in "${!STAGES[@]}"; do
-    if [[ "${STAGES[$i]}" == "$1" ]]; then echo "$i"; return 0; fi
+    if [[ "${STAGES[$i]}" == "$stage" ]]; then echo "$i"; return 0; fi
   done
   return 1
 }
 FROM_INDEX="$(stage_index "$FROM")" || die "unknown stage '$FROM' (one of: ${STAGES[*]})"
 
 # True when <stage> is part of this run (it is FROM or comes after it).
-runs() { [[ "$FROM_INDEX" -le "$(stage_index "$1")" ]]; }
+runs() { local stage="$1"; [[ "$FROM_INDEX" -le "$(stage_index "$stage")" ]]; }
 
 STAGING="$(mktemp -d)"
 CURRENT_STAGE=""
@@ -104,10 +104,11 @@ ZIP=""
 
 # version_gt A B: A > B, comparing X.Y.Z numerically.
 version_gt() {
+  local lhs="$1" rhs="$2"
   local -a a b
   local i
-  IFS=. read -r -a a <<< "$1"
-  IFS=. read -r -a b <<< "$2"
+  IFS=. read -r -a a <<< "$lhs"
+  IFS=. read -r -a b <<< "$rhs"
   for i in 0 1 2; do
     if (( ${a[i]:-0} > ${b[i]:-0} )); then return 0; fi
     if (( ${a[i]:-0} < ${b[i]:-0} )); then return 1; fi
@@ -137,7 +138,8 @@ check_main_synced() {
 }
 
 zip_version() {
-  unzip -p "$1" 'MIQ.app/Contents/Info.plist' > "$STAGING/Info.plist" 2>/dev/null || return 0
+  local zip="$1"
+  unzip -p "$zip" 'MIQ.app/Contents/Info.plist' > "$STAGING/Info.plist" 2>/dev/null || return 0
   /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$STAGING/Info.plist" 2>/dev/null || true
 }
 
@@ -384,7 +386,7 @@ stage_feed() {
   local body i
   for i in $(seq 1 40); do
     # The query string bypasses the CDN cache in front of GitHub Pages.
-    body="$(curl -fsSL "$FEED_URL?t=$(date +%s)" 2>/dev/null || true)"
+    body="$(curl -fsSL --proto '=https' "$FEED_URL?t=$(date +%s)" 2>/dev/null || true)"
     if [[ "$body" == *"<sparkle:version>$V</sparkle:version>"* ]]; then
       echo "    live"
       return 0
@@ -440,8 +442,9 @@ fi
 preflight
 
 run_stage() {
-  CURRENT_STAGE="$1"
-  "stage_$1"
+  local stage="$1"
+  CURRENT_STAGE="$stage"
+  "stage_$stage"
 }
 
 if runs notes; then run_stage notes; fi
