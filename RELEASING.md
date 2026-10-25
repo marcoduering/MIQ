@@ -1,73 +1,64 @@
 # Releasing MIQ
 
-Maintainer-only. This is the running order; the reasoning behind each rule lives in CLAUDE.md (the Sparkle and Homebrew conventions).
+Maintainer-only. `scripts/release.sh` runs the whole release; this page covers what it needs, what it does, and how to recover. The reasoning behind the Sparkle and Homebrew rules lives in CLAUDE.md.
 
 ## One-time setup
 
 - Developer ID Application certificate, plus the `MIQ_Provisioning`, `MIQ_Extension_Provisioning` and `MIQ_Thumbnails_Provisioning` profiles.
-- A notarytool profile: `xcrun notarytool store-credentials "<profile>" --apple-id <email> --team-id <id> --password <app-specific>`.
+- A notarytool profile named `MIQ` (or set `NOTARY_PROFILE` to the name you used): `xcrun notarytool store-credentials "MIQ" --apple-id <email> --team-id <id> --password <app-specific>`.
+- `DEVELOPMENT_TEAM` set in `LocalSigning.xcconfig`. The script passes it on as the team ID.
 - `gh` authenticated (`gh auth login`).
 - Sparkle's private EdDSA key in the login keychain, plus an offline export (`generate_keys -x <file>`). It cannot be recovered: lose it and no installed copy can ever update again.
-- A checkout of the tap `github.com/marcoduering/homebrew-miq`.
+- The tap installed (`brew tap marcoduering/miq`) with push access to `github.com/marcoduering/homebrew-miq`. The script commits the cask there. To use a separate checkout of the tap instead, set `MIQ_TAP_DIR` to it.
 
 ## Release
 
-Run everything from the repo root. Set the version once; the later steps use `$V`.
-
-1. **Pull, then bump.** Pull first: a PR merged on GitHub but not pulled is silently missing from the release. Then set `MARKETING_VERSION` in `Config/Shared.xcconfig`, never in Xcode's General tab. Sparkle compares `CFBundleVersion`, which follows it. No bump means no update is ever offered.
+1. **Pull.** A PR merged on GitHub but not pulled would be missing from the release; the script refuses to run while `main` is behind `origin/main`. Commit anything else first, including `Package.resolved`: the only uncommitted changes it accepts are its own.
 
    ```bash
-   V=X.Y.Z
    git checkout main && git pull --ff-only
-   sed -i '' "s/^MARKETING_VERSION = .*/MARKETING_VERSION = $V/" Config/Shared.xcconfig
    ```
 
-2. **Test.**
+2. **Release.**
 
    ```bash
-   REPO=$PWD; (cd /tmp && swift test --package-path "$REPO" --scratch-path /tmp/miq-build)
+   ./scripts/release.sh X.Y.Z
    ```
 
-3. **Commit the bump** (skip if it already landed, e.g. via a PR), with `Package.resolved` committed.
+   It first checks the certificate, notary profile, `gh`, Sparkle key and tap, so a missing one fails before the notarization round trip. Then it opens `build/release-notes/X.Y.Z.md` in `$EDITOR`, seeded with the four sections and, in a comment, the commits since the last tag. Fill in or delete every section; the comment is removed before publishing. Empty notes or a leftover `-` bullet stop the run. To write the notes ahead of time, create that file first and the editor is skipped. The file is gitignored: the GitHub release keeps the published copy.
 
-   ```bash
-   git commit -am "v$V" && git push origin main
-   ```
+   After that it runs unattended:
 
-   **Then tag** the commit you're releasing:
+   | Stage | What happens |
+   |---|---|
+   | `test` | Sets `MARKETING_VERSION` in `Config/Shared.xcconfig` (not committed yet) and runs `swift test`. Sparkle compares `CFBundleVersion`, which follows `MARKETING_VERSION`; never set it in Xcode's General tab. |
+   | `notarize` | `release_notarize.sh`: archive, Developer ID export, notarize, staple. Fails on a bad Sparkle signature, missing mach-lookup entitlements, an unauthorized App Group, a non-production feed URL, or an unbumped version. |
+   | `appcast` | `release_appcast.sh` adds the item to `docs/appcast.xml`, with the notes embedded. |
+   | `commit` | One commit `vX.Y.Z` with the version bump and the appcast, tagged `vX.Y.Z`. The appcast is not part of the app, so the tag points at exactly the source the zip was built from. |
+   | `publish` | Pushes the tag, creates the published GitHub release with `MIQ.app.zip` (the asset must keep that name), then pushes `main`. |
+   | `cask` | Sets `version` and `sha256` (of the published asset) in `Casks/miq.rb`, runs `brew audit --cask --strict`, commits and pushes the tap. |
+   | `feed` | Waits until `https://miq.marco-duering.net/appcast.xml` lists the new version. |
 
-   ```bash
-   git tag "v$V" && git push origin "v$V"
-   ```
+   **The ordering rule:** the feed must never go live before the release it points at, or Sparkle offers an update whose download returns 404. GitHub Pages serves the feed from `main`, so `main` is pushed last, after the release exists.
 
-4. **Notarize.** Produces `build/release-<timestamp>/MIQ.app.zip`. It fails on a bad Sparkle signature, missing mach-lookup entitlements, an unauthorized App Group, a non-production feed URL, or an unbumped version.
+3. **Verify.** Install the previous release, open it, choose **MIQ → Check for Updates…**, and confirm it installs and relaunches. Then press Space on a `.nii.gz` in Finder.
 
-   ```bash
-   NOTARY_PROFILE=<profile> ./scripts/release_notarize.sh
-   ```
+## If a stage fails
 
-5. **GitHub release.** Creates a draft. Write the notes and publish it. The asset must stay named `MIQ.app.zip`. Keep the printed sha256 for step 7. The notes are not just for the web page: step 6 pulls this body into the appcast and refuses to run while the body is empty or still the seeded template.
+The script stops with the command to resume, for example:
 
-   ```bash
-   ./scripts/release_github.sh
-   ```
+```bash
+./scripts/release.sh X.Y.Z --from publish
+```
 
-6. **Appcast.** Never push the feed while the release is still a draft; the script checks and warns.
+Stages: `notes test notarize appcast commit publish cask feed`. Resuming skips the earlier stages; from `appcast` on, it reuses the newest `build/release-<timestamp>/MIQ.app.zip` that contains version X.Y.Z, so nothing is notarized twice. Before `commit` nothing has left the machine: to abandon a run, `git checkout -- Config/Shared.xcconfig docs/appcast.xml`.
 
-   ```bash
-   ./scripts/release_appcast.sh
-   git add docs/appcast.xml && git commit -m "Appcast $V" && git push
-   curl -fsSL https://miq.marco-duering.net/appcast.xml | grep -c "<item>"
-   ```
+## Fixing release notes after a release
 
-7. **Cask.** In the tap checkout set `version` and `sha256` in `Casks/miq.rb`, then audit by name against the installed tap clone and restore it:
+The appcast embeds the notes when it is generated, so editing the GitHub release alone leaves Sparkle showing the old text. Instead:
 
-   ```bash
-   TAP=/opt/homebrew/Library/Taps/marcoduering/homebrew-miq
-   cp Casks/miq.rb "$TAP/Casks/miq.rb"
-   brew audit --cask --strict marcoduering/miq/miq
-   git -C "$TAP" checkout -- Casks/miq.rb
-   ```
+```bash
+./scripts/release.sh X.Y.Z --fix-notes
+```
 
-8. **Verify.** Install the previous release, open it, choose **MIQ → Check for Updates…**, and confirm it installs and relaunches. Then press Space on a `.nii.gz` in Finder.
-
+It opens the notes (the local file, or the current release body if the file is gone), then updates the GitHub release and regenerates the appcast item from the published asset, so its signature is unchanged. The appcast change is committed as `Release notes X.Y.Z` and pushed.

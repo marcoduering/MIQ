@@ -108,4 +108,4 @@ These design decisions affect the render path — keep them in mind when working
 
 ## Releasing (maintainers only)
 
-Notarized release builds require a Developer ID Application certificate (paid Apple Developer Program membership) and the `scripts/release_notarize.sh` script.
+Notarized release builds require a Developer ID Application certificate (paid Apple Developer Program membership). `scripts/release.sh` runs the whole release; see [RELEASING.md](RELEASING.md).
