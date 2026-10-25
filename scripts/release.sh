@@ -27,10 +27,10 @@ set -euo pipefail
 # "Appcast" commit is needed.
 #
 # Environment:
-#   NOTARY_PROFILE  notarytool keychain profile (default: MIQ)
-#   TEAM_ID         default: DEVELOPMENT_TEAM from LocalSigning.xcconfig
-#   MIQ_TAP_DIR     tap checkout to commit the cask in (default: the installed
-#                   tap, brew --repository marcoduering/miq)
+#   NOTARY_PROFILE  notarytool keychain profile (default: notary)
+#   TEAM_ID         Developer ID team (default: 78X8DKBN7C)
+#   MIQ_TAP_DIR     tap checkout to commit the cask in (default: ~/Git/homebrew-miq).
+#                   Never the installed tap: brew update hard-resets it.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -41,7 +41,8 @@ APPCAST="docs/appcast.xml"
 XCCONFIG="Config/Shared.xcconfig"
 FEED_URL="https://miq.marco-duering.net/appcast.xml"
 NOTES_DIR="build/release-notes"
-NOTARY_PROFILE="${NOTARY_PROFILE:-MIQ}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-notary}"
+TEAM_ID="${TEAM_ID:-78X8DKBN7C}"
 STAGES=(notes test notarize appcast commit publish cask feed)
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -212,8 +213,8 @@ update_cask() {
     "$cask"
 }
 
-# Audits by name against the installed tap. A separate MIQ_TAP_DIR checkout is
-# copied in for the audit and the installed tap restored afterwards.
+# Audits by name against the installed tap: the TAP_DIR cask is copied in for
+# the audit and the installed tap restored afterwards.
 # On failure the edit is reverted, so a resume starts from a clean tap.
 audit_cask() {
   local status=0
@@ -284,7 +285,7 @@ preflight() {
   if runs cask; then
     command -v brew >/dev/null 2>&1 || die "brew not found."
     INSTALLED_TAP="$(brew --repository "$TAP_NAME")"
-    TAP_DIR="${MIQ_TAP_DIR:-$INSTALLED_TAP}"
+    TAP_DIR="${MIQ_TAP_DIR:-$HOME/Git/homebrew-miq}"
     [[ -d "$INSTALLED_TAP/.git" ]] || die "tap $TAP_NAME is not installed. Run: brew tap $TAP_NAME"
     [[ -f "$TAP_DIR/$CASK_FILE" ]] || die "$TAP_DIR/$CASK_FILE not found (set MIQ_TAP_DIR?)."
     [[ -z "$(git -C "$TAP_DIR" status --porcelain)" ]] \
@@ -326,11 +327,7 @@ stage_test() {
 
 stage_notarize() {
   step "Archive, notarize, verify"
-  local team=""
-  if [[ -f LocalSigning.xcconfig ]]; then
-    team="$(awk -F'=' '/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=/ { print $2 }' LocalSigning.xcconfig | tr -d '[:space:]')"
-  fi
-  NOTARY_PROFILE="$NOTARY_PROFILE" TEAM_ID="${TEAM_ID:-$team}" ./scripts/release_notarize.sh
+  NOTARY_PROFILE="$NOTARY_PROFILE" TEAM_ID="$TEAM_ID" ./scripts/release_notarize.sh
 }
 
 stage_appcast() {

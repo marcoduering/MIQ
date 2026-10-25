@@ -52,7 +52,7 @@ The app and extension can be installed manually or via the package manager [Home
 
 MIQ updates itself. Open the MIQ app and choose MIQ → Check for Updates…, or leave **Check for updates automatically** enabled in the app's **General** pane (on by default).
 
-Automatic checks and updates happen when you open the main app, so make sure to do this from time to time.
+Automatic checks happen only while the main app is open. So that you don't miss updates once your settings are made, previews show a reminder below the metadata when MIQ hasn't checked for 30 days; opening the app runs the check and clears it. Previews never connect to the internet themselves. Turn the reminder off with **Remind me in previews to check for updates** in the General pane.
 
 ### Installation via Homebrew
 

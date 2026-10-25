@@ -43,6 +43,9 @@ public enum MIQConfig {
         public static let thumbnailWindowLowerPercentile = "thumbnailWindowLowerPercentile"
         public static let thumbnailWindowUpperPercentile = "thumbnailWindowUpperPercentile"
         public static let thumbnailSizeLimitMB           = "thumbnailSizeLimitMB"
+        public static let updateReminderInPreview = "updateReminderInPreview"
+        public static let automaticUpdateChecks   = "automaticUpdateChecks"
+        public static let lastUpdateCheck         = "lastUpdateCheck"
         #if DEBUG
         public static let debugShowLayoutBorders  = "debugShowLayoutBorders"
         #endif
@@ -83,6 +86,10 @@ public enum MIQConfig {
         /// have to read or decompress in full (`MIQFileKind.declinesThumbnail`).
         /// 0 means no limit.
         public static let thumbnailSizeLimitMB           = 100.0
+        public static let updateReminderInPreview = true
+        /// Must match `SUEnableAutomaticChecks` in MIQApp/Info.plist: it stands in
+        /// for Sparkle's setting until the app first runs and mirrors it.
+        public static let automaticUpdateChecks   = true
     }
 
     public struct MIQColor: Sendable {
@@ -244,6 +251,32 @@ public enum MIQConfig {
     public static var thumbnailSizeLimitBytes: Int {
         let mb = defaults.object(forKey: Keys.thumbnailSizeLimitMB) as? Double ?? Defaults.thumbnailSizeLimitMB
         return mb > 0 ? Int(mb * 1024 * 1024) : .max
+    }
+
+    // MARK: - Update reminder (preview extension; see `UpdateReminder`)
+
+    /// Whether the preview shows the update reminder: the user's own setting,
+    /// and only while the app's automatic update checks are on.
+    public static var showsUpdateReminder: Bool {
+        let d = defaults
+        return automaticUpdateChecks
+            && (d.object(forKey: Keys.updateReminderInPreview) as? Bool ?? Defaults.updateReminderInPreview)
+    }
+
+    /// Mirror of Sparkle's "check automatically" setting, which lives in the
+    /// app's own defaults where the extension can't read them. Written by the
+    /// app's `UpdaterController` only.
+    public static var automaticUpdateChecks: Bool {
+        get { defaults.object(forKey: Keys.automaticUpdateChecks) as? Bool ?? Defaults.automaticUpdateChecks }
+        set { defaults.set(newValue, forKey: Keys.automaticUpdateChecks) }
+    }
+
+    /// Mirror of Sparkle's `lastUpdateCheckDate`. Written by the app's
+    /// `UpdaterController` only — Quick Look's sandbox denies the extension
+    /// writes to the App Group.
+    public static var lastUpdateCheck: Date? {
+        get { defaults.object(forKey: Keys.lastUpdateCheck) as? Date }
+        set { defaults.set(newValue, forKey: Keys.lastUpdateCheck) }
     }
 
     #if DEBUG

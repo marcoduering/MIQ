@@ -471,6 +471,8 @@ struct ContentView: View {
     private var metadataOrder: StoredMetadataOrder = StoredMetadataOrder.defaultValue
     @AppStorage(MIQConfig.Keys.deferLargeNetworkPreviews, store: Self.store)
     private var deferLargeNetworkPreviews: Bool = MIQConfig.Defaults.deferLargeNetworkPreviews
+    @AppStorage(MIQConfig.Keys.updateReminderInPreview, store: Self.store)
+    private var updateReminderInPreview: Bool = MIQConfig.Defaults.updateReminderInPreview
     @AppStorage(MIQConfig.Keys.hideDisclaimerInPreview, store: Self.store)
     private var hideDisclaimerInPreview: Bool = MIQConfig.Defaults.hideDisclaimerInPreview
     @State private var starBounce = 0
@@ -726,21 +728,39 @@ struct ContentView: View {
                 // App Group suite. On-demand checking stays in the MIQ menu
                 // ("Check for Updates…").
                 Toggle(isOn: $updater.automaticallyChecksForUpdates) {
-                    Text("Check for updates automatically")
-                    Text("You can also choose MIQ › Check for Updates… at any time.")
+                    RowTitle(title: "Check for updates automatically",
+                             info: "You can also choose MIQ › Check for Updates… at any time.")
                 }
+                // Read by the preview together with the toggle above
+                // (`MIQConfig.showsUpdateReminder`), so it only acts while
+                // that is on.
+                Toggle(isOn: $updateReminderInPreview) {
+                    RowTitle(title: "Remind me in previews to check for updates",
+                             info: "MIQ can only check for updates while this app is open. If it hasn't checked in \(UpdateReminder.intervalDays) days, previews show a reminder below the metadata, until you open MIQ and it checks. Previews never connect to the internet.")
+                }
+                .disabled(!updater.automaticallyChecksForUpdates)
             } header: {
-                // Sets the app's identity apart from the settings below; the
-                // star banner already does that while it is shown.
-                Color.clear.frame(height: starBannerDismissed ? 6 : 0)
+                Text("Updates")
             }
 
-            Section("Disclaimer") {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Section {
+                Toggle("Hide the disclaimer in previews", isOn: Binding(
+                    get: { hideDisclaimerInPreview },
+                    set: { newValue in
+                        if newValue {
+                            showHideDisclaimerConfirm = true
+                        } else {
+                            hideDisclaimerInPreview = false
+                        }
+                    }
+                ))
+            } header: {
+                // The disclaimer is the section's heading, not a row of its own:
+                // the pane has a fixed height.
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Image(systemName: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
                     Text("Not a medical device. Not for diagnostic use.")
-                        .fontWeight(.semibold)
                     Spacer()
                     // A popover rather than an expanding row: the window has a
                     // fixed height and nothing below should move.
@@ -755,17 +775,6 @@ struct ContentView: View {
                                 .padding(14)
                         }
                 }
-
-                Toggle("Hide the disclaimer in previews", isOn: Binding(
-                    get: { hideDisclaimerInPreview },
-                    set: { newValue in
-                        if newValue {
-                            showHideDisclaimerConfirm = true
-                        } else {
-                            hideDisclaimerInPreview = false
-                        }
-                    }
-                ))
             }
         }
     }
@@ -1268,6 +1277,7 @@ struct ContentView: View {
         restoreMetadataDefaults()
         restoreThumbnailDefaults()
         hideDisclaimerInPreview = MIQConfig.Defaults.hideDisclaimerInPreview
+        updateReminderInPreview = MIQConfig.Defaults.updateReminderInPreview
         starBannerDismissed = MIQConfig.Defaults.starBannerDismissed
         // The default is SUEnableAutomaticChecks in Info.plist (on); see
         // the Sparkle convention in CLAUDE.md for why it ships on.

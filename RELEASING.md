@@ -5,11 +5,10 @@ Maintainer-only. `scripts/release.sh` runs the whole release; this page covers w
 ## One-time setup
 
 - Developer ID Application certificate, plus the `MIQ_Provisioning`, `MIQ_Extension_Provisioning` and `MIQ_Thumbnails_Provisioning` profiles.
-- A notarytool profile named `MIQ` (or set `NOTARY_PROFILE` to the name you used): `xcrun notarytool store-credentials "MIQ" --apple-id <email> --team-id <id> --password <app-specific>`.
-- `DEVELOPMENT_TEAM` set in `LocalSigning.xcconfig`. The script passes it on as the team ID.
+- A notarytool profile named `notary` (or set `NOTARY_PROFILE` to the name you used): `xcrun notarytool store-credentials "notary" --apple-id <email> --team-id 78X8DKBN7C --password <app-specific>`. The team ID defaults to `78X8DKBN7C`; set `TEAM_ID` to override it.
 - `gh` authenticated (`gh auth login`).
 - Sparkle's private EdDSA key in the login keychain, plus an offline export (`generate_keys -x <file>`). It cannot be recovered: lose it and no installed copy can ever update again.
-- The tap installed (`brew tap marcoduering/miq`) with push access to `github.com/marcoduering/homebrew-miq`. The script commits the cask there. To use a separate checkout of the tap instead, set `MIQ_TAP_DIR` to it.
+- A checkout of `github.com/marcoduering/homebrew-miq` at `~/Git/homebrew-miq` with push access (or set `MIQ_TAP_DIR` to yours). The script commits the cask there, never in the installed tap, which `brew update` hard-resets. The tap must also be installed (`brew tap marcoduering/miq`), because `brew audit` runs against it.
 
 ## Release
 

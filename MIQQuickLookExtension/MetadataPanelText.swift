@@ -17,6 +17,8 @@ enum MetadataPanelText {
     static let disclaimerFontFactor: CGFloat = 0.8
     static let disclaimerFontMin: CGFloat = 6
     static let disclaimerGapFactor: CGFloat = 2
+    /// Gap between the disclaimer and the update reminder, from the footer font.
+    static let reminderGapFactor: CGFloat = 0.5
 
     /// Labels drawn by the preview's overlays rather than by the text, still
     /// measured when sizing the label column.
@@ -128,7 +130,9 @@ enum MetadataPanelText {
         from rows: [Row],
         fontSize: CGFloat,
         labelColumnX: CGFloat,
-        showsDisclaimer: Bool
+        showsDisclaimer: Bool,
+        updateReminder: String? = nil,
+        updateReminderWidth: CGFloat? = nil
     ) -> NSAttributedString {
         let labelColor = NSColor(calibratedWhite: 0.68, alpha: 1.0)
         let valueColor = NSColor(calibratedWhite: 0.95, alpha: 1.0)
@@ -167,22 +171,49 @@ enum MetadataPanelText {
             }
         }
 
+        // The disclaimer and the update reminder share one smaller size: both are
+        // notes about the app, set apart from the metadata above.
+        let footerFont = NSFont.systemFont(ofSize: max(disclaimerFontMin, fontSize * disclaimerFontFactor), weight: .regular)
+
         if showsDisclaimer {
-            let disclaimerFont = NSFont.systemFont(ofSize: max(disclaimerFontMin, fontSize * disclaimerFontFactor), weight: .regular)
             let disclaimerColor = NSColor(calibratedWhite: 0.35, alpha: 1.0)
             let firstLineStyle = NSMutableParagraphStyle()
             firstLineStyle.paragraphSpacingBefore = fontSize * disclaimerGapFactor
             let firstLineAttrs: [NSAttributedString.Key: Any] = [
-                .font: disclaimerFont,
+                .font: footerFont,
                 .foregroundColor: disclaimerColor,
                 .paragraphStyle: firstLineStyle
             ]
             let secondLineAttrs: [NSAttributedString.Key: Any] = [
-                .font: disclaimerFont,
+                .font: footerFont,
                 .foregroundColor: disclaimerColor
             ]
             result.append(NSAttributedString(string: "\nNot for clinical or diagnostic use.", attributes: firstLineAttrs))
             result.append(NSAttributedString(string: "\nNo warranty expressed or implied.", attributes: secondLineAttrs))
+        }
+
+        // Last, so it never moves a row the overlays are seated on.
+        if let updateReminder {
+            let reminderStyle = NSMutableParagraphStyle()
+            // Close under the disclaimer, one footer; otherwise the same gap the
+            // disclaimer keeps from the rows.
+            reminderStyle.paragraphSpacingBefore = showsDisclaimer
+                ? footerFont.pointSize * reminderGapFactor
+                : fontSize * disclaimerGapFactor
+            // Wraps at the caller's width rather than the text container's: the
+            // preview's panel visually ends at the image above it.
+            if let updateReminderWidth { reminderStyle.tailIndent = max(1, updateReminderWidth) }
+            result.append(NSAttributedString(
+                string: "\n" + updateReminder,
+                attributes: [
+                    .font: footerFont,
+                    // Amber, not link blue: the line can't be clicked (see
+                    // `UpdateReminder`). Fixed, like the rest of the panel, which
+                    // always sits on black.
+                    .foregroundColor: NSColor(calibratedRed: 1.0, green: 0.76, blue: 0.32, alpha: 1.0),
+                    .paragraphStyle: reminderStyle
+                ]
+            ))
         }
 
         return result

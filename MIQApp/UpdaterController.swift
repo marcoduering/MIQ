@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import MIQCore
 import Sparkle
 
 /// Owns the app's Sparkle updater.
@@ -27,10 +28,10 @@ final class UpdaterController: ObservableObject {
     @Published private(set) var canCheckForUpdates = false
 
     /// Written straight through to Sparkle, which persists it in the app's own
-    /// `UserDefaults`. Deliberately *not* an `MIQConfig` setting: it steers the
-    /// app's updater only, and nothing in the App Group suite — which exists so
-    /// the sandboxed extensions can read the app's rendering settings — has any
-    /// use for it.
+    /// `UserDefaults`. Sparkle's value is the setting; `MIQConfig.automaticUpdateChecks`
+    /// is only a mirror in the App Group, because the preview's update reminder
+    /// (`UpdateReminder`) must stay off whenever this is off and the extension
+    /// can't read the app's defaults.
     ///
     /// Defaults to on, via `SUEnableAutomaticChecks` in MIQApp/Info.plist —
     /// which also means Sparkle never shows its permission prompt, so this
@@ -41,6 +42,7 @@ final class UpdaterController: ObservableObject {
     /// a one-time read left the Settings toggle stale until relaunch.
     @Published var automaticallyChecksForUpdates: Bool {
         didSet {
+            MIQConfig.automaticUpdateChecks = automaticallyChecksForUpdates
             // Skip the write-back when the value already matches (the KVO
             // mirror lands here too): Sparkle's setter resets its schedule
             // cycle every time it is assigned.
@@ -50,6 +52,7 @@ final class UpdaterController: ObservableObject {
     }
 
     private let controller: SPUStandardUpdaterController
+    private var lastCheckMirror: AnyCancellable?
 
     init() {
         // startingUpdater: true starts the scheduled background checks now. On
@@ -62,11 +65,21 @@ final class UpdaterController: ObservableObject {
         )
         self.controller = controller
         self.automaticallyChecksForUpdates = controller.updater.automaticallyChecksForUpdates
+        // `didSet` doesn't run during init.
+        MIQConfig.automaticUpdateChecks = automaticallyChecksForUpdates
         // Both SPUUpdater properties are documented KVO-compliant.
         controller.updater.publisher(for: \.canCheckForUpdates)
             .assign(to: &$canCheckForUpdates)
         controller.updater.publisher(for: \.automaticallyChecksForUpdates)
             .assign(to: &$automaticallyChecksForUpdates)
+        // Mirrored into the App Group, which resets the preview's update
+        // reminder. Not documented KVO-compliant, but SPUUpdater posts the
+        // change notifications itself (`updateLastUpdateCheckDate`, Sparkle
+        // 2.9.6). Sparkle stamps the date when a check starts, so this lands
+        // even while its update alert is still open; the initial value covers
+        // launch.
+        lastCheckMirror = controller.updater.publisher(for: \.lastUpdateCheckDate)
+            .sink { MIQConfig.lastUpdateCheck = $0 }
     }
 
     /// Opens Sparkle's own update UI. Sparkle owns the whole flow from here —
