@@ -3,6 +3,33 @@
     <channel>
         <title>MIQ</title>
         <item>
+            <title>1.7.1</title>
+            <pubDate>Sun, 25 Oct 2026 20:13:53 +0100</pubDate>
+            <link>https://miq.marco-duering.net/</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/marcoduering/MIQ/releases</sparkle:fullReleaseNotesLink>
+            <sparkle:version>1.7.1</sparkle:version>
+            <sparkle:shortVersionString>1.7.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description>&lt;style&gt;
+body { line-height: 1.45; margin: 10px 12px; }
+h1, h2, h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
+h1:first-child, h2:first-child, h3:first-child, p:first-child { margin-top: 0; }
+p { margin: 0 0 8px; }
+ul, ol { margin: 0 0 10px; padding-left: 20px; }
+li { margin: 2px 0; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em; background: rgba(128,128,128,.14);
+  border-radius: 3px; padding: 1px 4px;
+}
+&lt;/style&gt;
+&lt;p dir="auto"&gt;&lt;strong&gt;Other:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul dir="auto"&gt;
+&lt;li&gt;Update check reminder in the preview windows. Displays a reminder if the last update check through the main app was more than 30 days ago.&lt;/li&gt;
+&lt;/ul&gt;</description>
+            <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.7.1/MIQ.app.zip" length="4658003" type="application/octet-stream" sparkle:edSignature="99690y3gcFRez4TL8t3gYHCoPmDI+no5mAOXRPkd70csJ0Q8aooQghxPZ9z+faC8ZPVwa19rosJKckxnhvybDg==" />
+        </item>
+        <item>
             <title>1.7.0</title>
             <pubDate>Thu, 22 Oct 2026 20:09:16 +0200</pubDate>
             <link>https://miq.marco-duering.net/</link>
@@ -67,33 +94,6 @@ code {
 &lt;/ul&gt;
 &lt;p dir="auto"&gt;Thanks to &lt;a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/ArioMoniri/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/ArioMoniri"&gt;@ArioMoniri&lt;/a&gt; for contributing to this release.&lt;/p&gt;</description>
             <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.6.3/MIQ.app.zip" length="4608202" type="application/octet-stream" sparkle:edSignature="R9MjyV/T+aF/XnNEVhRxpG7sEVvTmWGmHuU6ry95kbklWTSVGi0Jf5ducrjAJ7m9EbkhE0z9JCerce2QcO62AA==" />
-        </item>
-        <item>
-            <title>1.6.2</title>
-            <pubDate>Mon, 12 Oct 2026 12:34:49 +0200</pubDate>
-            <link>https://miq.marco-duering.net/</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/marcoduering/MIQ/releases</sparkle:fullReleaseNotesLink>
-            <sparkle:version>1.6.2</sparkle:version>
-            <sparkle:shortVersionString>1.6.2</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description>&lt;style&gt;
-body { line-height: 1.45; margin: 10px 12px; }
-h1, h2, h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
-h1:first-child, h2:first-child, h3:first-child, p:first-child { margin-top: 0; }
-p { margin: 0 0 8px; }
-ul, ol { margin: 0 0 10px; padding-left: 20px; }
-li { margin: 2px 0; }
-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.92em; background: rgba(128,128,128,.14);
-  border-radius: 3px; padding: 1px 4px;
-}
-&lt;/style&gt;
-&lt;p dir="auto"&gt;&lt;strong&gt;Other:&lt;/strong&gt;&lt;/p&gt;
-&lt;ul dir="auto"&gt;
-&lt;li&gt;Minor UI tweaks&lt;/li&gt;
-&lt;/ul&gt;</description>
-            <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.6.2/MIQ.app.zip" length="4604178" type="application/octet-stream" sparkle:edSignature="6KIYT4YxPrWMKfts/m4h9JMFeWVMZFafI5JeVCE+2Gn+a7q5L/EyUGQnu7oMiPqDbDTeIazBGbymiYdoWHtbBg==" />
         </item>
     </channel>
 </rss>
