@@ -5,14 +5,15 @@ set -euo pipefail
 # https://miq.marco-duering.net/appcast.xml (docs/ is the GitHub Pages site).
 #
 # Usage:
-#   ./scripts/release_appcast.sh              # auto-discovers latest build/release-*/MIQ.app.zip
-#   ./scripts/release_appcast.sh <path.zip>   # use a specific stapled zip
+#   ./scripts/release_appcast.sh --notes-file <notes.md>              # auto-discovers latest build/release-*/MIQ.app.zip
+#   ./scripts/release_appcast.sh --notes-file <notes.md> <path.zip>   # use a specific stapled zip
 #
-# Run AFTER release_notarize.sh (needs the stapled zip) and AFTER
-# release_github.sh, with the release notes already written on the GitHub
-# release: this script pulls that body into the feed as the item's embedded
-# release notes and refuses to run without it. Then commit and push
-# docs/appcast.xml — nothing is published until GitHub Pages serves it.
+# Normally run by scripts/release.sh. Run AFTER release_notarize.sh (needs the
+# stapled zip). The notes file is the same Markdown that becomes the GitHub
+# release body; it is embedded in the feed as the item's release notes, and
+# this script refuses to run without it. It only writes docs/appcast.xml:
+# nothing is published until that is pushed to main and GitHub Pages serves
+# it, and release.sh pushes main only after the GitHub release is published.
 # The full sequence is in RELEASING.md.
 #
 # Requires:
@@ -45,10 +46,25 @@ APPCAST="docs/appcast.xml"
 PRODUCT_LINK="https://miq.marco-duering.net/"
 PROD_FEED_URL="https://miq.marco-duering.net/appcast.xml"
 
-DIST_ZIP="${1:-}"
+DIST_ZIP=""
+NOTES_FILE=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --notes-file) [[ $# -ge 2 ]] || { echo "ERROR: --notes-file needs a path" >&2; exit 1; }; NOTES_FILE="$2"; shift 2 ;;
+    --*) echo "ERROR: Unknown option: $1" >&2; exit 1 ;;
+    *) DIST_ZIP="$1"; shift ;;
+  esac
+done
+
+if [[ -z "$NOTES_FILE" || ! -f "$NOTES_FILE" ]]; then
+  echo "ERROR: --notes-file <notes.md> is required and must exist." >&2
+  exit 1
+fi
 
 if [[ -z "$DIST_ZIP" ]]; then
-  LATEST_DIR=$(find build -maxdepth 1 -name 'release-*' -type d | sort | tail -1)
+  # release-<timestamp> only: build/release-notes (release.sh) also matches release-*.
+  LATEST_DIR=$(find build -maxdepth 1 -name 'release-[0-9]*' -type d | sort | tail -1)
   if [[ -z "$LATEST_DIR" ]]; then
     echo "ERROR: No build/release-* directory found. Run release_notarize.sh first." >&2
     exit 1
@@ -145,49 +161,35 @@ cp "$DIST_ZIP" "$ARCHIVES_DIR/$ARCHIVE_NAME"
 # It must be .html — a .md sibling is classified as markdown and linked, not
 # embedded, unless --embed-release-notes is passed.
 #
-# The notes themselves stay in one place: the GitHub release body you already
-# write. GitHub renders its own Markdown, so there is no local converter to
-# install or to drift from what the release page shows.
+# The notes themselves stay in one place: the Markdown file that release.sh
+# also hands to `gh release create` as the release body. GitHub renders the
+# Markdown here too, so there is no local converter to install or to drift
+# from what the release page shows.
 NOTES_HTML="$ARCHIVES_DIR/MIQ-$SHORT_VERSION.html"
 
-# One gh call serves both the notes here and the draft check at the end. The
-# --jq expression folds the draft flag into the first line so no jq binary is
-# needed; a body-less release yields just that one line.
 if ! command -v gh >/dev/null 2>&1; then
-  echo "ERROR: gh is required to read the $TAG release notes (brew install gh)." >&2
+  echo "ERROR: gh is required to render the release notes (brew install gh)." >&2
   exit 1
-fi
-if ! RELEASE_VIEW="$(gh release view "$TAG" --json body,isDraft \
-       --jq '(if .isDraft then "draft" else "published" end) + "\n" + .body' 2>&1)"; then
-  echo "ERROR: could not read the GitHub release $TAG: $RELEASE_VIEW" >&2
-  echo "       Run ./scripts/release_github.sh first, then write its notes." >&2
-  exit 1
-fi
-RELEASE_STATE="${RELEASE_VIEW%%$'\n'*}"
-RELEASE_BODY=""
-if [[ "$RELEASE_VIEW" == *$'\n'* ]]; then
-  RELEASE_BODY="${RELEASE_VIEW#*$'\n'}"
 fi
 
 # Without notes generate_appcast strips any <description> the item already
 # has, so a re-run on a bad day would silently blank a good feed. Fail instead.
-if [[ -z "${RELEASE_BODY//[[:space:]]/}" ]]; then
-  echo "ERROR: the GitHub release $TAG has no body — this item would ship without release notes." >&2
-  echo "       Write the notes on the release first, then re-run this script." >&2
+if [[ -z "$(tr -d '[:space:]' < "$NOTES_FILE")" ]]; then
+  echo "ERROR: $NOTES_FILE is empty — this item would ship without release notes." >&2
   exit 1
 fi
-# release_github.sh seeds the body with headings over empty "-" bullets. A
-# non-empty check cannot tell that template from real notes, but no real notes
-# contain a bare "-" line.
-if grep -qxE -- '-[[:space:]]*' <<<"$RELEASE_BODY"; then
-  echo "ERROR: the GitHub release $TAG still contains the unedited notes template (a bare '-' bullet)." >&2
-  echo "       Fill in or delete every section, then re-run this script." >&2
+# release.sh seeds the notes with headings over empty "-" bullets. A non-empty
+# check cannot tell that template from real notes, but no real notes contain a
+# bare "-" line.
+if grep -qxE -- '-[[:space:]]*' "$NOTES_FILE"; then
+  echo "ERROR: $NOTES_FILE still contains the unedited notes template (a bare '-' bullet)." >&2
+  echo "       Fill in or delete every section, then re-run." >&2
   exit 1
 fi
 
 # context= makes GitHub auto-link #issues and short SHAs the way the release
 # page does; without it they render as plain text.
-printf '%s' "$RELEASE_BODY" > "$STAGING/notes.md"
+cp "$NOTES_FILE" "$STAGING/notes.md"
 if ! gh api --method POST /markdown -f mode=gfm -f context="$REPO" -F text=@"$STAGING/notes.md" \
        > "$STAGING/notes-fragment.html" 2>"$STAGING/notes-error.txt" \
    || [[ ! -s "$STAGING/notes-fragment.html" ]]; then
@@ -218,7 +220,7 @@ code {
 </style>
 CSS
 cat "$STAGING/notes-fragment.html" >> "$NOTES_HTML"
-echo "==> Release notes: embedded from the $TAG release body ($(wc -c < "$NOTES_HTML" | tr -d ' ') bytes)"
+echo "==> Release notes: embedded from $NOTES_FILE ($(wc -c < "$NOTES_HTML" | tr -d ' ') bytes)"
 
 # Seed with the published feed so generate_appcast appends to the real history
 # instead of starting a fresh one-item feed. First release: no feed yet.
@@ -300,33 +302,8 @@ echo "Appcast written: $APPCAST"
 echo
 echo "Items now in the feed:"
 grep -E "<sparkle:version>|<enclosure" "$APPCAST" | sed 's/^[[:space:]]*/    /'
-echo
 
-# The one ordering rule that matters: the GitHub release must be PUBLISHED
-# before this feed goes live. The enclosure points at the release asset, and a
-# draft release's asset URL 404s for everyone but the maintainer — a live feed
-# in front of a draft release means Sparkle offers an update it cannot
-# download. release_github.sh (the preceding step) creates the release as a
-# draft, so check the state (read together with the notes above) rather than
-# assume it.
-case "$RELEASE_STATE" in
-  published)
-    echo "GitHub release $TAG: published — its asset URL is live."
-    ;;
-  draft)
-    echo "WARNING: the GitHub release $TAG is still a DRAFT."
-    echo "         Publish it BEFORE pushing $APPCAST, or Sparkle will offer an"
-    echo "         update whose download URL returns 404:"
-    echo "           gh release edit $TAG --draft=false"
-    ;;
-  *)
-    echo "ERROR: unexpected release state '$RELEASE_STATE' for $TAG." >&2
-    exit 1
-    ;;
-esac
-
-echo
-echo "Remaining step — publish the feed:"
-echo "  git add $APPCAST && git commit -m \"Appcast $SHORT_VERSION\" && git push"
-echo "Then confirm GitHub Pages is serving it:"
-echo "  curl -fsSL $FEED_URL | grep -c '<item>'"
+# Publishing is release.sh's job, and the order is the one rule that matters:
+# the GitHub release must be PUBLISHED before docs/appcast.xml reaches main. The
+# enclosure points at the release asset, which 404s until then, and a live feed
+# in front of it means Sparkle offers an update it cannot download.

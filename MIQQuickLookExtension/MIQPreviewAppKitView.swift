@@ -41,6 +41,10 @@ final class MIQPreviewAppKitView: NSView {
         // like `isFourD` flipping — the value *text* itself is pushed separately
         // and never participates in this gate.
         let showsValue: Bool
+        let updateReminder: String?
+        // Wrap width of the reminder: the sagittal image's right edge, which
+        // moves with the image layout rather than with the metrics above.
+        let updateReminderWidth: CGFloat?
     }
 
     var onSliceScrollGestureBegan: (@MainActor () -> Void)?
@@ -228,7 +232,9 @@ final class MIQPreviewAppKitView: NSView {
             fontSize: fontSize,
             inset: inset,
             isFourD: isFourD,
-            showsValue: showValueLine
+            showsValue: showValueLine,
+            updateReminder: UpdateReminderLine.text,
+            updateReminderWidth: sagittal.renderedImageRightEdge.map { $0 - inset }
         )
 
         // Skip metadata sort/rebuild unless metadata inputs or panel metrics changed.
@@ -281,7 +287,9 @@ final class MIQPreviewAppKitView: NSView {
             from: rows,
             fontSize: fontSize,
             labelColumnX: labelColumnX,
-            showsDisclaimer: !MIQConfig.hideDisclaimerInPreview
+            showsDisclaimer: !MIQConfig.hideDisclaimerInPreview,
+            updateReminder: inputs.updateReminder,
+            updateReminderWidth: inputs.updateReminderWidth
         )
         // Reflect the now-known reserved slots immediately so the scrubber / value
         // readout show on first paint (not only after the next model change).
@@ -570,7 +578,9 @@ final class MIQPreviewAppKitView: NSView {
         abs(lhs.fontSize - rhs.fontSize) <= 0.001 &&
         abs(lhs.inset - rhs.inset) <= 0.001 &&
         lhs.isFourD == rhs.isFourD &&
-        lhs.showsValue == rhs.showsValue
+        lhs.showsValue == rhs.showsValue &&
+        lhs.updateReminder == rhs.updateReminder &&
+        lhs.updateReminderWidth.map { $0.rounded() } == rhs.updateReminderWidth.map { $0.rounded() }
     }
 
     private func applyLabelFontSize(_ size: CGFloat) {
