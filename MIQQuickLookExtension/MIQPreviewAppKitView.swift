@@ -53,7 +53,7 @@ final class MIQPreviewAppKitView: NSView {
     var onVolumeSeek: (@MainActor (Int) -> Void)?
     var onSliceCursorPosition: (@MainActor (SlicePlane, MIQNormalizedPoint) -> Void)?
     var onSliceWindowAdjust: (@MainActor (CGFloat, CGFloat) -> Void)?
-    /// Invoked by the deferred-network placeholder's "Load preview" button.
+    /// Invoked by the deferred-network placeholder's "Load Preview" button.
     var onLoadAnyway: (@MainActor () -> Void)?
 
     private let coronal = MIQSliceCanvas(
@@ -74,10 +74,10 @@ final class MIQPreviewAppKitView: NSView {
     private let metadata = MetadataView()
     private let status = NSTextField(labelWithString: "")
     // Centered placeholder shown for the deferred-network state: a message plus a
-    // "Load preview" button that triggers the (throttled, cancelable) full read.
+    // "Load Preview" button that triggers the (throttled, cancelable) full read.
     private let deferredPlaceholder = NSView()
     private let deferredLabel = NSTextField(wrappingLabelWithString: "")
-    private let deferredButton = NSButton(title: "Load preview", target: nil, action: nil)
+    private let deferredButton = NSButton(title: "Load Preview", target: nil, action: nil)
     private let deferredHint = NSTextField(wrappingLabelWithString: "")
     private var columnRatioConstraint: NSLayoutConstraint?
     private var rowRatioConstraint: NSLayoutConstraint?
@@ -475,7 +475,7 @@ final class MIQPreviewAppKitView: NSView {
         // black background in both the dark space window and the light Finder pane.
         deferredButton.bezelColor = .controlAccentColor
         deferredButton.attributedTitle = NSAttributedString(
-            string: "Load preview",
+            string: "Load Preview",
             attributes: [
                 .foregroundColor: NSColor.white,
                 .font: NSFont.systemFont(ofSize: 13, weight: .medium)
@@ -490,7 +490,7 @@ final class MIQPreviewAppKitView: NSView {
         deferredHint.textColor = NSColor(calibratedWhite: 0.5, alpha: 1.0)
         deferredHint.maximumNumberOfLines = 0
         deferredHint.lineBreakMode = .byWordWrapping
-        deferredHint.stringValue = "You can turn this off in MIQ Settings ▸ Image Display."
+        deferredHint.stringValue = "You can configure this in MIQ Settings ▸ Preview."
 
         deferredPlaceholder.addSubview(deferredLabel)
         deferredPlaceholder.addSubview(deferredButton)

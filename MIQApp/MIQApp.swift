@@ -16,6 +16,10 @@ struct MIQApp: App {
     // not with the Settings window, and survives that window closing.
     @StateObject private var updater = UpdaterController()
 
+    init() {
+        MIQConfig.migrateLegacyNetworkPreviewSetting()
+    }
+
     #if DEBUG
     private static let appGroupStore = UserDefaults(suiteName: MIQConfig.appGroupID)
     @AppStorage(MIQConfig.Keys.debugShowLayoutBorders, store: Self.appGroupStore) private var debugShowLayoutBorders = false

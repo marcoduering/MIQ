@@ -34,7 +34,10 @@ public enum MIQConfig {
         public static let metadataOrder           = "metadataOrder"
         public static let segmentationColoring           = "segmentationColoring"
         public static let hideDisclaimerInPreview = "hideDisclaimerInPreview"
+        /// Legacy on/off switch for the network deferral, superseded by
+        /// `networkPreviewThresholdMB`; read only to carry an "off" forward.
         public static let deferLargeNetworkPreviews = "deferLargeNetworkPreviews"
+        public static let networkPreviewThresholdMB = "networkPreviewThresholdMB"
         public static let starBannerDismissed     = "starBannerDismissed"
         public static let showThumbnails                 = "showThumbnails"
         public static let showThumbnailsOnNetworkVolumes = "showThumbnailsOnNetworkVolumes"
@@ -69,12 +72,11 @@ public enum MIQConfig {
         public static let metadataOrder           = "format,dimensions,spacing,orientation,datatype,volumes,scaling,value"
         public static let segmentationColoring           = "auto"
         public static let hideDisclaimerInPreview = false
-        public static let deferLargeNetworkPreviews = true
         /// App-only (the Settings window's "star on GitHub" banner); the
         /// extensions never read it.
         public static let starBannerDismissed     = false
-        /// Size (MB) above which `deferLargeNetworkPreviews` defers a network
-        /// preview. Not user-configurable (no `Keys` entry / UI control).
+        /// Size (MB) above which the preview defers a non-boundable file on a
+        /// network volume behind a "Load Preview" button. 0 means never defer.
         public static let networkPreviewThresholdMB = 100.0
         public static let showThumbnails                 = false
         public static let showThumbnailsOnNetworkVolumes = false
@@ -191,25 +193,41 @@ public enum MIQConfig {
         return d.object(forKey: Keys.hideDisclaimerInPreview) as? Bool ?? Defaults.hideDisclaimerInPreview
     }
 
-    /// When `true` (default), the preview extension defers the heavy full-file
-    /// read for non-boundable kinds (`.mgz`/`.mif.gz`/`.nrrd`, and `.mgh`/`.mif`)
-    /// on a network volume when the file exceeds `networkPreviewThresholdBytes`,
-    /// showing a "load preview" placeholder instead of auto-pulling it. Prevents a
-    /// large read from stalling Finder's own I/O on a slow mount. Local disk and
-    /// canonical NIfTI (already bounded to volume 0) are unaffected. Read by the
-    /// preview extension only.
-    public static var deferLargeNetworkPreviews: Bool {
-        let d = defaults
-        return d.object(forKey: Keys.deferLargeNetworkPreviews) as? Bool ?? Defaults.deferLargeNetworkPreviews
+    /// Byte threshold above which the preview extension defers the heavy
+    /// full-file read for non-boundable kinds (`.mgz`/`.mif.gz`/`.nrrd`, and
+    /// `.mgh`/`.mif`) on a network volume, showing a "Load Preview" placeholder
+    /// instead of auto-pulling it. Prevents a large read from stalling Finder's
+    /// own I/O on a slow mount. Local disk and canonical NIfTI (already bounded
+    /// to volume 0) are unaffected. `nil` means never defer. Read by the preview
+    /// extension only.
+    public static var networkPreviewThresholdBytes: Int? {
+        let mb = networkPreviewThresholdMB
+        return mb > 0 ? Int(mb * 1024 * 1024) : nil
     }
 
-    /// Byte threshold derived from `Defaults.networkPreviewThresholdMB`.
-    public static var networkPreviewThresholdBytes: Int {
-        Int(Defaults.networkPreviewThresholdMB * 1024 * 1024)
+    /// The stored threshold in MB (0 = never defer). Until the setting is first
+    /// written, a legacy `deferLargeNetworkPreviews = false` reads as 0, so a
+    /// user who switched the old toggle off keeps never being asked.
+    public static var networkPreviewThresholdMB: Double {
+        let d = defaults
+        if let mb = d.object(forKey: Keys.networkPreviewThresholdMB) as? Double { return mb }
+        if d.object(forKey: Keys.deferLargeNetworkPreviews) as? Bool == false { return 0 }
+        return Defaults.networkPreviewThresholdMB
+    }
+
+    /// Writes the legacy toggle's value into `networkPreviewThresholdMB` once, so
+    /// the app's picker (bound to the new key) shows it. Called at app launch.
+    public static func migrateLegacyNetworkPreviewSetting() {
+        let d = defaults
+        guard d.object(forKey: Keys.deferLargeNetworkPreviews) != nil else { return }
+        if d.object(forKey: Keys.networkPreviewThresholdMB) == nil {
+            d.set(networkPreviewThresholdMB, forKey: Keys.networkPreviewThresholdMB)
+        }
+        d.removeObject(forKey: Keys.deferLargeNetworkPreviews)
     }
 
     // MARK: - Thumbnails (Finder / Quick Look thumbnail extension)
-    // Independent of the preview's image-display settings: a user can want, e.g.,
+    // Independent of the Preview pane's settings: a user can want, e.g.,
     // stored-orientation previews but radiological thumbnails. Read by the
     // thumbnail extension only.
 

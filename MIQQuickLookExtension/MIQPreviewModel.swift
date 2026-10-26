@@ -29,9 +29,9 @@ final class MIQPreviewModel {
         case ready
         case failed(String)
         /// A large file on a network volume whose full read was deferred behind a
-        /// placeholder (see `MIQConfig.deferLargeNetworkPreviews`). Carries the
+        /// placeholder (see `MIQConfig.networkPreviewThresholdBytes`). Carries the
         /// display name and on-disk size for the placeholder. `forceFullRead`
-        /// (the "Load preview" button) bypasses the gate and parses normally.
+        /// (the "Load Preview" button) bypasses the gate and parses normally.
         case deferred(name: String, sizeBytes: Int)
         /// A well-formed scalar volume with no finite voxel in volume 0.
         /// Not `.failed` — nothing went wrong, there is just nothing to render, and
@@ -174,7 +174,7 @@ final class MIQPreviewModel {
     }
 
     /// - Parameters:
-    ///   - forceFullRead: when `true` (the placeholder's "Load preview" button),
+    ///   - forceFullRead: when `true` (the placeholder's "Load Preview" button),
     ///     bypass the large-network-preview gate and parse normally. The default
     ///     cold load respects the gate.
     ///   - navigating: from `NetworkReadLane.requestStarted`, which the controller
@@ -185,10 +185,10 @@ final class MIQPreviewModel {
         onChange?()
         let fileURL = self.url
         let kind = self.fileKind
-        // The gate's on/off flag is a cheap UserDefaults read, fine on the
+        // The gate's threshold is a cheap UserDefaults read, fine on the
         // MainActor; the actual locality + size probe (which can block on a hung
-        // mount) runs inside the detached task below.
-        let applyNetworkGate = !forceFullRead && MIQConfig.deferLargeNetworkPreviews
+        // mount) runs inside the detached task below. `nil` ⇒ no gate.
+        let networkGateThreshold = forceFullRead ? nil : MIQConfig.networkPreviewThresholdBytes
         let options = RenderingOptions(
             lowerPercentile: MIQConfig.windowLowerPercentile,
             upperPercentile: MIQConfig.windowUpperPercentile,
@@ -228,7 +228,9 @@ final class MIQPreviewModel {
             let probe = try await Self.runCancelableDetached { () -> (cacheKey: String, isLocal: Bool, deferralSizeBytes: Int?) in
                 let cacheKey = MIQPreviewCache.makeKey(fileURL: fileURL, maxDimension: maxDimension, options: options)
                 let isLocal = VolumeLocation.isLocal(fileURL)
-                let deferralSizeBytes = applyNetworkGate && !isLocal ? Self.networkDeferralSizeBytes(fileURL: fileURL, kind: kind) : nil
+                let deferralSizeBytes = isLocal ? nil : networkGateThreshold.flatMap {
+                    Self.networkDeferralSizeBytes(fileURL: fileURL, kind: kind, thresholdBytes: $0)
+                }
                 return (cacheKey, isLocal, deferralSizeBytes)
             }
             try Task.checkCancellation()
@@ -848,13 +850,13 @@ final class MIQPreviewModel {
     /// On a network volume, the on-disk size (bytes) at which a non-boundable
     /// kind's cold preview should be deferred behind a placeholder rather than
     /// pulling the whole file (which would stall Finder's I/O on a slow mount).
-    /// `nil` ⇒ load normally (canonical NIfTI, or under threshold). The caller
+    /// `nil` ⇒ load normally (canonical NIfTI, or not over `thresholdBytes`). The caller
     /// has already established that the file is on a network volume. Runs inside
     /// the detached task: the size stat can block on a hung mount.
-    private nonisolated static func networkDeferralSizeBytes(fileURL: URL, kind: MIQFileKind?) -> Int? {
+    private nonisolated static func networkDeferralSizeBytes(fileURL: URL, kind: MIQFileKind?, thresholdBytes: Int) -> Int? {
         guard let kind, !kind.supportsBoundedNetworkRead else { return nil }
         guard let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-              size > MIQConfig.networkPreviewThresholdBytes else { return nil }
+              size > thresholdBytes else { return nil }
         return size
     }
 

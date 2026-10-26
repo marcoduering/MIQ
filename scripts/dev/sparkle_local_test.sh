@@ -215,7 +215,7 @@ WHAT TO CHECK AFTERWARDS:
   2. Quick Look STILL WORKS with no pluginkit/lsregister/qlmanage run by hand —
      press Space on a .nii.gz in Finder. Confirm which build answered:
        pluginkit -m -v | grep miq
-  3. Your settings survived (Settings → Image Display still shows your values).
+  3. Your settings survived (Settings → Preview still shows your values).
 
 WHEN DONE:
 

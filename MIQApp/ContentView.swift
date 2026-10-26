@@ -469,8 +469,8 @@ struct ContentView: View {
     private var showMetadataValue: Bool = MIQConfig.Defaults.showMetadataValue
     @AppStorage(MIQConfig.Keys.metadataOrder, store: Self.store)
     private var metadataOrder: StoredMetadataOrder = StoredMetadataOrder.defaultValue
-    @AppStorage(MIQConfig.Keys.deferLargeNetworkPreviews, store: Self.store)
-    private var deferLargeNetworkPreviews: Bool = MIQConfig.Defaults.deferLargeNetworkPreviews
+    @AppStorage(MIQConfig.Keys.networkPreviewThresholdMB, store: Self.store)
+    private var networkPreviewThresholdMB: Double = MIQConfig.Defaults.networkPreviewThresholdMB
     @AppStorage(MIQConfig.Keys.updateReminderInPreview, store: Self.store)
     private var updateReminderInPreview: Bool = MIQConfig.Defaults.updateReminderInPreview
     @AppStorage(MIQConfig.Keys.hideDisclaimerInPreview, store: Self.store)
@@ -880,9 +880,13 @@ struct ContentView: View {
             }
 
             Section {
-                Toggle(isOn: $deferLargeNetworkPreviews) {
-                    RowTitle(title: "Ask before loading large files on network volumes",
-                             info: "Files over \(Int(MIQConfig.Defaults.networkPreviewThresholdMB)) MB show a Load Preview button instead of loading automatically: loading a large file over a slow share can stall Finder. NIfTI files are always loaded, because MIQ reads only their first volume.")
+                Picker(selection: $networkPreviewThresholdMB) {
+                    ForEach(Self.networkPreviewThresholds, id: \.self) { mb in
+                        Text(Self.sizeLimitLabel(mb)).tag(mb)
+                    }
+                } label: {
+                    RowTitle(title: "Ask before loading network files",
+                             info: "MGH, MIF and NRRD files on network volumes over this size show a Load Preview button instead of loading automatically: loading a large file over a slow share can stall Finder. On a fast network, a higher limit saves the click. NIfTI files are always loaded, because MIQ reads only their first volume.")
                 }
             }
         }
@@ -935,7 +939,7 @@ struct ContentView: View {
                 Section {
                     Picker(selection: $thumbnailSizeLimitMB) {
                         ForEach(Self.thumbnailSizeLimits, id: \.self) { mb in
-                            Text(Self.thumbnailSizeLimitLabel(mb)).tag(mb)
+                            Text(Self.sizeLimitLabel(mb)).tag(mb)
                         }
                     } label: {
                         RowTitle(title: "Skip large (compressed) files",
@@ -1002,7 +1006,7 @@ struct ContentView: View {
                         title: "Adjust brightness & contrast",
                         systemImage: "circle.lefthalf.filled",
                         gesture: "Secondary-click + drag",
-                        note: "Up/down changes brightness (level), left/right changes contrast (window)."
+                        note: "Up/down changes brightness (level), left/right changes contrast (window). Not available in full-screen Quick Look."
                     )
                     GestureCard(
                         title: "Change volume (4D)",
@@ -1025,7 +1029,10 @@ struct ContentView: View {
     /// Choices for the thumbnail size limit, in MB; 0 means no limit.
     private static let thumbnailSizeLimits: [Double] = [100, 250, 500, 1024, 0]
 
-    private static func thumbnailSizeLimitLabel(_ mb: Double) -> String {
+    /// Choices for the network preview deferral, in MB; 0 means never ask.
+    private static let networkPreviewThresholds: [Double] = [50, 100, 250, 500, 1024, 0]
+
+    private static func sizeLimitLabel(_ mb: Double) -> String {
         switch mb {
         case 0: return "Never"
         case 1024...: return "Over \(Int(mb / 1024)) GB"
@@ -1162,7 +1169,7 @@ struct ContentView: View {
             && perVolumeIntensityWindow == MIQConfig.Defaults.perVolumeIntensityWindow
             && showAxisLabels == MIQConfig.Defaults.showAxisLabels
             && axisLabelColor.isApproximately(.defaultValue)
-            && deferLargeNetworkPreviews == MIQConfig.Defaults.deferLargeNetworkPreviews
+            && networkPreviewThresholdMB == MIQConfig.Defaults.networkPreviewThresholdMB
     }
 
     private var metadataIsDefault: Bool {
@@ -1247,7 +1254,7 @@ struct ContentView: View {
         perVolumeIntensityWindow = MIQConfig.Defaults.perVolumeIntensityWindow
         showAxisLabels    = MIQConfig.Defaults.showAxisLabels
         axisLabelColor    = StoredColor.defaultValue
-        deferLargeNetworkPreviews = MIQConfig.Defaults.deferLargeNetworkPreviews
+        networkPreviewThresholdMB = MIQConfig.Defaults.networkPreviewThresholdMB
     }
 
     private func restoreMetadataDefaults() {

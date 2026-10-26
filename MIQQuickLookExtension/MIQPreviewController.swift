@@ -40,7 +40,7 @@ final class MIQPreviewController: NSViewController, QLPreviewingController, Netw
             self?.model?.adjustWindow(deltaX: deltaX, deltaY: deltaY)
         }
         root.onLoadAnyway = { [weak self] in
-            // The "Load preview" button on the deferred-network placeholder:
+            // The "Load Preview" button on the deferred-network placeholder:
             // re-run the load with the gate bypassed so the full read proceeds.
             self?.beginLoad(forceFullRead: true)
         }
@@ -161,7 +161,7 @@ final class MIQPreviewController: NSViewController, QLPreviewingController, Netw
 
     /// Starts (or restarts) the async model load with its delayed loading
     /// indicator. Reused by the cold path and by the deferred-network
-    /// placeholder's "Load preview" button (`forceFullRead: true`).
+    /// placeholder's "Load Preview" button (`forceFullRead: true`).
     @MainActor
     private func beginLoad(forceFullRead: Bool) {
         guard let model else { return }
