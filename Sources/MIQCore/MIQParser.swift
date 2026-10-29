@@ -333,6 +333,30 @@ public struct MIQParser {
         }
     }
 
+    /// Cleans a header's free-text description into `MIQHeader.comment`: each part is
+    /// cut at its first NUL (NIfTI pads `descrip` with NULs, sometimes followed by
+    /// junk), control characters become spaces, whitespace is trimmed and empty parts
+    /// are dropped. The parts are joined with "\n"; `nil` when nothing is left.
+    static func headerComment(_ parts: [String]) -> String? {
+        let lines = parts.compactMap { part -> String? in
+            let cut = part.split(separator: "\0", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+            let cleaned = String(String.UnicodeScalarView(cut.unicodeScalars.map {
+                CharacterSet.controlCharacters.contains($0) ? " " : $0
+            }))
+            let trimmed = cleaned.trimmingCharacters(in: .whitespaces)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    /// `headerComment` for a fixed-size byte field (NIfTI `descrip`), decoded as
+    /// UTF-8 with invalid bytes replaced.
+    static func headerComment(_ data: Data, offset: Int, length: Int) -> String? {
+        let start = data.startIndex + offset
+        guard data.count >= offset + length else { return nil }
+        return headerComment([String(decoding: data[start..<start + length], as: UTF8.self)])
+    }
+
     private func parseImage(data: Data, kind: MIQFileKind) throws -> MIQImage {
         switch kind {
         case .nii, .niiGz:

@@ -17,6 +17,8 @@ extension MIQParser {
         let toRasSigns: (rx: Float, ry: Float, rz: Float)?
         // Fallback voxel spacings when spaceDirections is absent
         let spacings: [Float]?
+        /// The `content:` field.
+        let content: String?
     }
 
     // MARK: - Public entry points
@@ -201,7 +203,8 @@ extension MIQParser {
             spaceDirections: spaceDirections,
             spaceOrigin: spaceOrigin,
             toRasSigns: toRasSigns,
-            spacings: spacings
+            spacings: spacings,
+            content: fields["content"]
         )
     }
 
@@ -258,7 +261,8 @@ extension MIQParser {
             srowY: srowY,
             srowZ: srowZ,
             formatLabel: nrrd.encoding == .gzip ? "Compressed NRRD" : nil,
-            orientationFrame: orientationFrame
+            orientationFrame: orientationFrame,
+            comment: nrrd.content.flatMap { Self.headerComment([$0]) }
         )
 
         return NrrdImageDescriptor(header: header, strides: customStrides)

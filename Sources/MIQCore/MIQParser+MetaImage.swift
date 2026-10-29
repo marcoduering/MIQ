@@ -21,6 +21,8 @@ extension MIQParser {
         /// `TransformMatrix`, NDims × NDims. Axis i's direction in ITK's LPS world is
         /// the i-th run of NDims values (ITK's `MetaImageIO` reads and writes it so).
         let transform: [Float]?
+        /// The `Comment` field.
+        let comment: String?
     }
 
     // MARK: - Public entry points
@@ -166,7 +168,8 @@ extension MIQParser {
             compressedSize: compressedSize,
             spacing: spacing,
             origin: origin,
-            transform: transform
+            transform: transform,
+            comment: fields["comment"]
         )
     }
 
@@ -242,7 +245,8 @@ extension MIQParser {
             srowY: srowY,
             srowZ: srowZ,
             formatLabel: meta.compressed ? "Compressed MetaImage" : nil,
-            orientationFrame: orientationFrame
+            orientationFrame: orientationFrame,
+            comment: meta.comment.flatMap { Self.headerComment([$0]) }
         )
     }
 

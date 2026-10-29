@@ -45,6 +45,8 @@ final class MIQPreviewAppKitView: NSView {
         // Wrap width of the reminder: the sagittal image's right edge, which
         // moves with the image layout rather than with the metrics above.
         let updateReminderWidth: CGFloat?
+        // Width of the text the panel wraps at; long comments are cut to fit it.
+        let textWidth: CGFloat
     }
 
     var onSliceScrollGestureBegan: (@MainActor () -> Void)?
@@ -234,7 +236,10 @@ final class MIQPreviewAppKitView: NSView {
             isFourD: isFourD,
             showsValue: showValueLine,
             updateReminder: UpdateReminderLine.text,
-            updateReminderWidth: sagittal.renderedImageRightEdge.map { $0 - inset }
+            updateReminderWidth: sagittal.renderedImageRightEdge.map { $0 - inset },
+            // Before the first layout pass the panel has no width yet; its grid
+            // cell is half the view, less the gap.
+            textWidth: (metadata.bounds.width > 0 ? metadata.bounds.width : panelWidth) - 2 * inset
         )
 
         // Skip metadata sort/rebuild unless metadata inputs or panel metrics changed.
@@ -287,6 +292,7 @@ final class MIQPreviewAppKitView: NSView {
             from: rows,
             fontSize: fontSize,
             labelColumnX: labelColumnX,
+            valueColumnWidth: inputs.textWidth - labelColumnX,
             showsDisclaimer: !MIQConfig.hideDisclaimerInPreview,
             updateReminder: inputs.updateReminder,
             updateReminderWidth: inputs.updateReminderWidth
@@ -580,7 +586,8 @@ final class MIQPreviewAppKitView: NSView {
         lhs.isFourD == rhs.isFourD &&
         lhs.showsValue == rhs.showsValue &&
         lhs.updateReminder == rhs.updateReminder &&
-        lhs.updateReminderWidth.map { $0.rounded() } == rhs.updateReminderWidth.map { $0.rounded() }
+        lhs.updateReminderWidth.map { $0.rounded() } == rhs.updateReminderWidth.map { $0.rounded() } &&
+        lhs.textWidth.rounded() == rhs.textWidth.rounded()
     }
 
     private func applyLabelFontSize(_ size: CGFloat) {

@@ -31,6 +31,9 @@ enum MetadataPanelText {
     struct Row {
         let label: String
         let value: String
+        /// Most wrapped lines the value may take; `nil` for no limit. Only the
+        /// comment has one (`MIQMetadata.maxCommentLines`).
+        var maxLines: Int? = nil
     }
 
     struct Layout {
@@ -99,7 +102,11 @@ enum MetadataPanelText {
                 // so a Debug build would misrepresent Release geometry.
                 rows.append(Row(label: "", value: entry.text))
             } else {
-                rows.append(Row(label: entry.label, value: entry.value))
+                rows.append(Row(
+                    label: entry.label,
+                    value: entry.value,
+                    maxLines: entry.field == .comment ? MIQMetadata.maxCommentLines : nil
+                ))
             }
         }
         return Layout(rows: rows, volumesLineIndex: volumesLineIndex, valueLineIndex: valueLineIndex)
@@ -126,10 +133,41 @@ enum MetadataPanelText {
         return widest + font.pointSize * labelGutterFactor
     }
 
+    /// Cuts `value` after `maxLines` lines as wrapped at `width`, ending it with a
+    /// "…" line, so a long comment can't fill the panel. U+2028 breaks count as line
+    /// breaks, as they do in the panel's text.
+    static func fitValue(_ value: String, font: NSFont, width: CGFloat, maxLines: Int) -> String {
+        guard width > 0, maxLines > 0 else { return value }
+        let storage = NSTextStorage(string: value, attributes: [.font: font])
+        let layoutManager = NSLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        layoutManager.addTextContainer(container)
+        storage.addLayoutManager(layoutManager)
+
+        var lines = 0
+        var cutAt: Int?
+        layoutManager.enumerateLineFragments(forGlyphRange: layoutManager.glyphRange(for: container)) { _, _, _, glyphRange, stop in
+            lines += 1
+            if lines == maxLines {
+                cutAt = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil).upperBound
+            } else if lines > maxLines {
+                stop.pointee = true
+            }
+        }
+        guard lines > maxLines, let cutAt else { return value }
+        let kept = (value as NSString).substring(to: cutAt)
+            .trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\u{2028}")))
+        return kept + "\u{2028}\u{2026}"
+    }
+
+    /// - Parameter valueColumnWidth: width the value column wraps at, used to
+    ///   enforce `Row.maxLines`; `nil` leaves every value whole (Settings' sample).
     static func attributedString(
         from rows: [Row],
         fontSize: CGFloat,
         labelColumnX: CGFloat,
+        valueColumnWidth: CGFloat? = nil,
         showsDisclaimer: Bool,
         updateReminder: String? = nil,
         updateReminderWidth: CGFloat? = nil
@@ -162,8 +200,12 @@ enum MetadataPanelText {
             if !row.label.isEmpty {
                 result.append(NSAttributedString(string: row.label + "\t", attributes: labelAttrs))
             }
-            if !row.value.isEmpty {
-                result.append(NSAttributedString(string: row.value, attributes: valueAttrs))
+            var value = row.value
+            if let maxLines = row.maxLines, let valueColumnWidth {
+                value = fitValue(value, font: font, width: valueColumnWidth, maxLines: maxLines)
+            }
+            if !value.isEmpty {
+                result.append(NSAttributedString(string: value, attributes: valueAttrs))
             }
 
             if index < rows.count - 1 {

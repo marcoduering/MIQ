@@ -31,6 +31,7 @@ public enum MIQConfig {
         public static let showMetadataVolumes     = "showMetadataVolumes"
         public static let showMetadataScaling     = "showMetadataScaling"
         public static let showMetadataValue       = "showMetadataValue"
+        public static let showMetadataComment     = "showMetadataComment"
         public static let metadataOrder           = "metadataOrder"
         public static let segmentationColoring           = "segmentationColoring"
         public static let hideDisclaimerInPreview = "hideDisclaimerInPreview"
@@ -69,7 +70,8 @@ public enum MIQConfig {
         public static let showMetadataVolumes     = true
         public static let showMetadataScaling     = true
         public static let showMetadataValue       = true
-        public static let metadataOrder           = "format,dimensions,spacing,orientation,datatype,volumes,scaling,value"
+        public static let showMetadataComment     = false
+        public static let metadataOrder           = "format,dimensions,spacing,orientation,datatype,volumes,scaling,value,comment"
         public static let segmentationColoring           = "auto"
         public static let hideDisclaimerInPreview = false
         /// App-only (the Settings window's "star on GitHub" banner); the
@@ -315,6 +317,7 @@ public enum MIQConfig {
             case .volumes:     return (Keys.showMetadataVolumes,     Defaults.showMetadataVolumes)
             case .scaling:     return (Keys.showMetadataScaling,     Defaults.showMetadataScaling)
             case .value:       return (Keys.showMetadataValue,       Defaults.showMetadataValue)
+            case .comment:     return (Keys.showMetadataComment,     Defaults.showMetadataComment)
             }
         }()
         return d.object(forKey: key) as? Bool ?? fallback

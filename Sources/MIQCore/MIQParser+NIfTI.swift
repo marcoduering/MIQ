@@ -82,7 +82,8 @@ extension MIQParser {
             srowX: srowX,
             srowY: srowY,
             srowZ: srowZ,
-            orientationFrame: orientationFrame
+            orientationFrame: orientationFrame,
+            comment: Self.headerComment(data, offset: 148, length: 80)
         )
     }
 
@@ -132,7 +133,8 @@ extension MIQParser {
             srowY: srowY,
             srowZ: srowZ,
             formatLabel: compressed ? "Compressed NIfTI-2" : "NIfTI-2",
-            orientationFrame: orientationFrame
+            orientationFrame: orientationFrame,
+            comment: Self.headerComment(data, offset: 240, length: 80)
         )
     }
 

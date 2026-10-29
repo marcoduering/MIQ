@@ -24,6 +24,8 @@ extension MIQParser {
         /// The voxel→scanner affine's three rows, when the (optional) `transform:` field
         /// is present and well-formed. `nil` means an identity affine, per the MIF spec.
         let transform: [[Float]]?
+        /// Every `comments:` line, in file order (the key may repeat).
+        let comments: [String]
     }
 
     func parseMif(_ data: Data) throws -> MIQImage {
@@ -127,7 +129,8 @@ extension MIQParser {
             dataOffset: dataOffset,
             scale: scale,
             offset: offset,
-            transform: transform
+            transform: transform,
+            comments: keyValues["comments"] ?? []
         )
     }
 
@@ -199,7 +202,8 @@ extension MIQParser {
             srowY: [],
             srowZ: [],
             datatypeLabel: header.bitPacked ? "bit" : nil,
-            orientationFrame: storageFrame
+            orientationFrame: storageFrame,
+            comment: Self.headerComment(header.comments)
         )
 
         return MifImageDescriptor(

@@ -574,12 +574,9 @@ struct MIQCoreTests {
     func parseMetadataOrderAppendsMissingFieldsForOlderSettings() {
         let parsed = MIQConfig.parseMetadataOrder("format,dimensions,spacing,orientation,datatype,volumes")
 
-        // Older stored orders predate the Scaling and Value fields; both are
+        // Older stored orders predate the Scaling, Value and Comment fields; all are
         // appended in canonical order so the result always covers every case.
-        #expect(parsed.contains(.scaling))
-        #expect(parsed.contains(.value))
-        #expect(Array(parsed.suffix(2)) == [.scaling, .value])
-        #expect(parsed.last == .value)
+        #expect(Array(parsed.suffix(3)) == [.scaling, .value, .comment])
     }
 
     @Test

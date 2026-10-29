@@ -90,6 +90,7 @@ private func metadataLabel(_ field: MetadataField) -> String {
     case .volumes:     return "Volumes"
     case .scaling:     return "Scaling"
     case .value:       return "Voxel value"
+    case .comment:     return "Comment"
     }
 }
 
@@ -99,6 +100,8 @@ private func metadataHelpText(_ field: MetadataField) -> String? {
         return "Shows the intensity scaling from the file header as x slope +/- intercept, or just x slope when the intercept is zero. Hidden when the scaling is identity (x 1 + 0, meaning voxel values are used as stored) or unavailable."
     case .value:
         return "Shows the image intensity at the crosshair voxel, updating live as you move the crosshair. Appears only while interacting (when the crosshair is visible), not on the initial preview."
+    case .comment:
+        return "Shows the free-text comment from the file header (not available for FreeSurfer files). Off by default: usually empty or a tool stamp, but it can reveal patient data such as a name or birth date. Shortened to three lines."
     default:
         return nil
     }
@@ -467,6 +470,8 @@ struct ContentView: View {
     private var showMetadataScaling: Bool = MIQConfig.Defaults.showMetadataScaling
     @AppStorage(MIQConfig.Keys.showMetadataValue, store: Self.store)
     private var showMetadataValue: Bool = MIQConfig.Defaults.showMetadataValue
+    @AppStorage(MIQConfig.Keys.showMetadataComment, store: Self.store)
+    private var showMetadataComment: Bool = MIQConfig.Defaults.showMetadataComment
     @AppStorage(MIQConfig.Keys.metadataOrder, store: Self.store)
     private var metadataOrder: StoredMetadataOrder = StoredMetadataOrder.defaultValue
     @AppStorage(MIQConfig.Keys.networkPreviewThresholdMB, store: Self.store)
@@ -1230,6 +1235,7 @@ struct ContentView: View {
         case .volumes:     return $showMetadataVolumes
         case .scaling:     return $showMetadataScaling
         case .value:       return $showMetadataValue
+        case .comment:     return $showMetadataComment
         }
     }
 
@@ -1243,6 +1249,7 @@ struct ContentView: View {
         case .volumes:     return MIQConfig.Defaults.showMetadataVolumes
         case .scaling:     return MIQConfig.Defaults.showMetadataScaling
         case .value:       return MIQConfig.Defaults.showMetadataValue
+        case .comment:     return MIQConfig.Defaults.showMetadataComment
         }
     }
 
@@ -1266,6 +1273,7 @@ struct ContentView: View {
         showMetadataVolumes     = MIQConfig.Defaults.showMetadataVolumes
         showMetadataScaling     = MIQConfig.Defaults.showMetadataScaling
         showMetadataValue       = MIQConfig.Defaults.showMetadataValue
+        showMetadataComment     = MIQConfig.Defaults.showMetadataComment
         metadataOrder           = StoredMetadataOrder.defaultValue
     }
 

@@ -28,6 +28,12 @@ public struct MIQHeader: Sendable {
     /// is genuinely unknown (no usable sform, qform, MIF layout, or MGH direction cosines).
     /// Consumed by `OrientationResolver` as the single source of truth for display labels and slice planning.
     public let orientationFrame: OrientationFrame?
+    /// Free-text description from the header (NIfTI `descrip`, MIF `comments:`, NRRD
+    /// `content:`, MetaImage `Comment`), already cleaned by `MIQParser.headerComment`;
+    /// lines are separated by "\n". `nil` when the format has none or it is empty.
+    /// Can name a patient (MRtrix copies DICOM patient fields into `comments:`), so
+    /// never log it publicly.
+    public let comment: String?
 
     public var width: Int { dimensions[safe: 0] ?? 1 }
     public var height: Int { dimensions[safe: 1] ?? 1 }
@@ -49,7 +55,8 @@ public struct MIQHeader: Sendable {
         srowZ: [Float],
         formatLabel: String? = nil,
         datatypeLabel: String? = nil,
-        orientationFrame: OrientationFrame? = nil
+        orientationFrame: OrientationFrame? = nil,
+        comment: String? = nil
     ) {
         self.littleEndian = littleEndian
         self.dimensions = dimensions
@@ -66,6 +73,7 @@ public struct MIQHeader: Sendable {
         self.formatLabel = formatLabel
         self.datatypeLabel = datatypeLabel
         self.orientationFrame = orientationFrame
+        self.comment = comment
     }
 }
 
