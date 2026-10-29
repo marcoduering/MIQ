@@ -194,7 +194,7 @@ public enum MIQConfig {
     }
 
     /// Byte threshold above which the preview extension defers the heavy
-    /// full-file read for non-boundable kinds (`.mgz`/`.mif.gz`/`.nrrd`, and
+    /// full-file read for non-boundable kinds (`.mgz`/`.mif.gz`/`.nrrd`/`.mha`, and
     /// `.mgh`/`.mif`) on a network volume, showing a "Load Preview" placeholder
     /// instead of auto-pulling it. Prevents a large read from stalling Finder's
     /// own I/O on a slow mount. Local disk and canonical NIfTI (already bounded

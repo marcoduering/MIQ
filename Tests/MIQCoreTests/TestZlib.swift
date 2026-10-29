@@ -3,6 +3,15 @@ import zlib
 
 enum TestZlib {
     static func gzip(_ data: Data) throws -> Data {
+        try compress(data, windowBits: 16 + MAX_WBITS)
+    }
+
+    /// zlib-wrapped (RFC 1950), as MetaImage's `CompressedData = True` writes it.
+    static func zlib(_ data: Data) throws -> Data {
+        try compress(data, windowBits: MAX_WBITS)
+    }
+
+    private static func compress(_ data: Data, windowBits: Int32) throws -> Data {
         guard !data.isEmpty else {
             return Data()
         }
@@ -12,7 +21,7 @@ enum TestZlib {
             &stream,
             Z_BEST_SPEED,
             Z_DEFLATED,
-            16 + MAX_WBITS,
+            windowBits,
             MAX_MEM_LEVEL,
             Z_DEFAULT_STRATEGY,
             ZLIB_VERSION,

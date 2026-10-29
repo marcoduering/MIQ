@@ -701,7 +701,7 @@ struct ContentView: View {
                         Text("Select an image in Finder and press Space.")
                             .padding(.top, 6)
                         HStack(spacing: 5) {
-                            ForEach(["NIfTI", "FreeSurfer MGH", "MRtrix MIF", "NRRD"], id: \.self) { format in
+                            ForEach(["NIfTI", "FreeSurfer MGH", "MRtrix MIF", "NRRD", "MetaImage"], id: \.self) { format in
                                 Text(format)
                                     .font(.callout)
                                     .padding(.horizontal, 7)
@@ -710,7 +710,7 @@ struct ContentView: View {
                             }
                         }
                         .accessibilityElement(children: .combine)
-                        .accessibilityLabel("Supported formats: NIfTI, FreeSurfer MGH, MRtrix MIF, NRRD")
+                        .accessibilityLabel("Supported formats: NIfTI, FreeSurfer MGH, MRtrix MIF, NRRD, MetaImage")
                     }
                 }
                 .padding(.vertical, 10)
@@ -886,7 +886,7 @@ struct ContentView: View {
                     }
                 } label: {
                     RowTitle(title: "Ask before loading network files",
-                             info: "MGH, MIF and NRRD files on network volumes over this size show a Load Preview button instead of loading automatically: loading a large file over a slow share can stall Finder. On a fast network, a higher limit saves the click. NIfTI files are always loaded, because MIQ reads only their first volume.")
+                             info: "MGH, MIF, NRRD and MetaImage files on network volumes over this size show a Load Preview button instead of loading automatically: loading a large file over a slow share can stall Finder. On a fast network, a higher limit saves the click. NIfTI files are always loaded, because MIQ reads only their first volume.")
                 }
             }
         }
@@ -943,7 +943,7 @@ struct ContentView: View {
                         }
                     } label: {
                         RowTitle(title: "Skip large (compressed) files",
-                                 info: "Compressed MGH, MIF and NRRD files over this size keep Finder's standard icon: drawing their thumbnail means decompressing or reading the whole file, which takes seconds per file. Large compressed NIfTI files are not affected, because MIQ reads only their first volume. On network volumes, large uncompressed MGH and MIF files are skipped too.")
+                                 info: "Compressed MGH, MIF, NRRD and MetaImage files over this size keep Finder's standard icon: drawing their thumbnail means decompressing or reading the whole file, which takes seconds per file. Large compressed NIfTI files are not affected, because MIQ reads only their first volume. On network volumes, large uncompressed MGH and MIF files are skipped too.")
                     }
                     Toggle(isOn: $showThumbnailsOnNetworkVolumes) {
                         RowTitle(title: "Include network volumes",

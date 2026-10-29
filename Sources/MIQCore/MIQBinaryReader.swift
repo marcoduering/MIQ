@@ -258,12 +258,6 @@ enum MIQBinaryReader {
             throw MIQError.decompressionFailed
         }
 
-        var stream = z_stream()
-        guard inflateInit2_(&stream, 16 + MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else {
-            throw MIQError.decompressionFailed
-        }
-        defer { inflateEnd(&stream) }
-
         let isize = data.withUnsafeBytes { bytes -> UInt32 in
             bytes.loadUnaligned(fromByteOffset: data.count - 4, as: UInt32.self)
         }.littleEndian
@@ -271,10 +265,57 @@ enum MIQBinaryReader {
         // ISIZE only seeds the allocation (it wraps at 4 GiB — see
         // `initialInflateCapacity`). `maxOutputBytes` is the caller's contract and
         // the sole hard ceiling on what this produces.
-        var capacity = Swift.min(
-            initialInflateCapacity(compressedCount: data.count, isize: isize),
-            maxOutputBytes
+        return try inflatePrefix(
+            data,
+            windowBits: 16 + MAX_WBITS,
+            initialCapacity: initialInflateCapacity(compressedCount: data.count, isize: isize),
+            maxOutputBytes: maxOutputBytes,
+            maxInputWindow: maxInputWindow,
+            onInputProgress: onInputProgress
         )
+    }
+
+    /// Inflates a zlib-wrapped (RFC 1950) stream, the encoding MetaImage writes
+    /// for `CompressedData = True`, stopping once `maxOutputBytes` are produced.
+    /// A gzip stream is accepted too (zlib's header auto-detection), since some
+    /// writers emit one. Unlike gzip, zlib has no size trailer: the caller passes
+    /// the payload size its header declares as the cap, and the ratio bound keeps
+    /// a crafted header from sizing the first allocation off the compressed size.
+    static func inflateZlib(
+        _ data: Foundation.Data,
+        maxOutputBytes: Int,
+        maxInputWindow: Int = Int(UInt32.max)
+    ) throws -> Foundation.Data {
+        guard data.count >= 2, maxOutputBytes >= 1, maxInputWindow >= 1 else {
+            throw MIQError.decompressionFailed
+        }
+        return try inflatePrefix(
+            data,
+            windowBits: 32 + MAX_WBITS,
+            initialCapacity: initialInflateCapacity(compressedCount: data.count, isize: UInt32.max),
+            maxOutputBytes: maxOutputBytes,
+            maxInputWindow: maxInputWindow,
+            onInputProgress: nil
+        )
+    }
+
+    /// The capped inflate loop behind `gunzip(_:maxOutputBytes:)` and
+    /// `inflateZlib`; `windowBits` selects the container.
+    private static func inflatePrefix(
+        _ data: Foundation.Data,
+        windowBits: Int32,
+        initialCapacity: Int,
+        maxOutputBytes: Int,
+        maxInputWindow: Int,
+        onInputProgress: ((Int) -> Void)?
+    ) throws -> Foundation.Data {
+        var stream = z_stream()
+        guard inflateInit2_(&stream, windowBits, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else {
+            throw MIQError.decompressionFailed
+        }
+        defer { inflateEnd(&stream) }
+
+        var capacity = Swift.min(initialCapacity, maxOutputBytes)
         var output = Data(count: capacity)
         var produced = 0
         var status: Int32 = Z_OK

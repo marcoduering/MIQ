@@ -40,14 +40,14 @@ final class MIQThumbnailProvider: QLThumbnailProvider {
         }
 
         // A large file whose centre slice needs a full read/decompression would
-        // cost one full gunzip per icon. Only a large local NRRD pays the header
-        // probe: its extension doesn't say whether the payload is gzip.
+        // cost one full gunzip per icon. Only a large local NRRD/MetaImage pays the
+        // header probe: its extension doesn't say whether the payload is compressed.
         let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
         let threshold = MIQConfig.thumbnailSizeLimitBytes
-        let nrrdHasRawPayload = kind == .nrrd && isLocal && (fileSize ?? 0) > threshold
-            && MIQParser.nrrdHasRawPayload(at: url)
+        let hasRawPayload = kind.headerDecidesCompression && isLocal && (fileSize ?? 0) > threshold
+            && MIQParser.hasRawPayload(at: url, kind: kind)
         if kind.declinesThumbnail(fileSizeBytes: fileSize, isLocal: isLocal, thresholdBytes: threshold,
-                                  nrrdHasRawPayload: nrrdHasRawPayload) {
+                                  hasRawPayload: hasRawPayload) {
             logger.notice("declining thumbnail for large \(kind.displayName, privacy: .public) file (\((fileSize ?? 0) / 1_048_576, privacy: .public) MB): \(url.lastPathComponent, privacy: .private(mask: .hash))")
             handler(nil, nil)
             return

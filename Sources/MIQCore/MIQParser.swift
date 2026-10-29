@@ -35,6 +35,17 @@ public struct MIQParser {
         return image
     }
 
+    /// Whether the file stores its payload raw, for the thumbnail size gate. For
+    /// the kinds whose header decides (`MIQFileKind.headerDecidesCompression`)
+    /// this reads only the header; for every other kind the extension says.
+    public static func hasRawPayload(at url: URL, kind: MIQFileKind) -> Bool {
+        switch kind {
+        case .nrrd: return nrrdHasRawPayload(at: url)
+        case .mha: return metaImageHasRawPayload(at: url)
+        default: return !kind.isCompressed
+        }
+    }
+
     // MARK: - Internal
 
     /// Generous prefix that comfortably contains any NIfTI fixed header (≤ 540 B)
@@ -54,7 +65,7 @@ public struct MIQParser {
         }
 
         // `statfs` locality probe (cheap, one syscall). Now probed for every kind,
-        // not just NIfTI: non-boundable kinds (`.mgz`/`.mif.gz`/`.nrrd`) can't read
+        // not just NIfTI: non-boundable kinds (`.mgz`/`.mif.gz`/`.nrrd`/`.mha`) can't read
         // a volume-0 prefix, so on a network volume they fall back to a full read —
         // which must be cancelable (see below), and that needs the locality answer.
         let isLocal = VolumeLocation.isLocal(url)
@@ -332,6 +343,8 @@ public struct MIQParser {
             return try parseMif(data)
         case .nrrd:
             return try parseNrrd(data)
+        case .mha:
+            return try parseMetaImage(data)
         }
     }
 }

@@ -30,6 +30,7 @@ Supported formats:
 - :white_check_mark: **FreeSurfer** — `.mgh`, `.mgz`, `.mgh.gz`
 - :white_check_mark: **MRtrix** — `.mif`, `.mif.gz`
 - :white_check_mark: **NRRD** — `.nrrd` *(only single-file variant with attached header)*
+- :white_check_mark: **ITK MetaImage** — `.mha` *(only single-file variant; not `.mhd` + `.raw`)*
 
 All formats are supported uncompressed and gzip-compressed.
 

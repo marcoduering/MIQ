@@ -9,6 +9,7 @@ public enum OrientationSource: String, Sendable, Hashable {
     case mifLayout
     case mghDirectionCosines
     case nrrdSpaceDirections
+    case metaImageTransform
 }
 
 /// Authoritative per-storage-axis anatomical mapping for a volume. When non-nil,

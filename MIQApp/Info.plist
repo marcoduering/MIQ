@@ -188,6 +188,23 @@
 				</array>
 			</dict>
 		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>ITK MetaImage</string>
+			<key>UTTypeIdentifier</key>
+			<string>org.itk.metaimage</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mha</string>
+				</array>
+			</dict>
+		</dict>
 	</array>
 </dict>
 </plist>
