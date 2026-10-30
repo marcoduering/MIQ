@@ -251,7 +251,8 @@ extension MIQParser {
         // then leads with it.
         let indexAxes = FileIndexAxes(
             fileAxis: spatialAxes + [volumeAxis ?? 3],
-            reversed: [false, false, false, false]
+            reversed: [false, false, false, false],
+            rank: nrrd.sizes.count
         )
 
         let header = MIQHeader(
@@ -270,7 +271,7 @@ extension MIQParser {
             formatLabel: nrrd.encoding == .gzip ? "Compressed NRRD" : nil,
             orientationFrame: orientationFrame,
             comment: nrrd.content.flatMap { Self.headerComment([$0]) },
-            fileIndexAxes: indexAxes.isIdentity ? nil : indexAxes
+            fileIndexAxes: indexAxes
         )
 
         return NrrdImageDescriptor(header: header, strides: customStrides)

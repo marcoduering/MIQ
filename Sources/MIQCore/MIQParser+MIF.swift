@@ -192,7 +192,8 @@ extension MIQParser {
         // MIQ walks storage rank order forwards (strides above), so map back.
         let indexAxes = FileIndexAxes(
             fileAxis: spatialAxes + [3],
-            reversed: (spatialAxes + [3]).map { header.layout[safe: $0]?.reversed ?? false }
+            reversed: (spatialAxes + [3]).map { header.layout[safe: $0]?.reversed ?? false },
+            rank: header.dim.count
         )
 
         let miqHeader = MIQHeader(
@@ -211,7 +212,7 @@ extension MIQParser {
             datatypeLabel: header.bitPacked ? "bit" : nil,
             orientationFrame: storageFrame,
             comment: Self.headerComment(header.comments),
-            fileIndexAxes: indexAxes.isIdentity ? nil : indexAxes
+            fileIndexAxes: indexAxes
         )
 
         return MifImageDescriptor(

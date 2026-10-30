@@ -161,19 +161,40 @@ extension MIQParser {
     /// sform when present and non-degenerate; otherwise fall back to qform; otherwise
     /// `nil`. Sform wins when both are valid because the spec treats sform as the
     /// "newer" / preferred transform. Also returns the qform's orientation code when
-    /// both are valid and their axes disagree (e.g. sform RAS, qform LAS): tools that
-    /// prefer the qform then show the image flipped. Only axis codes are compared, so
-    /// rounding differences between the two transforms never count.
+    /// both are valid and disagree (e.g. sform RAS, qform LAS): tools that prefer the
+    /// qform then show the image in another orientation. The codes alone can't decide
+    /// that — an axis near 45° between two world axes (an oblique scan) can tip
+    /// either way on rounding — so a conflict also needs some storage axis to point
+    /// more than 45° away from where the other transform puts it.
     private func niftiOrientationFrame(sform: SformFields, qform: QformFields) -> (OrientationFrame?, String?) {
-        let qformFrame = qform.code > 0
-            ? OrientationFrame.fromQuaternion(b: qform.quaternB, c: qform.quaternC, d: qform.quaternD, qfac: qform.qfac)
+        let qformRows = qform.code > 0
+            ? OrientationFrame.quaternionRows(b: qform.quaternB, c: qform.quaternC, d: qform.quaternD, qfac: qform.qfac)
             : nil
+        let qformFrame = qformRows.flatMap {
+            OrientationFrame.from(srowX: $0[0], srowY: $0[1], srowZ: $0[2], source: .qform)
+        }
         if sform.code > 0,
            let frame = OrientationFrame.from(srowX: sform.rowX, srowY: sform.rowY, srowZ: sform.rowZ, source: .sform) {
-            let conflict = qformFrame.map(\.code).flatMap { $0 != frame.code ? $0 : nil }
-            return (frame, conflict)
+            guard let qformFrame, let qformRows, qformFrame.code != frame.code,
+                  Self.someAxisDiverges([sform.rowX, sform.rowY, sform.rowZ], qformRows) else {
+                return (frame, nil)
+            }
+            return (frame, qformFrame.code)
         }
         return (qformFrame, nil)
+    }
+
+    /// Whether some storage axis (a column of the 3×3 part) differs by more than 45°
+    /// between two sform-style row sets. Scale-invariant, so voxel size doesn't count.
+    private static func someAxisDiverges(_ a: [[Float]], _ b: [[Float]]) -> Bool {
+        let cos45 = Float(0.5).squareRoot()
+        return (0..<3).contains { col in
+            let u = a.map { $0[safe: col] ?? 0 }
+            let v = b.map { $0[safe: col] ?? 0 }
+            let dot = zip(u, v).reduce(0) { $0 + $1.0 * $1.1 }
+            let norms = (u.reduce(0) { $0 + $1 * $1 } * v.reduce(0) { $0 + $1 * $1 }).squareRoot()
+            return norms > 0 && dot < cos45 * norms
+        }
     }
 
     private func readAndValidateDatatype(data: Data, at datatypeOffset: Int, bitpixAt bitpixOffset: Int, littleEndian: Bool) throws -> MIQDatatype {

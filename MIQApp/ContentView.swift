@@ -97,6 +97,8 @@ private func metadataLabel(_ field: MetadataField) -> String {
 
 private func metadataHelpText(_ field: MetadataField) -> String? {
     switch field {
+    case .orientation:
+        return "Shows which anatomical direction each stored axis points to, e.g. RAS: right, anterior, superior. When a NIfTI file's sform and qform disagree, the qform's code follows, e.g. LAS (qform: RAS). MIQ uses the sform, but apps that read the qform show the image in that other orientation."
     case .scaling:
         return "Shows the intensity scaling from the file header as x slope +/- intercept, or just x slope when the intercept is zero. Hidden when the scaling is identity (x 1 + 0, meaning voxel values are used as stored) or unavailable."
     case .value:
