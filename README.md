@@ -105,7 +105,7 @@ By default, MIQ displays data **as stored on disk**, without reorienting. Images
 
 ## Privacy
 
-Everything runs locally on your Mac, and MIQ collects no telemetry. The only network access is the main app's update check (and the download, if you install an update); the Quick Look and thumbnail extensions have no network access at all. File names and paths are redacted in the system log. See the [privacy policy](https://miq.marco-duering.net/privacy.html) for details.
+Everything runs locally on your Mac, and MIQ collects no telemetry. The only network access is the main app's update check (and the download, if you install an update); the Quick Look and thumbnail extensions have no network access at all. File names and paths are redacted in the system log. MIQ itself writes no copies of your images; but if you turn on Finder thumbnails (off by default), macOS stores them in its thumbnail cache, where they can remain after a file is moved or deleted until macOS prunes the cache or you clear it: use **Clear thumbnail cache** in MIQ's Thumbnails settings, or run `qlmanage -r cache && killall com.apple.quicklook.ThumbnailsAgent Finder` in Terminal. See the [privacy policy](https://miq.marco-duering.net/privacy.html) for details.
 
 ## Troubleshooting
 

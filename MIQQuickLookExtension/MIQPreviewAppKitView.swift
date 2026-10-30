@@ -496,7 +496,7 @@ final class MIQPreviewAppKitView: NSView {
         deferredHint.textColor = NSColor(calibratedWhite: 0.5, alpha: 1.0)
         deferredHint.maximumNumberOfLines = 0
         deferredHint.lineBreakMode = .byWordWrapping
-        deferredHint.stringValue = "You can configure this in MIQ Settings ▸ Preview."
+        deferredHint.stringValue = "To change this, open the MIQ app: Preview › Ask before loading network files."
 
         deferredPlaceholder.addSubview(deferredLabel)
         deferredPlaceholder.addSubview(deferredButton)

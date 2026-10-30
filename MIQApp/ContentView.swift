@@ -503,7 +503,7 @@ struct ContentView: View {
     @State private var showFullDisclaimer = false
     @State private var draggedMetadataField: MetadataField?
     @State private var selectedTab: SettingsTab = .general
-    @State private var didCopyRefreshCommand = false
+    @State private var didCopyCacheCommand = false
     @State private var inputDevice: InputDevice = .mouse
     @State private var sampleMetadata: SampleRenderer.SampleMetadata?
     /// Supplied by `MIQApp`. Sparkle owns the check → download → install →
@@ -914,7 +914,21 @@ struct ContentView: View {
     private var thumbnailsPane: some View {
         Group {
             Section {
-                Toggle("Show slice thumbnails in Finder", isOn: $showThumbnails)
+                Toggle(isOn: $showThumbnails) {
+                    RowTitle(title: "Show slice thumbnails in Finder",
+                             info: "Finder stores thumbnails in a macOS cache on this Mac, separate from your files. They can remain after a file is moved or deleted, or after thumbnails are turned off, until macOS prunes the cache or you clear it (Clear thumbnail cache, below).")
+                }
+                HStack {
+                    RowTitle(title: "Clear thumbnail cache",
+                             info: "Finder keeps thumbnails in a macOS cache on this Mac. Run this command in Terminal to remove the stored copies, for all apps' thumbnails, not just MIQ's. Finder then redraws them with your current settings, or shows standard icons while thumbnails are off.")
+                    Spacer()
+                    Button {
+                        copyThumbnailCacheCommand()
+                    } label: {
+                        Label(didCopyCacheCommand ? "Copied – Paste in Terminal" : "Copy Terminal Command",
+                              systemImage: didCopyCacheCommand ? "checkmark" : "doc.on.doc")
+                    }
+                }
             } header: {
                 Self.sideColumnAlignmentSpacer
             }
@@ -924,7 +938,8 @@ struct ContentView: View {
                     orientationPicker(selection: $thumbnailImageOrientation)
                     segmentationPicker(selection: $thumbnailSegmentationColoring)
                     PercentileRangeControl(lower: $thumbnailLowerPercentile, upper: $thumbnailUpperPercentile) {
-                        Text("Intensity window")
+                        RowTitle(title: "Intensity window",
+                                 info: "The grey range, as percentiles of the non-zero voxels in the slice the thumbnail shows (default \(Int(MIQConfig.Defaults.thumbnailWindowLowerPercentile))–\(Int(MIQConfig.Defaults.thumbnailWindowUpperPercentile))%).")
                     }
                 } header: {
                     HStack {
@@ -952,18 +967,7 @@ struct ContentView: View {
                     }
                     Toggle(isOn: $showThumbnailsOnNetworkVolumes) {
                         RowTitle(title: "Include network volumes",
-                                 info: "Off by default: generating thumbnails reads each file over the network, which is slow on remote shares.")
-                    }
-                    HStack {
-                        RowTitle(title: "Refresh existing thumbnails",
-                                 info: "Finder caches thumbnails. New files pick up changes automatically; existing ones refresh when the file changes, or right away with this Terminal command.\n\nIf they still look stale, also run:\nrm -rf \"$(getconf DARWIN_USER_CACHE_DIR)com.apple.iconservices.store\" && killall Dock Finder\n\nTo stop generating thumbnails, disable the extension in System Settings › General › Login Items & Extensions.")
-                        Spacer()
-                        Button {
-                            copyThumbnailRefreshCommand()
-                        } label: {
-                            Label(didCopyRefreshCommand ? "Copied" : "Copy Command",
-                                  systemImage: didCopyRefreshCommand ? "checkmark" : "doc.on.doc")
-                        }
+                                 info: "Off by default: generating thumbnails reads each file over the network, which is slow on remote shares. The thumbnails of remote files are cached on this Mac too.")
                     }
                 }
             } else {
@@ -1210,18 +1214,19 @@ struct ContentView: View {
         metadataOrder = StoredMetadataOrder(fields)
     }
 
-    /// Terminal command that drops Quick Look's thumbnail cache and restarts the
-    /// agents so already-cached thumbnails regenerate with the current settings.
-    private static let thumbnailRefreshCommand =
+    /// Terminal command that deletes Quick Look's thumbnail disk cache and restarts
+    /// the agents, so Finder drops the copies it holds in memory too. The same
+    /// command is named in the README and docs/privacy.html.
+    private static let thumbnailCacheCommand =
         "qlmanage -r cache && killall com.apple.quicklook.ThumbnailsAgent Finder"
 
-    private func copyThumbnailRefreshCommand() {
+    private func copyThumbnailCacheCommand() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(Self.thumbnailRefreshCommand, forType: .string)
-        didCopyRefreshCommand = true
+        NSPasteboard.general.setString(Self.thumbnailCacheCommand, forType: .string)
+        didCopyCacheCommand = true
         Task {
-            try? await Task.sleep(for: .seconds(2))
-            didCopyRefreshCommand = false
+            try? await Task.sleep(for: .seconds(3))
+            didCopyCacheCommand = false
         }
     }
 
