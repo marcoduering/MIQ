@@ -14,6 +14,9 @@ public enum MetadataField: String, Sendable, CaseIterable {
     /// value updates per cursor move. It therefore never appears in
     /// `asDisplayLines()`; the preview reserves its slot and draws the value.
     case value
+    /// Live index of the crosshair voxel in the file's own axis order, counted from
+    /// 0 (`MIQHeader.fileVoxelIndex`). Injected and drawn by the preview like `.value`.
+    case voxelIndex
     /// The header's free-text description (`MIQHeader.comment`). Off by default:
     /// usually empty or a tool stamp, but useful for spotting files that carry
     /// patient data (MRtrix copies DICOM patient fields into MIF comments).

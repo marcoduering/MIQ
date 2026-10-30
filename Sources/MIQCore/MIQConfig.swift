@@ -31,6 +31,7 @@ public enum MIQConfig {
         public static let showMetadataVolumes     = "showMetadataVolumes"
         public static let showMetadataScaling     = "showMetadataScaling"
         public static let showMetadataValue       = "showMetadataValue"
+        public static let showMetadataVoxelIndex  = "showMetadataVoxelIndex"
         public static let showMetadataComment     = "showMetadataComment"
         public static let metadataOrder           = "metadataOrder"
         public static let segmentationColoring           = "segmentationColoring"
@@ -70,8 +71,9 @@ public enum MIQConfig {
         public static let showMetadataVolumes     = true
         public static let showMetadataScaling     = true
         public static let showMetadataValue       = true
+        public static let showMetadataVoxelIndex  = true
         public static let showMetadataComment     = false
-        public static let metadataOrder           = "format,dimensions,spacing,orientation,datatype,volumes,scaling,value,comment"
+        public static let metadataOrder           = "format,dimensions,spacing,orientation,datatype,volumes,scaling,value,voxelIndex,comment"
         public static let segmentationColoring           = "auto"
         public static let hideDisclaimerInPreview = false
         /// App-only (the Settings window's "star on GitHub" banner); the
@@ -179,8 +181,14 @@ public enum MIQConfig {
             ordered.append(field)
             seen.insert(field)
         }
+        // A field missing from an older stored order joins right after its
+        // predecessor in the canonical order, so it lands next to the row it
+        // belongs with (Voxel index under Voxel value) rather than at the end.
         for field in MetadataField.allCases where !seen.contains(field) {
-            ordered.append(field)
+            let predecessor = MetadataField.allCases.prefix { $0 != field }.last
+            let position = predecessor.flatMap { ordered.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
+            ordered.insert(field, at: position)
+            seen.insert(field)
         }
         return ordered
     }
@@ -317,6 +325,7 @@ public enum MIQConfig {
             case .volumes:     return (Keys.showMetadataVolumes,     Defaults.showMetadataVolumes)
             case .scaling:     return (Keys.showMetadataScaling,     Defaults.showMetadataScaling)
             case .value:       return (Keys.showMetadataValue,       Defaults.showMetadataValue)
+            case .voxelIndex:  return (Keys.showMetadataVoxelIndex,  Defaults.showMetadataVoxelIndex)
             case .comment:     return (Keys.showMetadataComment,     Defaults.showMetadataComment)
             }
         }()

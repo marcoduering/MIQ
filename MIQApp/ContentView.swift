@@ -90,6 +90,7 @@ private func metadataLabel(_ field: MetadataField) -> String {
     case .volumes:     return "Volumes"
     case .scaling:     return "Scaling"
     case .value:       return "Voxel value"
+    case .voxelIndex:  return "Voxel index"
     case .comment:     return "Comment"
     }
 }
@@ -100,6 +101,8 @@ private func metadataHelpText(_ field: MetadataField) -> String? {
         return "Shows the intensity scaling from the file header as x slope +/- intercept, or just x slope when the intercept is zero. Hidden when the scaling is identity (x 1 + 0, meaning voxel values are used as stored) or unavailable."
     case .value:
         return "Shows the image intensity at the crosshair voxel, updating live as you move the crosshair. Appears only while interacting (when the crosshair is visible), not on the initial preview."
+    case .voxelIndex:
+        return "Shows the crosshair voxel's index in the file, counted from 0 in the file's axis order. It doesn't change with the view orientation. For 4D files it includes the volume, which the Volumes line counts from 1."
     case .comment:
         return "Shows the free-text comment from the file header (not available for FreeSurfer files). Off by default: usually empty or a tool stamp, but it can reveal patient data such as a name or birth date. Shortened to three lines."
     default:
@@ -470,6 +473,8 @@ struct ContentView: View {
     private var showMetadataScaling: Bool = MIQConfig.Defaults.showMetadataScaling
     @AppStorage(MIQConfig.Keys.showMetadataValue, store: Self.store)
     private var showMetadataValue: Bool = MIQConfig.Defaults.showMetadataValue
+    @AppStorage(MIQConfig.Keys.showMetadataVoxelIndex, store: Self.store)
+    private var showMetadataVoxelIndex: Bool = MIQConfig.Defaults.showMetadataVoxelIndex
     @AppStorage(MIQConfig.Keys.showMetadataComment, store: Self.store)
     private var showMetadataComment: Bool = MIQConfig.Defaults.showMetadataComment
     @AppStorage(MIQConfig.Keys.metadataOrder, store: Self.store)
@@ -1135,7 +1140,9 @@ struct ContentView: View {
                 isVisible: { visibilityBinding(for: $0).wrappedValue },
                 isFourD: false,
                 showsValue: false,
-                staticValueText: sampleMetadata.centreValue
+                showsVoxelIndex: false,
+                staticValueText: sampleMetadata.centreValue,
+                staticVoxelIndexText: sampleMetadata.centreIndex
             )
             let labelColumnX = MetadataPanelText.labelColumnOrigin(
                 for: layout.rows.map(\.label),
@@ -1240,6 +1247,7 @@ struct ContentView: View {
         case .volumes:     return $showMetadataVolumes
         case .scaling:     return $showMetadataScaling
         case .value:       return $showMetadataValue
+        case .voxelIndex:  return $showMetadataVoxelIndex
         case .comment:     return $showMetadataComment
         }
     }
@@ -1254,6 +1262,7 @@ struct ContentView: View {
         case .volumes:     return MIQConfig.Defaults.showMetadataVolumes
         case .scaling:     return MIQConfig.Defaults.showMetadataScaling
         case .value:       return MIQConfig.Defaults.showMetadataValue
+        case .voxelIndex:  return MIQConfig.Defaults.showMetadataVoxelIndex
         case .comment:     return MIQConfig.Defaults.showMetadataComment
         }
     }
@@ -1278,6 +1287,7 @@ struct ContentView: View {
         showMetadataVolumes     = MIQConfig.Defaults.showMetadataVolumes
         showMetadataScaling     = MIQConfig.Defaults.showMetadataScaling
         showMetadataValue       = MIQConfig.Defaults.showMetadataValue
+        showMetadataVoxelIndex  = MIQConfig.Defaults.showMetadataVoxelIndex
         showMetadataComment     = MIQConfig.Defaults.showMetadataComment
         metadataOrder           = StoredMetadataOrder.defaultValue
     }

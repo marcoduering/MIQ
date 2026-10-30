@@ -574,9 +574,16 @@ struct MIQCoreTests {
     func parseMetadataOrderAppendsMissingFieldsForOlderSettings() {
         let parsed = MIQConfig.parseMetadataOrder("format,dimensions,spacing,orientation,datatype,volumes")
 
-        // Older stored orders predate the Scaling, Value and Comment fields; all are
-        // appended in canonical order so the result always covers every case.
-        #expect(Array(parsed.suffix(3)) == [.scaling, .value, .comment])
+        // Older stored orders predate the later fields; each joins after its
+        // canonical predecessor, so the result always covers every case.
+        #expect(Array(parsed.suffix(4)) == [.scaling, .value, .voxelIndex, .comment])
+    }
+
+    @Test
+    func parseMetadataOrderPutsNewFieldNextToItsPredecessor() {
+        // A user-arranged order from before Voxel index: it lands under Voxel value.
+        let parsed = MIQConfig.parseMetadataOrder("value,format,dimensions,spacing,orientation,datatype,volumes,scaling,comment")
+        #expect(Array(parsed.prefix(3)) == [.value, .voxelIndex, .format])
     }
 
     @Test

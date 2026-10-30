@@ -247,6 +247,13 @@ extension MIQParser {
             ? OrientationFrame.from(srowX: srowX, srowY: srowY, srowZ: srowZ, source: .nrrdSpaceDirections)
             : nil
 
+        // A non-spatial axis may come first (e.g. a DWI list axis); the file's index
+        // then leads with it.
+        let indexAxes = FileIndexAxes(
+            fileAxis: spatialAxes + [volumeAxis ?? 3],
+            reversed: [false, false, false, false]
+        )
+
         let header = MIQHeader(
             littleEndian: nrrd.littleEndian,
             dimensions: [sx, sy, sz, nVols],
@@ -262,7 +269,8 @@ extension MIQParser {
             srowZ: srowZ,
             formatLabel: nrrd.encoding == .gzip ? "Compressed NRRD" : nil,
             orientationFrame: orientationFrame,
-            comment: nrrd.content.flatMap { Self.headerComment([$0]) }
+            comment: nrrd.content.flatMap { Self.headerComment([$0]) },
+            fileIndexAxes: indexAxes.isIdentity ? nil : indexAxes
         )
 
         return NrrdImageDescriptor(header: header, strides: customStrides)

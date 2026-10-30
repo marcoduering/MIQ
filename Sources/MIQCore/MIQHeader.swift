@@ -34,6 +34,9 @@ public struct MIQHeader: Sendable {
     /// Can name a patient (MRtrix copies DICOM patient fields into `comments:`), so
     /// never log it publicly.
     public let comment: String?
+    /// How MIQ's x, y, z, t axes map to the file's own axes, for the voxel-index
+    /// readout. `nil` when they already are the file's axes 0–3 in order.
+    public let fileIndexAxes: FileIndexAxes?
 
     public var width: Int { dimensions[safe: 0] ?? 1 }
     public var height: Int { dimensions[safe: 1] ?? 1 }
@@ -56,7 +59,8 @@ public struct MIQHeader: Sendable {
         formatLabel: String? = nil,
         datatypeLabel: String? = nil,
         orientationFrame: OrientationFrame? = nil,
-        comment: String? = nil
+        comment: String? = nil,
+        fileIndexAxes: FileIndexAxes? = nil
     ) {
         self.littleEndian = littleEndian
         self.dimensions = dimensions
@@ -74,6 +78,43 @@ public struct MIQHeader: Sendable {
         self.datatypeLabel = datatypeLabel
         self.orientationFrame = orientationFrame
         self.comment = comment
+        self.fileIndexAxes = fileIndexAxes
+    }
+
+    /// The voxel at MIQ's (x, y, z, t) as the file indexes it, counted from 0:
+    /// three values for a 3D image, four for 4D, in the file's axis order. This is
+    /// what the file's own tools report (mrview, nibabel, ITK), independent of the
+    /// view orientation.
+    public func fileVoxelIndex(x: Int, y: Int, z: Int, t: Int) -> [Int] {
+        let cursor = [x, y, z, t]
+        let count = volumes > 1 ? 4 : 3
+        guard let axes = fileIndexAxes else { return Array(cursor.prefix(count)) }
+        var index = [Int](repeating: 0, count: count)
+        for axis in 0..<count {
+            let value = cursor[axis]
+            index[axes.fileAxis[axis]] = axes.reversed[axis] ? (dimensions[axis] - 1 - value) : value
+        }
+        return index
+    }
+}
+
+/// MIQ's x, y, z, t axes in the file's terms. MIF stores its spatial axes in
+/// layout order and MIQ reads reversed ones forwards; NRRD may put its volume axis
+/// first. Both formats address voxels along the file's own axes.
+public struct FileIndexAxes: Sendable, Equatable {
+    /// The file axis each of MIQ's x, y, z, t is.
+    public let fileAxis: [Int]
+    /// Whether MIQ walks that axis against the file's index direction.
+    public let reversed: [Bool]
+
+    public init(fileAxis: [Int], reversed: [Bool]) {
+        self.fileAxis = fileAxis
+        self.reversed = reversed
+    }
+
+    /// MIQ's axes already are the file's, in order and direction.
+    public var isIdentity: Bool {
+        fileAxis == [0, 1, 2, 3] && !reversed.contains(true)
     }
 }
 

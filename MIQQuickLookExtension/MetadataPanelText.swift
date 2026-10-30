@@ -24,6 +24,7 @@ enum MetadataPanelText {
     /// measured when sizing the label column.
     static let volumesRowLabel = "Volumes"
     static let valueRowLabel = "Voxel value"
+    static let voxelIndexRowLabel = "Voxel index"
 
     /// One drawn line: label + value, empty for an overlay-drawn row (Volumes,
     /// voxel value), value-only for a row that spans the panel (the debug build
@@ -42,6 +43,8 @@ enum MetadataPanelText {
         let volumesLineIndex: Int?
         /// Line reserved blank for the live voxel-value readout, if any.
         let valueLineIndex: Int?
+        /// Line reserved blank for the live voxel-index readout, if any.
+        let voxelIndexLineIndex: Int?
     }
 
     /// Orders and filters `entries` into drawn rows.
@@ -50,16 +53,20 @@ enum MetadataPanelText {
     ///   - showsValue: whether the live voxel-value line occupies a slot (the
     ///     crosshair is visible and the field enabled); the slot is reserved
     ///     blank for the overlay.
+    ///   - showsVoxelIndex: the same for the live voxel-index line.
     ///   - staticValueText: instead of a reserved slot, draw the voxel-value row
     ///     as ordinary text with this value (Settings' sample). The preview never
     ///     sets it.
+    ///   - staticVoxelIndexText: the same for the voxel-index row.
     static func layout(
         entries: [MetadataEntry],
         order: [MetadataField],
         isVisible: (MetadataField) -> Bool,
         isFourD: Bool,
         showsValue: Bool,
-        staticValueText: String? = nil
+        showsVoxelIndex: Bool,
+        staticValueText: String? = nil,
+        staticVoxelIndexText: String? = nil
     ) -> Layout {
         let orderIndex: [MetadataField: Int] = Dictionary(
             uniqueKeysWithValues: order.enumerated().map { ($1, $0) }
@@ -74,6 +81,11 @@ enum MetadataPanelText {
         } else if showsValue {
             entries.append(MetadataEntry(field: .value, label: "", value: ""))
         }
+        if let staticVoxelIndexText {
+            entries.append(MetadataEntry(field: .voxelIndex, label: voxelIndexRowLabel, value: staticVoxelIndexText))
+        } else if showsVoxelIndex {
+            entries.append(MetadataEntry(field: .voxelIndex, label: "", value: ""))
+        }
         let sorted = entries.sorted { a, b in
             let ai = a.field.flatMap { orderIndex[$0] } ?? Int.max
             let bi = b.field.flatMap { orderIndex[$0] } ?? Int.max
@@ -87,6 +99,7 @@ enum MetadataPanelText {
         var rows: [Row] = []
         var volumesLineIndex: Int?
         var valueLineIndex: Int?
+        var voxelIndexLineIndex: Int?
         for entry in sorted {
             if let field = entry.field, !isVisible(field) { continue }
             if isFourD, entry.field == .volumes {
@@ -94,6 +107,9 @@ enum MetadataPanelText {
                 rows.append(Row(label: "", value: ""))
             } else if entry.field == .value, staticValueText == nil {
                 valueLineIndex = rows.count
+                rows.append(Row(label: "", value: ""))
+            } else if entry.field == .voxelIndex, staticVoxelIndexText == nil {
+                voxelIndexLineIndex = rows.count
                 rows.append(Row(label: "", value: ""))
             } else if entry.field == nil {
                 // Not a configurable field (only the debug build stamp): span the
@@ -109,7 +125,12 @@ enum MetadataPanelText {
                 ))
             }
         }
-        return Layout(rows: rows, volumesLineIndex: volumesLineIndex, valueLineIndex: valueLineIndex)
+        return Layout(
+            rows: rows,
+            volumesLineIndex: volumesLineIndex,
+            valueLineIndex: valueLineIndex,
+            voxelIndexLineIndex: voxelIndexLineIndex
+        )
     }
 
     /// The voxel-value readout's text: integers without a decimal point, other
@@ -121,6 +142,11 @@ enum MetadataPanelText {
             return String(Int(value))
         }
         return String(format: "%.6g", Double(value))
+    }
+
+    /// The voxel-index readout's text, e.g. "[128, 97, 88, 12]".
+    static func formatVoxelIndex(_ index: [Int]) -> String {
+        "[" + index.map(String.init).joined(separator: ", ") + "]"
     }
 
     /// Value-column x: widest label plus a gutter. Empty labels are skipped.

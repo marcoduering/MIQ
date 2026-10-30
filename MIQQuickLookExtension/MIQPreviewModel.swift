@@ -552,6 +552,19 @@ final class MIQPreviewModel {
         return MetadataPanelText.formatVoxelValue(value)
     }
 
+    /// Whether the live voxel-index line occupies a slot: like `showsVoxelValue`,
+    /// but for every datatype (an RGB voxel still has an index).
+    var showsVoxelIndex: Bool {
+        hasInteracted && interactiveState != nil
+    }
+
+    /// The crosshair voxel's index in the file's own axis order (`fileVoxelIndex`).
+    var crosshairVoxelIndexText: String? {
+        guard showsVoxelIndex, let interactiveState, let cursor = currentCursor else { return nil }
+        let index = interactiveState.volume.image.header.fileVoxelIndex(x: cursor.x, y: cursor.y, z: cursor.z, t: cursor.t)
+        return MetadataPanelText.formatVoxelIndex(index)
+    }
+
     /// Whole numbers (integer datatypes, identity-scaled data) render as plain
     /// integers; anything fractional (float data, or scl-scaled integers) uses a
     /// compact significant-digit form. Datatype-agnostic on purpose: the scaled

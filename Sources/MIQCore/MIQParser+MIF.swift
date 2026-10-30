@@ -188,6 +188,13 @@ extension MIQParser {
             MIFAxisLayout.storageFrame(imageFrame: $0, spatialAxes: spatialAxes, layout: header.layout)
         }
 
+        // MRtrix indexes voxels along the image axes from the reversed axes' far end;
+        // MIQ walks storage rank order forwards (strides above), so map back.
+        let indexAxes = FileIndexAxes(
+            fileAxis: spatialAxes + [3],
+            reversed: (spatialAxes + [3]).map { header.layout[safe: $0]?.reversed ?? false }
+        )
+
         let miqHeader = MIQHeader(
             littleEndian: header.littleEndian,
             dimensions: [dim0, dim1, dim2, volumes],
@@ -203,7 +210,8 @@ extension MIQParser {
             srowZ: [],
             datatypeLabel: header.bitPacked ? "bit" : nil,
             orientationFrame: storageFrame,
-            comment: Self.headerComment(header.comments)
+            comment: Self.headerComment(header.comments),
+            fileIndexAxes: indexAxes.isIdentity ? nil : indexAxes
         )
 
         return MifImageDescriptor(

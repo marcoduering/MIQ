@@ -71,6 +71,7 @@ enum SampleRenderer {
     struct SampleMetadata: Sendable {
         let entries: [MetadataEntry]
         let centreValue: String
+        let centreIndex: String
     }
 
     static func metadata(_ sample: SettingsSample) async -> SampleMetadata? {
@@ -81,8 +82,14 @@ enum SampleRenderer {
             // Same fallback chain as MIQPreviewModel's Format row.
             let format = header.formatLabel ?? sample.url.flatMap(MIQFileKind.init(url:))?.displayName ?? "Unknown"
             entries.insert(MetadataEntry(field: .format, label: "Format", value: format), at: 0)
-            let value = volume.voxel(x: volume.width / 2, y: volume.height / 2, z: volume.depth / 2)
-            return SampleMetadata(entries: entries, centreValue: MetadataPanelText.formatVoxelValue(value))
+            let (x, y, z) = (volume.width / 2, volume.height / 2, volume.depth / 2)
+            let value = volume.voxel(x: x, y: y, z: z)
+            let index = header.fileVoxelIndex(x: x, y: y, z: z, t: 0)
+            return SampleMetadata(
+                entries: entries,
+                centreValue: MetadataPanelText.formatVoxelValue(value),
+                centreIndex: MetadataPanelText.formatVoxelIndex(index)
+            )
         }.value
     }
 

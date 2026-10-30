@@ -41,6 +41,7 @@ final class MIQPreviewAppKitView: NSView {
         // like `isFourD` flipping — the value *text* itself is pushed separately
         // and never participates in this gate.
         let showsValue: Bool
+        let showsVoxelIndex: Bool
         let updateReminder: String?
         // Wrap width of the reminder: the sagittal image's right edge, which
         // moves with the image layout rather than with the metrics above.
@@ -95,6 +96,8 @@ final class MIQPreviewAppKitView: NSView {
     // without touching the throttled metadata rebuild.
     private var showsVoxelValue = false
     private var voxelValueText: String?
+    private var showsVoxelIndex = false
+    private var voxelIndexText: String?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -183,6 +186,13 @@ final class MIQPreviewAppKitView: NSView {
         }
         voxelValueText = model.crosshairVoxelText
         metadata.setVoxelValue(voxelValueText)
+        if model.showsVoxelIndex != showsVoxelIndex {
+            showsVoxelIndex = model.showsVoxelIndex
+            lastMetadataRenderInputs = nil
+            needsLayout = true
+        }
+        voxelIndexText = model.crosshairVoxelIndexText
+        metadata.setVoxelIndex(voxelIndexText)
 
         switch model.state {
         case .deferred(let name, let sizeBytes):
@@ -226,6 +236,7 @@ final class MIQPreviewAppKitView: NSView {
         // by the overlay; it participates in ordering only while the crosshair is
         // visible and the field is enabled.
         let showValueLine = showsVoxelValue && MIQConfig.showMetadataField(.value)
+        let showIndexLine = showsVoxelIndex && MIQConfig.showMetadataField(.voxelIndex)
         let inputs = MetadataRenderInputs(
             entries: metadataEntries,
             order: order,
@@ -235,6 +246,7 @@ final class MIQPreviewAppKitView: NSView {
             inset: inset,
             isFourD: isFourD,
             showsValue: showValueLine,
+            showsVoxelIndex: showIndexLine,
             updateReminder: UpdateReminderLine.text,
             updateReminderWidth: sagittal.renderedImageRightEdge.map { $0 - inset },
             // Before the first layout pass the panel has no width yet; its grid
@@ -262,11 +274,13 @@ final class MIQPreviewAppKitView: NSView {
             order: order,
             isVisible: MIQConfig.showMetadataField,
             isFourD: isFourD,
-            showsValue: showValueLine
+            showsValue: showValueLine,
+            showsVoxelIndex: showIndexLine
         )
         let rows = layout.rows
         let volumesLineIndex = layout.volumesLineIndex
         let valueLineIndex = layout.valueLineIndex
+        let voxelIndexLineIndex = layout.voxelIndexLineIndex
 
         let rowFont = NSFont.systemFont(ofSize: fontSize, weight: .regular)
         // Overlay-drawn labels are blank in `rows`, so measure them explicitly.
@@ -275,6 +289,7 @@ final class MIQPreviewAppKitView: NSView {
         var columnLabels = rows.map(\.label)
         if volumesLineIndex != nil { columnLabels.append(MetadataPanelText.volumesRowLabel) }
         if MIQConfig.showMetadataField(.value) { columnLabels.append(MetadataPanelText.valueRowLabel) }
+        if MIQConfig.showMetadataField(.voxelIndex) { columnLabels.append(MetadataPanelText.voxelIndexRowLabel) }
         let labelColumnX = MetadataPanelText.labelColumnOrigin(for: columnLabels, font: rowFont)
 
         if abs(metadata.inset - inset) > 0.001 {
@@ -282,8 +297,9 @@ final class MIQPreviewAppKitView: NSView {
         }
         metadata.volumesLineIndex = volumesLineIndex
         metadata.valueLineIndex = valueLineIndex
+        metadata.voxelIndexLineIndex = voxelIndexLineIndex
         metadata.totalLineCount = rows.count
-        metadata.lineFont = (volumesLineIndex == nil && valueLineIndex == nil) ? nil : rowFont
+        metadata.lineFont = (volumesLineIndex == nil && valueLineIndex == nil && voxelIndexLineIndex == nil) ? nil : rowFont
         metadata.labelColumnX = labelColumnX
         // The metadata panel shares the sagittal panel's x-range, so the
         // sagittal image's right edge is usable verbatim as the scrubber limit.
@@ -306,6 +322,7 @@ final class MIQPreviewAppKitView: NSView {
             overlayColor: metadataOverlayColor
         )
         metadata.setVoxelValue(voxelValueText)
+        metadata.setVoxelIndex(voxelIndexText)
     }
 
     private func buildUI() {
@@ -585,6 +602,7 @@ final class MIQPreviewAppKitView: NSView {
         abs(lhs.inset - rhs.inset) <= 0.001 &&
         lhs.isFourD == rhs.isFourD &&
         lhs.showsValue == rhs.showsValue &&
+        lhs.showsVoxelIndex == rhs.showsVoxelIndex &&
         lhs.updateReminder == rhs.updateReminder &&
         lhs.updateReminderWidth.map { $0.rounded() } == rhs.updateReminderWidth.map { $0.rounded() } &&
         lhs.textWidth.rounded() == rhs.textWidth.rounded()
@@ -694,6 +712,8 @@ private final class MetadataView: NSView {
     /// `volumesLineIndex`; both can be set at once (a 4D file with the value field
     /// enabled), which is why `reservedLineFragmentRect` is index-aware.
     var valueLineIndex: Int? { didSet { needsLayout = true } }
+    /// Same for the live voxel-index readout.
+    var voxelIndexLineIndex: Int? { didSet { needsLayout = true } }
     /// Total number of drawn metadata lines (excluding the disclaimer). Lets
     /// `reservedLineFragmentRect` tell whether a given reserved index is the
     /// trailing line — the only one TextKit may represent as the *extra* line
@@ -717,7 +737,8 @@ private final class MetadataView: NSView {
     private var orphanScrollMonitor: Any?
 
     private let scrubber = MIQVolumeScrubber()
-    private let valueReadout = MIQValueReadout()
+    private let valueReadout = MIQValueReadout(rowLabel: MetadataPanelText.valueRowLabel)
+    private let indexReadout = MIQValueReadout(rowLabel: MetadataPanelText.voxelIndexRowLabel)
 
     override var isFlipped: Bool { true }
 
@@ -764,6 +785,8 @@ private final class MetadataView: NSView {
         valueReadout.isHidden = true
         addSubview(scrubber)
         addSubview(valueReadout)
+        indexReadout.isHidden = true
+        addSubview(indexReadout)
     }
 
     required init?(coder: NSCoder) {
@@ -773,6 +796,8 @@ private final class MetadataView: NSView {
         valueReadout.isHidden = true
         addSubview(scrubber)
         addSubview(valueReadout)
+        indexReadout.isHidden = true
+        addSubview(indexReadout)
     }
 
     private func configureTextKit() {
@@ -856,24 +881,34 @@ private final class MetadataView: NSView {
         valueReadout.isHidden = valueLineIndex == nil
     }
 
+    /// Same for the live voxel-index readout.
+    func setVoxelIndex(_ text: String?) {
+        indexReadout.setText(text)
+        indexReadout.isHidden = voxelIndexLineIndex == nil
+    }
+
     override func layout() {
         super.layout()
         guard textStorage.length > 0 else {
             scrubber.isHidden = true
             valueReadout.isHidden = true
+            indexReadout.isHidden = true
             return
         }
         syncContainer()
         if let font = lineFont {
             scrubber.font = font
             valueReadout.font = font
+            indexReadout.font = font
         }
         scrubber.labelColumnX = labelColumnX
         valueReadout.labelColumnX = labelColumnX
+        indexReadout.labelColumnX = labelColumnX
         // Visibility is owned by setVolumeState / setVoxelValue; here we only place
         // the overlays on their reserved line fragments.
         positionReservedOverlay(scrubber, lineIndex: volumesLineIndex, rightLimit: scrubberRightLimit)
         positionReservedOverlay(valueReadout, lineIndex: valueLineIndex, rightLimit: nil)
+        positionReservedOverlay(indexReadout, lineIndex: voxelIndexLineIndex, rightLimit: nil)
     }
 
     private func positionReservedOverlay(_ overlay: NSView, lineIndex: Int?, rightLimit: CGFloat?) {
@@ -924,13 +959,21 @@ private final class MetadataView: NSView {
 /// `setText`, change-gated so a static crosshair never repaints.
 private final class MIQValueReadout: NSView {
     /// Also measured by the metadata builder when it sizes the value column.
-    static let rowLabel = MetadataPanelText.valueRowLabel
+    private let rowLabel: String
 
     var font: NSFont = .systemFont(ofSize: 13, weight: .regular) { didSet { needsDisplay = true } }
     var labelColumnX: CGFloat = 0 {
         didSet { if abs(labelColumnX - oldValue) > 0.001 { needsDisplay = true } }
     }
     private var text: String?
+
+    init(rowLabel: String) {
+        self.rowLabel = rowLabel
+        super.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     private static let labelColor = NSColor(calibratedWhite: 0.68, alpha: 1.0)
     private static let valueColor = NSColor(calibratedWhite: 0.95, alpha: 1.0)
@@ -951,7 +994,7 @@ private final class MIQValueReadout: NSView {
         // Draw at y = 0 (the frame top): the frame top is already the sibling
         // line's fragment top, and NSString.draw(at:) shares the default line
         // metrics of NSAttributedString.draw(in:), so the baseline matches.
-        (Self.rowLabel as NSString).draw(at: .zero, withAttributes: labelAttrs)
+        (rowLabel as NSString).draw(at: .zero, withAttributes: labelAttrs)
         let value = (text ?? "—") as NSString
         value.draw(at: CGPoint(x: labelColumnX, y: 0), withAttributes: valueAttrs)
     }
