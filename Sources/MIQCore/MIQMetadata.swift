@@ -67,7 +67,11 @@ public struct MIQMetadata: Sendable {
         volumes = header.volumes
         sclSlope = header.sclSlope
         sclInter = header.sclInter
-        self.orientation = orientation
+        // A NIfTI whose qform disagrees with the sform it is shown by: name the
+        // qform's code too, since qform-preferring tools show the image flipped.
+        self.orientation = orientation.map { label in
+            header.conflictingQformOrientation.map { "\(label) (qform: \($0))" } ?? label
+        }
         comment = header.comment.map(Self.displayComment)
     }
 

@@ -28,6 +28,9 @@ public struct MIQHeader: Sendable {
     /// is genuinely unknown (no usable sform, qform, MIF layout, or MGH direction cosines).
     /// Consumed by `OrientationResolver` as the single source of truth for display labels and slice planning.
     public let orientationFrame: OrientationFrame?
+    /// NIfTI only: the qform's orientation code when both sform and qform are valid
+    /// and imply different axes (sform drives `orientationFrame`). `nil` otherwise.
+    public let conflictingQformOrientation: String?
     /// Free-text description from the header (NIfTI `descrip`, MIF `comments:`, NRRD
     /// `content:`, MetaImage `Comment`), already cleaned by `MIQParser.headerComment`;
     /// lines are separated by "\n". `nil` when the format has none or it is empty.
@@ -59,6 +62,7 @@ public struct MIQHeader: Sendable {
         formatLabel: String? = nil,
         datatypeLabel: String? = nil,
         orientationFrame: OrientationFrame? = nil,
+        conflictingQformOrientation: String? = nil,
         comment: String? = nil,
         fileIndexAxes: FileIndexAxes? = nil
     ) {
@@ -77,6 +81,7 @@ public struct MIQHeader: Sendable {
         self.formatLabel = formatLabel
         self.datatypeLabel = datatypeLabel
         self.orientationFrame = orientationFrame
+        self.conflictingQformOrientation = conflictingQformOrientation
         self.comment = comment
         self.fileIndexAxes = fileIndexAxes
     }

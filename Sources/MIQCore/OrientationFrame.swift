@@ -29,6 +29,9 @@ public struct OrientationFrame: Sendable, Hashable {
         self.source = source
     }
 
+    /// Three-letter code, e.g. "RAS".
+    public var code: String { axes.map(\.letter).joined() }
+
     /// Build a frame from three sform-style row vectors (one per world axis: x, y, z).
     /// Each storage axis's anatomical role is determined by the dominant component
     /// of its column across the three rows. Returns nil when any column is
