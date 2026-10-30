@@ -16,6 +16,8 @@ extension MIQParser {
         let littleEndian: Bool
         let compressed: Bool
         let compressedSize: Int?
+        /// `HeaderSize`: where the payload starts, if not right after the header.
+        let headerSize: Int?
         let spacing: [Float]?
         let origin: [Float]?
         /// `TransformMatrix`, NDims × NDims. Axis i's direction in ITK's LPS world is
@@ -28,11 +30,13 @@ extension MIQParser {
     // MARK: - Public entry points
 
     func parseMetaImage(_ data: Data) throws -> MIQImage {
-        let (fields, payloadIndex) = try splitMetaImageHeader(data: data)
+        let (fields, headerEnd) = try splitMetaImageHeader(data: data)
         let meta = try buildMetaImageParsedHeader(fields: fields)
 
         let payloadBytes = meta.sizes.reduce(1, *) * meta.channels * meta.elementType.bytesPerVoxel
         guard payloadBytes > 0 else { throw MIQError.invalidDimensions }
+        let payloadIndex = try metaImagePayloadIndex(data: data, headerEnd: headerEnd, meta: meta,
+                                                     payloadBytes: payloadBytes)
 
         let storage: Data
         let payloadOffset: Int
@@ -49,7 +53,8 @@ extension MIQParser {
         }
         // Subtraction form: `payloadOffset + payloadBytes` traps when the validated dims
         // product lands on `Int.max`. The offset is 0 for the compressed branch and the
-        // header-split index (`<= count`) for raw, so the left side cannot go negative.
+        // payload index (`<= count`, `metaImagePayloadIndex`) for raw, so the left side
+        // cannot go negative.
         guard storage.count - payloadOffset >= payloadBytes else { throw MIQError.truncatedData }
 
         return MIQImage(
@@ -58,6 +63,30 @@ extension MIQParser {
             payloadOffset: payloadOffset,
             payloadElementStrides: metaImageStrides(meta: meta)
         )
+    }
+
+    /// Where the payload starts, following MetaIO's `M_ReadElements`: a positive
+    /// `HeaderSize` is an absolute offset (compressed data too — the zlib stream
+    /// starts there), `-1` means the raw payload ends the file, so padding may sit
+    /// between header and payload. MetaIO acts on nothing else, so `0`, other
+    /// negatives, an absent field and `-1` on compressed data (where it would seek
+    /// back by the *decompressed* size) keep the payload right after the header.
+    private func metaImagePayloadIndex(
+        data: Data,
+        headerEnd: Data.Index,
+        meta: MetaImageParsedHeader,
+        payloadBytes: Int
+    ) throws -> Data.Index {
+        switch meta.headerSize {
+        case let size? where size > 0:
+            guard size <= data.count else { throw MIQError.truncatedData }
+            return data.index(data.startIndex, offsetBy: size)
+        case .some(-1) where !meta.compressed:
+            guard data.count >= payloadBytes else { throw MIQError.truncatedData }
+            return data.index(data.startIndex, offsetBy: data.count - payloadBytes)
+        default:
+            return headerEnd
+        }
     }
 
     // MARK: - Header split
@@ -153,6 +182,7 @@ extension MIQParser {
 
         let msb = fields["binarydatabyteordermsb"] ?? fields["elementbyteordermsb"]
         let compressedSize = fields["compresseddatasize"].flatMap { Int($0) }
+        let headerSize = fields["headersize"].flatMap { Int($0) }
         let spacing = (fields["elementspacing"] ?? fields["elementsize"]).flatMap(parseMetaImageFloatList)
         let origin = (fields["offset"] ?? fields["position"] ?? fields["origin"]).flatMap(parseMetaImageFloatList)
         let transform = (fields["transformmatrix"] ?? fields["rotation"] ?? fields["orientation"])
@@ -166,6 +196,7 @@ extension MIQParser {
             littleEndian: !Self.metaImageBool(msb),
             compressed: Self.metaImageBool(fields["compresseddata"]),
             compressedSize: compressedSize,
+            headerSize: headerSize,
             spacing: spacing,
             origin: origin,
             transform: transform,

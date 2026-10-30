@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import zlib
 @testable import MIQCore
 
 extension TestMIQFactory {
@@ -7,7 +8,7 @@ extension TestMIQFactory {
     /// them. Elements are `sampleValue(index:)` in storage order, channels
     /// interleaved per voxel. `transform` is the `TransformMatrix` value; `nil`
     /// writes the identity for the image's dimensionality, `omitTransform` leaves
-    /// the field out.
+    /// the field out. `payload` replaces the encoded elements verbatim.
     static func makeMetaImage(
         sizes: [Int],
         channels: Int = 1,
@@ -19,7 +20,8 @@ extension TestMIQFactory {
         spacing: String? = nil,
         dataFile: String = "LOCAL",
         lineEnding: String = "\n",
-        extraFields: [String] = []
+        extraFields: [String] = [],
+        payload payloadOverride: Data? = nil
     ) throws -> Data {
         let n = sizes.count
         let elementCount = sizes.reduce(1, *) * channels
@@ -28,7 +30,7 @@ extension TestMIQFactory {
             encodeSample(sampleValue(index: i, datatype: datatype), at: i, datatype: datatype,
                          bigEndian: bigEndian, into: &raw)
         }
-        let payload = compressed ? try TestZlib.zlib(Data(raw)) : Data(raw)
+        let payload = try payloadOverride ?? (compressed ? TestZlib.zlib(Data(raw)) : Data(raw))
 
         let identity = (0..<n * n).map { $0 / n == $0 % n ? "1" : "0" }.joined(separator: " ")
         let lines: [String?] = [
@@ -274,5 +276,212 @@ struct MetaImageTests {
         #expect(kind.declinesThumbnail(fileSizeBytes: 101, isLocal: true, thresholdBytes: 100))
         #expect(!kind.declinesThumbnail(fileSizeBytes: 101, isLocal: true, thresholdBytes: 100, hasRawPayload: true))
         #expect(kind.declinesThumbnail(fileSizeBytes: 101, isLocal: false, thresholdBytes: 100, hasRawPayload: true))
+    }
+
+    // MARK: - HeaderSize
+
+    private static func isTruncated(_ error: any Error) -> Bool {
+        if case MIQError.truncatedData = error { return true } else { return false }
+    }
+
+    private static func isDecompressionFailed(_ error: any Error) -> Bool {
+        if case MIQError.decompressionFailed = error { return true } else { return false }
+    }
+
+    private static let paddedSizes = [4, 3, 2]
+
+    /// `HeaderSize = headerSize(headerLength)` with `padding` 0xEE bytes between the
+    /// header and the payload. The value is written fixed-width, so the header
+    /// length doesn't depend on it.
+    private static func paddedMetaImage(
+        compressed: Bool, padding: Int, headerSize: (Int) -> Int
+    ) throws -> Data {
+        func make(_ value: Int) throws -> Data {
+            try TestMIQFactory.makeMetaImage(sizes: paddedSizes, datatype: .int16, compressed: compressed,
+                                             extraFields: [String(format: "HeaderSize = %06d", value)])
+        }
+        let probe = try make(0)
+        let headerLength = probe.range(of: Data("ElementDataFile = LOCAL\n".utf8))!.upperBound
+        let file = try make(headerSize(headerLength))
+        return file.prefix(headerLength) + Data(repeating: 0xEE, count: padding) + file.dropFirst(headerLength)
+    }
+
+    @Test func positiveHeaderSizeSkipsPadding() throws {
+        for compressed in [false, true] {
+            let data = try Self.paddedMetaImage(compressed: compressed, padding: 16) { $0 + 16 }
+            Self.expectVoxels(try MIQParser().parseMetaImage(data), sizes: Self.paddedSizes, datatype: .int16)
+        }
+    }
+
+    @Test func headerSizeMinusOneReadsPayloadFromTheEnd() throws {
+        let data = try Self.paddedMetaImage(compressed: false, padding: 16) { _ in -1 }
+        Self.expectVoxels(try MIQParser().parseMetaImage(data), sizes: Self.paddedSizes, datatype: .int16)
+    }
+
+    @Test func otherHeaderSizesKeepPayloadAfterHeader() throws {
+        for value in [0, -2] {
+            let data = try Self.paddedMetaImage(compressed: false, padding: 0) { _ in value }
+            Self.expectVoxels(try MIQParser().parseMetaImage(data), sizes: Self.paddedSizes, datatype: .int16)
+        }
+        // On compressed data MetaIO's -1 seeks back by the decompressed size, so it is ignored.
+        let data = try Self.paddedMetaImage(compressed: true, padding: 0) { _ in -1 }
+        Self.expectVoxels(try MIQParser().parseMetaImage(data), sizes: Self.paddedSizes, datatype: .int16)
+    }
+
+    @Test func headerSizePastEndOfFileThrows() throws {
+        for compressed in [false, true] {
+            let fileLength = try Self.paddedMetaImage(compressed: compressed, padding: 16) { $0 + 16 }.count
+            let data = try Self.paddedMetaImage(compressed: compressed, padding: 16) { _ in fileLength + 1 }
+            #expect { try MIQParser().parseMetaImage(data) } throws: { Self.isTruncated($0) }
+        }
+    }
+
+    // MARK: - zlib check value
+
+    private static let checkSizes = [4, 3, 2]
+
+    /// The uint8 elements of `checkSizes`, as the factory encodes them.
+    private static func checkRaw(sizes: [Int] = checkSizes) throws -> Data {
+        let count = sizes.reduce(1, *)
+        return try TestMIQFactory.makeMetaImage(sizes: sizes, datatype: .uint8).suffix(count)
+    }
+
+    private static func compressedFile(payload: Data) throws -> Data {
+        try TestMIQFactory.makeMetaImage(sizes: checkSizes, datatype: .uint8, compressed: true, payload: payload)
+    }
+
+    private static func flipping(_ data: Data, at offset: Int) -> Data {
+        var copy = data
+        copy[copy.startIndex + offset] ^= 0xFF
+        return copy
+    }
+
+    /// A zlib stream holding `raw` in one stored block: `78 01`, BFINAL+stored,
+    /// LEN and NLEN little-endian, the bytes, then Adler-32 big-endian.
+    private static func storedBlockZlib(_ raw: Data) -> Data {
+        let len = UInt16(raw.count)
+        let adler = raw.withUnsafeBytes { buf in
+            UInt32(adler32(1, buf.bindMemory(to: Bytef.self).baseAddress, uInt(raw.count)))
+        }
+        var out = Data([0x78, 0x01, 0x01, UInt8(len & 0xFF), UInt8(len >> 8), UInt8(~len & 0xFF), UInt8(~len >> 8)])
+        out += raw
+        out += Data([UInt8(adler >> 24), UInt8((adler >> 16) & 0xFF), UInt8((adler >> 8) & 0xFF), UInt8(adler & 0xFF)])
+        return out
+    }
+
+    @Test func corruptAdlerIsRejected() throws {
+        let zlib = try TestZlib.zlib(try Self.checkRaw())
+        Self.expectVoxels(try MIQParser().parseMetaImage(try Self.compressedFile(payload: zlib)),
+                          sizes: Self.checkSizes, datatype: .uint8)
+        let corrupt = try Self.compressedFile(payload: Self.flipping(zlib, at: zlib.count - 1))
+        #expect { try MIQParser().parseMetaImage(corrupt) } throws: { Self.isDecompressionFailed($0) }
+    }
+
+    @Test func corruptStoredBlockIsRejected() throws {
+        let stored = Self.storedBlockZlib(try Self.checkRaw())
+        Self.expectVoxels(try MIQParser().parseMetaImage(try Self.compressedFile(payload: stored)),
+                          sizes: Self.checkSizes, datatype: .uint8)
+        // A flipped data byte still decodes; only the Adler-32 catches it.
+        let corrupt = try Self.compressedFile(payload: Self.flipping(stored, at: 7 + 5))
+        #expect { try MIQParser().parseMetaImage(corrupt) } throws: { Self.isDecompressionFailed($0) }
+    }
+
+    @Test func corruptGzipCrcIsRejected() throws {
+        let gzip = try TestZlib.gzip(try Self.checkRaw())
+        Self.expectVoxels(try MIQParser().parseMetaImage(try Self.compressedFile(payload: gzip)),
+                          sizes: Self.checkSizes, datatype: .uint8)
+        let corrupt = try Self.compressedFile(payload: Self.flipping(gzip, at: gzip.count - 8))
+        #expect { try MIQParser().parseMetaImage(corrupt) } throws: { Self.isDecompressionFailed($0) }
+    }
+
+    @Test func streamCutBeforeTrailerIsRejected() throws {
+        let stored = Self.storedBlockZlib(try Self.checkRaw())
+        let cut = try Self.compressedFile(payload: stored.dropLast(2))
+        #expect { try MIQParser().parseMetaImage(cut) } throws: { Self.isDecompressionFailed($0) }
+    }
+
+    @Test func streamLongerThanDeclaredKeepsPrefix() throws {
+        let longer = try TestZlib.zlib(try Self.checkRaw(sizes: [4, 3, 3]))
+        Self.expectVoxels(try MIQParser().parseMetaImage(try Self.compressedFile(payload: longer)),
+                          sizes: Self.checkSizes, datatype: .uint8)
+    }
+
+    /// The gzip prefix path (volume-0-first loads) deliberately stops short of the
+    /// CRC, so a filled cap stays a success there even over a corrupt trailer.
+    @Test func gunzipPrefixStillIgnoresTrailer() throws {
+        let raw = try Self.checkRaw(sizes: [16, 16, 4])
+        let corrupt = Self.flipping(try TestZlib.gzip(raw), at: try TestZlib.gzip(raw).count - 8)
+        for cap in [raw.count / 4, raw.count] {
+            #expect(try MIQBinaryReader.gunzip(corrupt, maxOutputBytes: cap) == raw.prefix(cap))
+        }
+        #expect(throws: MIQError.self) { try MIQBinaryReader.gunzip(corrupt) }
+    }
+
+    // MARK: - zlib trailer position
+
+    /// One stream per DEFLATE block type, with what it decodes to. zlib checks the
+    /// trailer wherever the DEFLATE data ends, which need not be the end of the input.
+    private static func trailerStreams() throws -> [(name: String, stream: Data, raw: Data)] {
+        let stored = Data([120, 1, 1, 8, 0, 247, 255, 1, 2, 3, 4, 5, 6, 7, 8, 0, 128, 0, 37])
+        let short = Data("abcabcabc".utf8)
+        let varied = Data((0..<200_000).map { UInt8(truncatingIfNeeded: ($0 * $0 % 251) ^ ($0 / 1000)) })
+        return [
+            ("stored", stored, Data(1...8)),
+            ("fixed", try TestZlib.zlib(short), short),
+            ("dynamic", try TestZlib.zlib(varied), varied),
+        ]
+    }
+
+    /// Both the default input window and a tiny one, so refilling `avail_in` is covered.
+    private static let inputWindows = [Int(UInt32.max), 7]
+
+    private static func zeros(_ count: Int) -> Data { Data(count: count) }
+
+    private static func expectRejected(_ stream: Data, raw: Data, _ label: String) {
+        for window in inputWindows {
+            #expect(throws: MIQError.self, "\(label), window \(window)") {
+                try MIQBinaryReader.inflateZlib(stream, maxOutputBytes: raw.count, maxInputWindow: window)
+            }
+        }
+    }
+
+    @Test func bytesAfterTheTrailerAreIgnored() throws {
+        for (name, stream, raw) in try Self.trailerStreams() {
+            for extra in [0, 1, 4, 100, 100_000] {
+                for window in Self.inputWindows {
+                    let out = try MIQBinaryReader.inflateZlib(stream + Self.zeros(extra), maxOutputBytes: raw.count,
+                                                              maxInputWindow: window)
+                    #expect(out == raw, "\(name) + \(extra), window \(window)")
+                }
+            }
+        }
+    }
+
+    @Test func badTrailerIsRejectedWhereverTheInputEnds() throws {
+        for (name, stream, raw) in try Self.trailerStreams() {
+            let bad = Self.flipping(stream, at: stream.count - 1)
+            for extra in [0, 4, 100_000] {
+                let data = bad + Self.zeros(extra)
+                #expect { try MIQBinaryReader.inflateZlib(data, maxOutputBytes: raw.count) } throws: {
+                    Self.isDecompressionFailed($0)
+                }
+                Self.expectRejected(data, raw: raw, "\(name) bad + \(extra)")
+            }
+            // The correct check value sitting at the end of the input must not rescue it.
+            Self.expectRejected(bad + stream.suffix(4), raw: raw, "\(name) bad + correct trailer")
+        }
+    }
+
+    @Test func trailerCutShortIsRejected() throws {
+        for (name, stream, raw) in try Self.trailerStreams() {
+            for cut in 1...4 {
+                Self.expectRejected(stream.dropLast(cut), raw: raw, "\(name) cut \(cut)")
+            }
+        }
+    }
+
+    @Test func flippedStoredDataByteIsRejectedBeforeTrailingBytes() throws {
+        let (_, stored, raw) = try Self.trailerStreams()[0]
+        Self.expectRejected(Self.flipping(stored, at: 12) + Self.zeros(4), raw: raw, "stored data flip + 4")
     }
 }
