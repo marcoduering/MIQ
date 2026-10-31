@@ -3,6 +3,40 @@
     <channel>
         <title>MIQ</title>
         <item>
+            <title>1.8.0</title>
+            <pubDate>Sat, 31 Oct 2026 14:31:30 +0100</pubDate>
+            <link>https://miq.marco-duering.net/</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/marcoduering/MIQ/releases</sparkle:fullReleaseNotesLink>
+            <sparkle:version>1.8.0</sparkle:version>
+            <sparkle:shortVersionString>1.8.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description>&lt;style&gt;
+body { line-height: 1.45; margin: 10px 12px; }
+h1, h2, h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
+h1:first-child, h2:first-child, h3:first-child, p:first-child { margin-top: 0; }
+p { margin: 0 0 8px; }
+ul, ol { margin: 0 0 10px; padding-left: 20px; }
+li { margin: 2px 0; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em; background: rgba(128,128,128,.14);
+  border-radius: 3px; padding: 1px 4px;
+}
+&lt;/style&gt;
+&lt;p dir="auto"&gt;&lt;strong&gt;New features:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul dir="auto"&gt;
+&lt;li&gt;&lt;strong&gt;ITK MetaImage support&lt;/strong&gt;: self-contained &lt;code class="notranslate"&gt;.mha&lt;/code&gt; files, raw or compressed.&lt;/li&gt;
+&lt;li&gt;New metadata rows: &lt;strong&gt;Voxel index&lt;/strong&gt; (the crosshair voxel, in the file's own axis order) and &lt;strong&gt;Comment&lt;/strong&gt; (the header's description text; off by default, turn it on in Settings ▸ Metadata).&lt;/li&gt;
+&lt;li&gt;When a NIfTI file's sform and qform disagree on orientation, the Orientation row shows both, e.g. "LAS (qform: RAS)".&lt;/li&gt;
+&lt;li&gt;Configurable size limit for "Ask before loading network files" (Settings ▸ Preview), from 50 MB to Never.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p dir="auto"&gt;&lt;strong&gt;Other:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul dir="auto"&gt;
+&lt;li&gt;Thumbnails settings: new &lt;strong&gt;Clear thumbnail cache&lt;/strong&gt; row.&lt;/li&gt;
+&lt;/ul&gt;</description>
+            <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.8.0/MIQ.app.zip" length="4800939" type="application/octet-stream" sparkle:edSignature="swc4QTdePhwE7Dsraj8eIInPGgTkMveFHigIDSJUQNh6+Z0IoHI1oL0tZOOE6utBhmCoLwWeQvPU1btDchO8CA==" />
+        </item>
+        <item>
             <title>1.7.1</title>
             <pubDate>Sun, 25 Oct 2026 20:13:53 +0100</pubDate>
             <link>https://miq.marco-duering.net/</link>
@@ -60,40 +94,6 @@ code {
 &lt;li&gt;Thumbnails: a &lt;strong&gt;Skip large (compressed) files&lt;/strong&gt; setting controls the size limit above which compressed MGH, MIF and NRRD files keep Finder's standard icon (default 100 MB).&lt;/li&gt;
 &lt;/ul&gt;</description>
             <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.7.0/MIQ.app.zip" length="4640035" type="application/octet-stream" sparkle:edSignature="DxI2UTW5fRy7cvESqCHuAUqg5OIQJ1+aUEGHssAJZ5LtTtlWTNqhMSs52tSXaXsJR1FO0LZhxS7sUa99E5pKBQ==" />
-        </item>
-        <item>
-            <title>1.6.3</title>
-            <pubDate>Mon, 19 Oct 2026 17:21:13 +0200</pubDate>
-            <link>https://miq.marco-duering.net/</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/marcoduering/MIQ/releases</sparkle:fullReleaseNotesLink>
-            <sparkle:version>1.6.3</sparkle:version>
-            <sparkle:shortVersionString>1.6.3</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description>&lt;style&gt;
-body { line-height: 1.45; margin: 10px 12px; }
-h1, h2, h3 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
-h1:first-child, h2:first-child, h3:first-child, p:first-child { margin-top: 0; }
-p { margin: 0 0 8px; }
-ul, ol { margin: 0 0 10px; padding-left: 20px; }
-li { margin: 2px 0; }
-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.92em; background: rgba(128,128,128,.14);
-  border-radius: 3px; padding: 1px 4px;
-}
-&lt;/style&gt;
-&lt;p dir="auto"&gt;&lt;strong&gt;Fixes:&lt;/strong&gt;&lt;/p&gt;
-&lt;ul dir="auto"&gt;
-&lt;li&gt;NRRD: files that don't declare a coordinate space are no longer assumed to be RAS. Their orientation labels now show "?" instead of a guessed orientation.&lt;/li&gt;
-&lt;li&gt;NRRD: 4D files that use a &lt;code class="notranslate"&gt;-time&lt;/code&gt; space (e.g. &lt;code class="notranslate"&gt;right-anterior-superior-time&lt;/code&gt;, &lt;code class="notranslate"&gt;LPST&lt;/code&gt;) now get correct orientation labels.&lt;/li&gt;
-&lt;li&gt;Corrected how compressed (&lt;code class="notranslate"&gt;.nii.gz&lt;/code&gt;, &lt;code class="notranslate"&gt;.mif.gz&lt;/code&gt;) and plain &lt;code class="notranslate"&gt;.nii&lt;/code&gt; files are declared to macOS.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p dir="auto"&gt;&lt;strong&gt;Privacy:&lt;/strong&gt;&lt;/p&gt;
-&lt;ul dir="auto"&gt;
-&lt;li&gt;Diagnostic logs now hide file names, paths and error messages. They are hashed or redacted, so logs you send with a bug report no longer show patient or study names.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p dir="auto"&gt;Thanks to &lt;a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/ArioMoniri/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/ArioMoniri"&gt;@ArioMoniri&lt;/a&gt; for contributing to this release.&lt;/p&gt;</description>
-            <enclosure url="https://github.com/marcoduering/MIQ/releases/download/v1.6.3/MIQ.app.zip" length="4608202" type="application/octet-stream" sparkle:edSignature="R9MjyV/T+aF/XnNEVhRxpG7sEVvTmWGmHuU6ry95kbklWTSVGi0Jf5ducrjAJ7m9EbkhE0z9JCerce2QcO62AA==" />
         </item>
     </channel>
 </rss>
