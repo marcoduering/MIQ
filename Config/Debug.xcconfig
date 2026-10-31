@@ -17,8 +17,8 @@ SWIFT_OPTIMIZATION_LEVEL = -Onone
 // MARK: - Signing
 
 // Identical for all three targets, so it lives here rather than in each one.
-// Automatic signing cannot provision the thumbnail extension's App Group — see
-// the signing convention in CLAUDE.md — which is why ./scripts/build.sh
+// Automatic signing cannot provision the thumbnail extension's App Group (see
+// "App Group and Settings" in CONTRIBUTING.md), which is why ./scripts/build.sh
 // defaults to Release and --debug is for when thumbnail settings don't matter.
 CODE_SIGN_IDENTITY = Apple Development
 CODE_SIGN_STYLE = Automatic

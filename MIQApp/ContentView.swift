@@ -1312,7 +1312,7 @@ struct ContentView: View {
         updateReminderInPreview = MIQConfig.Defaults.updateReminderInPreview
         starBannerDismissed = MIQConfig.Defaults.starBannerDismissed
         // The default is SUEnableAutomaticChecks in Info.plist (on); see
-        // the Sparkle convention in CLAUDE.md for why it ships on.
+        // "Why Sparkle is set up this way" in RELEASING.md for why it ships on.
         updater.automaticallyChecksForUpdates = true
     }
 }
