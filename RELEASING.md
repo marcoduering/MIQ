@@ -1,6 +1,6 @@
 # Releasing MIQ
 
-Maintainer-only. `scripts/release.sh` runs the whole release; this page covers what it needs, what it does, and how to recover. The reasoning behind the Sparkle and Homebrew rules lives in CLAUDE.md.
+Maintainer-only. `scripts/release.sh` runs the whole release; this page covers what it needs, what it does, and how to recover. The reasoning behind the Sparkle and Homebrew rules is at the end, in [Why Sparkle is set up this way](#why-sparkle-is-set-up-this-way).
 
 ## One-time setup
 
@@ -61,3 +61,13 @@ The appcast embeds the notes when it is generated, so editing the GitHub release
 ```
 
 It opens the notes (the local file, or the current release body if the file is gone), then updates the GitHub release and regenerates the appcast item from the published asset, so its signature is unchanged. The appcast change is committed as `Release notes X.Y.Z` and pushed.
+
+## Why Sparkle is set up this way
+
+- **Four pieces must agree, or updates fail silently:** `SUEnableInstallerLauncherService`, `SUFeedURL` and `SUPublicEDKey` in `MIQApp/Info.plist`; the `-spks`/`-spki` mach-lookup exceptions in `MIQApp/MIQ.entitlements` (without them the update downloads, then dies at install); Sparkle linked into the app target only, never `MIQCore` or an extension; and a feed signed with the EdDSA key. The sandboxed app can't write `/Applications`, so Sparkle's installer service is the only update path. `release_notarize.sh` checks the first three.
+- **Automatic checks are on by default** (`SUEnableAutomaticChecks`), which also suppresses Sparkle's permission prompt. Users rarely open MIQ.app and the cask's `auto_updates true` keeps `brew upgrade` away, so without this most users would never update. The General pane's toggle is therefore the only way to turn checks off and must stay; Reset All turns them back on.
+- **Previews only remind.** Quick Look's sandbox denies the extension network access, App Group writes and opening apps, so the reminder is plain text from values the app writes.
+- **Sparkle compares `CFBundleVersion`**, so `CURRENT_PROJECT_VERSION = $(MARKETING_VERSION)`.
+- **`release_appcast.sh` stages only the archive being released.** `generate_appcast` rewrites the enclosure URL of every item whose archive it finds, and the URL prefix is per tag.
+- **Release notes are embedded in the feed, never linked.** Sparkle loads a `releaseNotesLink` page in full. The notes are an `.html` fragment (no doctype, no `<body>`) whose `<style>` sets spacing only, since Sparkle supplies the font and colours.
+- **Homebrew:** the cask keeps `auto_updates true` as long as the app updates itself. Without it, `brew upgrade` would downgrade a self-updated app.

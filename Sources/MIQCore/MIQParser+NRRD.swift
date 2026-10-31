@@ -17,6 +17,8 @@ extension MIQParser {
         let toRasSigns: (rx: Float, ry: Float, rz: Float)?
         // Fallback voxel spacings when spaceDirections is absent
         let spacings: [Float]?
+        /// The `content:` field.
+        let content: String?
     }
 
     // MARK: - Public entry points
@@ -201,7 +203,8 @@ extension MIQParser {
             spaceDirections: spaceDirections,
             spaceOrigin: spaceOrigin,
             toRasSigns: toRasSigns,
-            spacings: spacings
+            spacings: spacings,
+            content: fields["content"]
         )
     }
 
@@ -244,6 +247,14 @@ extension MIQParser {
             ? OrientationFrame.from(srowX: srowX, srowY: srowY, srowZ: srowZ, source: .nrrdSpaceDirections)
             : nil
 
+        // A non-spatial axis may come first (e.g. a DWI list axis); the file's index
+        // then leads with it.
+        let indexAxes = FileIndexAxes(
+            fileAxis: spatialAxes + [volumeAxis ?? 3],
+            reversed: [false, false, false, false],
+            rank: nrrd.sizes.count
+        )
+
         let header = MIQHeader(
             littleEndian: nrrd.littleEndian,
             dimensions: [sx, sy, sz, nVols],
@@ -258,7 +269,9 @@ extension MIQParser {
             srowY: srowY,
             srowZ: srowZ,
             formatLabel: nrrd.encoding == .gzip ? "Compressed NRRD" : nil,
-            orientationFrame: orientationFrame
+            orientationFrame: orientationFrame,
+            comment: nrrd.content.flatMap { Self.headerComment([$0]) },
+            fileIndexAxes: indexAxes
         )
 
         return NrrdImageDescriptor(header: header, strides: customStrides)

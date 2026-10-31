@@ -39,9 +39,9 @@ struct ThumbnailSizeGateTests {
     @Test func largeRawNrrdDeclinesOnlyOnNetwork() {
         // Confirmed raw from its header: memory-mapped locally, like MIF.
         #expect(!MIQFileKind.nrrd.declinesThumbnail(fileSizeBytes: Self.threshold + 1, isLocal: true,
-                                                    thresholdBytes: Self.threshold, nrrdHasRawPayload: true))
+                                                    thresholdBytes: Self.threshold, hasRawPayload: true))
         #expect(MIQFileKind.nrrd.declinesThumbnail(fileSizeBytes: Self.threshold + 1, isLocal: false,
-                                                   thresholdBytes: Self.threshold, nrrdHasRawPayload: true))
+                                                   thresholdBytes: Self.threshold, hasRawPayload: true))
     }
 
     @Test func nrrdHeaderProbeReadsEncoding() {

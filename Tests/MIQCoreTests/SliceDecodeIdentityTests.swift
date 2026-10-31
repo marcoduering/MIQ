@@ -166,6 +166,22 @@ struct SliceDecodeIdentityTests {
         }
     }
 
+    /// MetaImage channels shown as volumes: the channel is the fastest axis, so
+    /// every spatial stride steps over it, and big-endian covers the swap path.
+    @Test
+    func channelInterleavedMetaImageSliceDecodeMatchesVoxelAccessor() throws {
+        for datatype in [MIQDatatype.int16, .float32, .float64] {
+            let data = try TestMIQFactory.makeMetaImage(sizes: [7, 5, 3], channels: 2, datatype: datatype,
+                                                        bigEndian: true, transform: "0 1 0 0 0 1 1 0 0")
+            let image = try MIQParser().parseMetaImage(data)
+            #expect(image.payloadElementStrides != nil)
+
+            let volume = MIQVolume(image: image)
+            expectDecodeMatchesVoxelAccessor(volume, label: "mha \(datatype) c0", volumeIndex: 0)
+            expectDecodeMatchesVoxelAccessor(volume, label: "mha \(datatype) c1", volumeIndex: 1)
+        }
+    }
+
     /// A NIfTI whose sform permutes the storage axes (x→S, y→R, z→A), so the three
     /// view modes produce genuinely different slice/horizontal/vertical assignments
     /// rather than three variations of the stored order.

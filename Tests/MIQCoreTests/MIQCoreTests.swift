@@ -264,7 +264,7 @@ struct MIQCoreTests {
     /// (target, iteration, seed) needed to reproduce it. Always-on and bounded —
     /// tiny fixtures, so several thousand parses run in well under a second.
     @Test
-    func parsersNeverTrapOnMutatedInput() {
+    func parsersNeverTrapOnMutatedInput() throws {
         let parser = MIQParser()
         let targets: [FuzzTarget] = [
             FuzzTarget(name: "nii",
@@ -286,6 +286,14 @@ struct MIQCoreTests {
             FuzzTarget(name: "nrrd",
                        seed: TestMIQFactory.makeNrrd(width: 6, height: 5, depth: 4, datatype: .int16),
                        parseImage: { _ = try parser.parseNrrd($0) },
+                       parseHeader: nil),
+            FuzzTarget(name: "mha",
+                       seed: try TestMIQFactory.makeMetaImage(sizes: [6, 5, 4], datatype: .int16),
+                       parseImage: { _ = try parser.parseMetaImage($0) },
+                       parseHeader: nil),
+            FuzzTarget(name: "mha.zlib",
+                       seed: try TestMIQFactory.makeMetaImage(sizes: [6, 5, 4], datatype: .int16, compressed: true),
+                       parseImage: { _ = try parser.parseMetaImage($0) },
                        parseHeader: nil),
         ]
 
@@ -325,7 +333,7 @@ struct MIQCoreTests {
         let name: String
         let seed: Data
         let parseImage: (Data) throws -> Void
-        /// `nil` for formats without a standalone header parser (MIF, NRRD): their
+        /// `nil` for formats without a standalone header parser (MIF, NRRD, MetaImage): their
         /// header parse runs inside `parseImage`, which the fuzzer already covers.
         let parseHeader: ((Data) throws -> Void)?
     }
@@ -566,12 +574,16 @@ struct MIQCoreTests {
     func parseMetadataOrderAppendsMissingFieldsForOlderSettings() {
         let parsed = MIQConfig.parseMetadataOrder("format,dimensions,spacing,orientation,datatype,volumes")
 
-        // Older stored orders predate the Scaling and Value fields; both are
-        // appended in canonical order so the result always covers every case.
-        #expect(parsed.contains(.scaling))
-        #expect(parsed.contains(.value))
-        #expect(Array(parsed.suffix(2)) == [.scaling, .value])
-        #expect(parsed.last == .value)
+        // Older stored orders predate the later fields; each joins after its
+        // canonical predecessor, so the result always covers every case.
+        #expect(Array(parsed.suffix(4)) == [.scaling, .value, .voxelIndex, .comment])
+    }
+
+    @Test
+    func parseMetadataOrderPutsNewFieldNextToItsPredecessor() {
+        // A user-arranged order from before Voxel index: it lands under Voxel value.
+        let parsed = MIQConfig.parseMetadataOrder("value,format,dimensions,spacing,orientation,datatype,volumes,scaling,comment")
+        #expect(Array(parsed.prefix(3)) == [.value, .voxelIndex, .format])
     }
 
     @Test

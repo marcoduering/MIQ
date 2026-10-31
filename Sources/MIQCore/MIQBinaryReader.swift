@@ -258,12 +258,6 @@ enum MIQBinaryReader {
             throw MIQError.decompressionFailed
         }
 
-        var stream = z_stream()
-        guard inflateInit2_(&stream, 16 + MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else {
-            throw MIQError.decompressionFailed
-        }
-        defer { inflateEnd(&stream) }
-
         let isize = data.withUnsafeBytes { bytes -> UInt32 in
             bytes.loadUnaligned(fromByteOffset: data.count - 4, as: UInt32.self)
         }.littleEndian
@@ -271,14 +265,75 @@ enum MIQBinaryReader {
         // ISIZE only seeds the allocation (it wraps at 4 GiB — see
         // `initialInflateCapacity`). `maxOutputBytes` is the caller's contract and
         // the sole hard ceiling on what this produces.
-        var capacity = Swift.min(
-            initialInflateCapacity(compressedCount: data.count, isize: isize),
-            maxOutputBytes
+        return try inflatePrefix(
+            data,
+            windowBits: 16 + MAX_WBITS,
+            initialCapacity: initialInflateCapacity(compressedCount: data.count, isize: isize),
+            maxOutputBytes: maxOutputBytes,
+            maxInputWindow: maxInputWindow,
+            onInputProgress: onInputProgress,
+            verifyTrailer: false
         )
+    }
+
+    /// Inflates a zlib-wrapped (RFC 1950) stream, the encoding MetaImage writes
+    /// for `CompressedData = True`, stopping once `maxOutputBytes` are produced.
+    /// A gzip stream is accepted too (zlib's header auto-detection), since some
+    /// writers emit one. Unlike gzip, zlib has no size trailer: the caller passes
+    /// the payload size its header declares as the cap, and the ratio bound keeps
+    /// a crafted header from sizing the first allocation off the compressed size.
+    ///
+    /// Unlike the gzip prefix path, the stream's check value (Adler-32, or a gzip
+    /// CRC-32) must verify: a corrupted stream otherwise rendered as a valid image
+    /// whenever it still filled the cap. MetaIO rejects these too
+    /// (`MET_PerformUncompression` requires `Z_STREAM_END`). A stream that runs on
+    /// past the declared size keeps its prefix, as MetaIO does — it can't be
+    /// verified without decoding the rest.
+    static func inflateZlib(
+        _ data: Foundation.Data,
+        maxOutputBytes: Int,
+        maxInputWindow: Int = Int(UInt32.max)
+    ) throws -> Foundation.Data {
+        guard data.count >= 2, maxOutputBytes >= 1, maxInputWindow >= 1 else {
+            throw MIQError.decompressionFailed
+        }
+        return try inflatePrefix(
+            data,
+            windowBits: 32 + MAX_WBITS,
+            initialCapacity: initialInflateCapacity(compressedCount: data.count, isize: UInt32.max),
+            maxOutputBytes: maxOutputBytes,
+            maxInputWindow: maxInputWindow,
+            onInputProgress: nil,
+            verifyTrailer: true
+        )
+    }
+
+    /// The capped inflate loop behind `gunzip(_:maxOutputBytes:)` and
+    /// `inflateZlib`; `windowBits` selects the container. With `verifyTrailer`, a
+    /// filled cap is only a success once zlib has checked the trailer (or the
+    /// stream turns out to be longer than the cap); without it, a filled cap is a
+    /// deliberate prefix stop that never reaches the trailer.
+    private static func inflatePrefix(
+        _ data: Foundation.Data,
+        windowBits: Int32,
+        initialCapacity: Int,
+        maxOutputBytes: Int,
+        maxInputWindow: Int,
+        onInputProgress: ((Int) -> Void)?,
+        verifyTrailer: Bool
+    ) throws -> Foundation.Data {
+        var stream = z_stream()
+        guard inflateInit2_(&stream, windowBits, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else {
+            throw MIQError.decompressionFailed
+        }
+        defer { inflateEnd(&stream) }
+
+        var capacity = Swift.min(initialCapacity, maxOutputBytes)
         var output = Data(count: capacity)
         var produced = 0
         var status: Int32 = Z_OK
         var cancelled = false
+        var continuesPastCap = false
 
         data.withUnsafeBytes { inBuf in
             guard let inBase = inBuf.bindMemory(to: Bytef.self).baseAddress else {
@@ -314,13 +369,37 @@ enum MIQBinaryReader {
                 capacity = grown.overflow ? maxOutputBytes : Swift.min(grown.partialValue, maxOutputBytes)
                 output.count = capacity
             }
+
+            // The cap filled before zlib reached the trailer: keep inflating into a
+            // one-byte scratch buffer, as MetaIO does, until the stream ends (the
+            // check value verified) or yields a byte past the cap.
+            guard verifyTrailer, !cancelled, produced == maxOutputBytes,
+                  status == Z_OK || status == Z_BUF_ERROR else { return }
+            var scratch: Bytef = 0
+            while true {
+                feedInputWindow(&stream, base: inBase, count: data.count, fed: &fed, maxWindow: maxInputWindow)
+                status = withUnsafeMutablePointer(to: &scratch) { byte -> Int32 in
+                    stream.next_out = byte
+                    stream.avail_out = 1
+                    return inflate(&stream, Z_NO_FLUSH)
+                }
+                if status == Z_STREAM_END { break }
+                if status != Z_OK && status != Z_BUF_ERROR { break }
+                if stream.avail_out == 0 { continuesPastCap = true; break }
+                if status == Z_OK, stream.avail_in > 0 { continue }
+                if stream.avail_in == 0, fed < data.count { continue }
+                break                                   // input ended before the trailer
+            }
         }
 
         if cancelled { throw CancellationError() }
         // Success: the whole stream decompressed, OR we filled the requested cap
         // (a deliberate early stop). Z_BUF_ERROR with a filled cap is expected —
-        // it means "no output space left", which is exactly why we stopped.
-        guard status == Z_STREAM_END || produced == maxOutputBytes else {
+        // it means "no output space left", which is exactly why we stopped. A
+        // verified cap needs the trailer or proof the stream runs on, and never
+        // accepts a zlib error.
+        let filledCap = verifyTrailer ? continuesPastCap : produced == maxOutputBytes
+        guard status == Z_STREAM_END || filledCap else {
             throw MIQError.decompressionFailed
         }
         if produced < output.count {

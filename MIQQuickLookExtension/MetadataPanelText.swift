@@ -24,6 +24,7 @@ enum MetadataPanelText {
     /// measured when sizing the label column.
     static let volumesRowLabel = "Volumes"
     static let valueRowLabel = "Voxel value"
+    static let voxelIndexRowLabel = "Voxel index"
 
     /// One drawn line: label + value, empty for an overlay-drawn row (Volumes,
     /// voxel value), value-only for a row that spans the panel (the debug build
@@ -31,6 +32,9 @@ enum MetadataPanelText {
     struct Row {
         let label: String
         let value: String
+        /// Most wrapped lines the value may take; `nil` for no limit. Only the
+        /// comment has one (`MIQMetadata.maxCommentLines`).
+        var maxLines: Int? = nil
     }
 
     struct Layout {
@@ -39,6 +43,8 @@ enum MetadataPanelText {
         let volumesLineIndex: Int?
         /// Line reserved blank for the live voxel-value readout, if any.
         let valueLineIndex: Int?
+        /// Line reserved blank for the live voxel-index readout, if any.
+        let voxelIndexLineIndex: Int?
     }
 
     /// Orders and filters `entries` into drawn rows.
@@ -47,16 +53,20 @@ enum MetadataPanelText {
     ///   - showsValue: whether the live voxel-value line occupies a slot (the
     ///     crosshair is visible and the field enabled); the slot is reserved
     ///     blank for the overlay.
+    ///   - showsVoxelIndex: the same for the live voxel-index line.
     ///   - staticValueText: instead of a reserved slot, draw the voxel-value row
     ///     as ordinary text with this value (Settings' sample). The preview never
     ///     sets it.
+    ///   - staticVoxelIndexText: the same for the voxel-index row.
     static func layout(
         entries: [MetadataEntry],
         order: [MetadataField],
         isVisible: (MetadataField) -> Bool,
         isFourD: Bool,
         showsValue: Bool,
-        staticValueText: String? = nil
+        showsVoxelIndex: Bool,
+        staticValueText: String? = nil,
+        staticVoxelIndexText: String? = nil
     ) -> Layout {
         let orderIndex: [MetadataField: Int] = Dictionary(
             uniqueKeysWithValues: order.enumerated().map { ($1, $0) }
@@ -71,6 +81,11 @@ enum MetadataPanelText {
         } else if showsValue {
             entries.append(MetadataEntry(field: .value, label: "", value: ""))
         }
+        if let staticVoxelIndexText {
+            entries.append(MetadataEntry(field: .voxelIndex, label: voxelIndexRowLabel, value: staticVoxelIndexText))
+        } else if showsVoxelIndex {
+            entries.append(MetadataEntry(field: .voxelIndex, label: "", value: ""))
+        }
         let sorted = entries.sorted { a, b in
             let ai = a.field.flatMap { orderIndex[$0] } ?? Int.max
             let bi = b.field.flatMap { orderIndex[$0] } ?? Int.max
@@ -84,6 +99,7 @@ enum MetadataPanelText {
         var rows: [Row] = []
         var volumesLineIndex: Int?
         var valueLineIndex: Int?
+        var voxelIndexLineIndex: Int?
         for entry in sorted {
             if let field = entry.field, !isVisible(field) { continue }
             if isFourD, entry.field == .volumes {
@@ -92,6 +108,9 @@ enum MetadataPanelText {
             } else if entry.field == .value, staticValueText == nil {
                 valueLineIndex = rows.count
                 rows.append(Row(label: "", value: ""))
+            } else if entry.field == .voxelIndex, staticVoxelIndexText == nil {
+                voxelIndexLineIndex = rows.count
+                rows.append(Row(label: "", value: ""))
             } else if entry.field == nil {
                 // Not a configurable field (only the debug build stamp): span the
                 // panel rather than joining the column, whose width it would
@@ -99,10 +118,19 @@ enum MetadataPanelText {
                 // so a Debug build would misrepresent Release geometry.
                 rows.append(Row(label: "", value: entry.text))
             } else {
-                rows.append(Row(label: entry.label, value: entry.value))
+                rows.append(Row(
+                    label: entry.label,
+                    value: entry.value,
+                    maxLines: entry.field == .comment ? MIQMetadata.maxCommentLines : nil
+                ))
             }
         }
-        return Layout(rows: rows, volumesLineIndex: volumesLineIndex, valueLineIndex: valueLineIndex)
+        return Layout(
+            rows: rows,
+            volumesLineIndex: volumesLineIndex,
+            valueLineIndex: valueLineIndex,
+            voxelIndexLineIndex: voxelIndexLineIndex
+        )
     }
 
     /// The voxel-value readout's text: integers without a decimal point, other
@@ -116,6 +144,11 @@ enum MetadataPanelText {
         return String(format: "%.6g", Double(value))
     }
 
+    /// The voxel-index readout's text, e.g. "[128, 97, 88, 12]".
+    static func formatVoxelIndex(_ index: [Int]) -> String {
+        "[" + index.map(String.init).joined(separator: ", ") + "]"
+    }
+
     /// Value-column x: widest label plus a gutter. Empty labels are skipped.
     static func labelColumnOrigin(for labels: [String], font: NSFont) -> CGFloat {
         let attributes: [NSAttributedString.Key: Any] = [.font: font]
@@ -126,10 +159,41 @@ enum MetadataPanelText {
         return widest + font.pointSize * labelGutterFactor
     }
 
+    /// Cuts `value` after `maxLines` lines as wrapped at `width`, ending it with a
+    /// "…" line, so a long comment can't fill the panel. U+2028 breaks count as line
+    /// breaks, as they do in the panel's text.
+    static func fitValue(_ value: String, font: NSFont, width: CGFloat, maxLines: Int) -> String {
+        guard width > 0, maxLines > 0 else { return value }
+        let storage = NSTextStorage(string: value, attributes: [.font: font])
+        let layoutManager = NSLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        layoutManager.addTextContainer(container)
+        storage.addLayoutManager(layoutManager)
+
+        var lines = 0
+        var cutAt: Int?
+        layoutManager.enumerateLineFragments(forGlyphRange: layoutManager.glyphRange(for: container)) { _, _, _, glyphRange, stop in
+            lines += 1
+            if lines == maxLines {
+                cutAt = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil).upperBound
+            } else if lines > maxLines {
+                stop.pointee = true
+            }
+        }
+        guard lines > maxLines, let cutAt else { return value }
+        let kept = (value as NSString).substring(to: cutAt)
+            .trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\u{2028}")))
+        return kept + "\u{2028}\u{2026}"
+    }
+
+    /// - Parameter valueColumnWidth: width the value column wraps at, used to
+    ///   enforce `Row.maxLines`; `nil` leaves every value whole (Settings' sample).
     static func attributedString(
         from rows: [Row],
         fontSize: CGFloat,
         labelColumnX: CGFloat,
+        valueColumnWidth: CGFloat? = nil,
         showsDisclaimer: Bool,
         updateReminder: String? = nil,
         updateReminderWidth: CGFloat? = nil
@@ -162,8 +226,12 @@ enum MetadataPanelText {
             if !row.label.isEmpty {
                 result.append(NSAttributedString(string: row.label + "\t", attributes: labelAttrs))
             }
-            if !row.value.isEmpty {
-                result.append(NSAttributedString(string: row.value, attributes: valueAttrs))
+            var value = row.value
+            if let maxLines = row.maxLines, let valueColumnWidth {
+                value = fitValue(value, font: font, width: valueColumnWidth, maxLines: maxLines)
+            }
+            if !value.isEmpty {
+                result.append(NSAttributedString(string: value, attributes: valueAttrs))
             }
 
             if index < rows.count - 1 {

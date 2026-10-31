@@ -30,7 +30,7 @@ struct MIQApp: App {
             ContentView()
                 .environmentObject(updater)
         }
-        .defaultSize(width: 640, height: 550)
+        .defaultSize(width: 640, height: 520)
         .windowResizability(.contentSize)
         .commands {
             // The conventional slot for this item, directly under "About MIQ".

@@ -11,6 +11,8 @@ Thank you for your interest in contributing!
 - `Config/` — build settings shared across configurations and targets (see below)
 - `Tests/MIQCoreTests` — Swift Testing coverage for `MIQCore`
 
+The preview pipeline and the rules that keep it fast are in [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## Building from Source
 
 ### Prerequisites
@@ -79,22 +81,28 @@ Then open a supported file in Finder and press **Space**.
 ### Run Tests
 
 ```bash
-swift test --package-path .
+# Run from another directory with a scratch path, so the toolchain doesn't
+# scatter build intermediates into the checkout.
+cd /tmp && swift test --package-path /path/to/MIQ --scratch-path /tmp/miq-build
 ```
+
+Tests use Swift Testing (`@Test`, no XCTest) with synthetic volumes from `TestMIQFactory`, so no fixture files are needed. Swift 6 strict concurrency is on: shared state must be `Sendable` or actor-isolated.
+
+`qlmanage -t` hangs and `QLThumbnailGenerator` can't reach third-party thumbnail extensions, so verify thumbnails in Finder and in the `net.marco-duering.miq.thumbnail` log subsystem.
 
 ## Performance Notes
 
 These design decisions affect the render path — keep them in mind when working on parsing or preview code:
 
-- Uncompressed files (`.nii`, `.mgh`, `.mif`) on a local disk are memory-mapped; the payload is never copied.
+- Files on a local disk are memory-mapped, and uncompressed payloads are read in place, not copied.
 - Slice extraction computes only the requested planes — no full volume resampling.
 - Each slice is downsampled to a maximum of 512 px on the long side before display.
 - A cold `.nii.gz` preview decompresses only the header plus volume 0; stepping past volume 0 re-parses once in the background. Other compressed formats can't be bounded that way and decompress in full.
-- Files on network volumes take a separate path: NIfTI reads only the volume-0 prefix off the mount, and other formats use a cancelable, I/O-throttled chunked read so a dismissed preview stops pulling bytes instead of stalling Finder.
+- Files on network volumes take a separate path: NIfTI reads only the volume-0 prefix off the mount, other formats read the whole file, and every network read is chunked, cancelable and I/O-throttled so a dismissed preview stops pulling bytes instead of stalling Finder.
 - Parsing, slicing and pixel work all run off the MainActor; only the final `NSImage` wrapping happens on it.
 - Parsers are implemented from scratch in Swift, without third-party dependencies or bindings to C/C++ libraries.
 
-`Tests/MIQCoreTests/PerformanceBaselineTests.swift` is the yardstick for any change to parsing, slicing, windowing, or decompression — measure against it rather than asserting a speedup. It is skipped in a normal run; opt in with `MIQ_PERF=1` and a `-c release` build.
+`Tests/MIQCoreTests/PerformanceBaselineTests.swift` is the yardstick for any change to parsing, slicing, windowing, or decompression: measure against it rather than asserting a speedup. It is skipped in a normal run; opt in with `MIQ_PERF=1` and a `-c release` build. `scripts/perf/profile.sh` profiles a local corpus of real files against `scripts/perf/baseline.json` (`--cold` purges the page cache first). Run long timing loops under `caffeinate`: the clock keeps counting while the Mac sleeps.
 
 > Please note that Debug builds are not optimized for performance and are much slower. Test performance only with Release builds.
 
@@ -104,7 +112,7 @@ These design decisions affect the render path — keep them in mind when working
 - Keep pull requests focused — one concern per PR.
 - Run `swift test` before submitting.
 - Use `MIQ`-prefixed names for product-level types, concise domain names for generic imaging concepts (`GrayscaleImage`, `SlicePlane`), and descriptive names for internal helpers.
-- Adding a file format takes four wirings, not just a parser: the `MIQFileKind` case and parser, plus the new UTI in `MIQApp/Info.plist`, `MIQQuickLookExtension/Info.plist`, and `MIQThumbnailExtension/Info.plist`. Miss one of the plists and Finder never routes the file to that extension, so your parser is never called. `MIQParser+NRRD.swift` is the most recent worked example.
+- Adding a file format takes four wirings, not just a parser: the `MIQFileKind` case and parser, plus the new UTI in `MIQApp/Info.plist`, `MIQQuickLookExtension/Info.plist`, and `MIQThumbnailExtension/Info.plist`. Miss one of the plists and Finder never routes the file to that extension, so your parser is never called. `MIQParser+MetaImage.swift` is the most recent worked example.
 
 ## Releasing (maintainers only)
 

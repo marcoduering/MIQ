@@ -35,6 +35,17 @@ public struct MIQParser {
         return image
     }
 
+    /// Whether the file stores its payload raw, for the thumbnail size gate. For
+    /// the kinds whose header decides (`MIQFileKind.headerDecidesCompression`)
+    /// this reads only the header; for every other kind the extension says.
+    public static func hasRawPayload(at url: URL, kind: MIQFileKind) -> Bool {
+        switch kind {
+        case .nrrd: return nrrdHasRawPayload(at: url)
+        case .mha: return metaImageHasRawPayload(at: url)
+        default: return !kind.isCompressed
+        }
+    }
+
     // MARK: - Internal
 
     /// Generous prefix that comfortably contains any NIfTI fixed header (≤ 540 B)
@@ -54,7 +65,7 @@ public struct MIQParser {
         }
 
         // `statfs` locality probe (cheap, one syscall). Now probed for every kind,
-        // not just NIfTI: non-boundable kinds (`.mgz`/`.mif.gz`/`.nrrd`) can't read
+        // not just NIfTI: non-boundable kinds (`.mgz`/`.mif.gz`/`.nrrd`/`.mha`) can't read
         // a volume-0 prefix, so on a network volume they fall back to a full read —
         // which must be cancelable (see below), and that needs the locality answer.
         let isLocal = VolumeLocation.isLocal(url)
@@ -322,6 +333,30 @@ public struct MIQParser {
         }
     }
 
+    /// Cleans a header's free-text description into `MIQHeader.comment`: each part is
+    /// cut at its first NUL (NIfTI pads `descrip` with NULs, sometimes followed by
+    /// junk), control characters become spaces, whitespace is trimmed and empty parts
+    /// are dropped. The parts are joined with "\n"; `nil` when nothing is left.
+    static func headerComment(_ parts: [String]) -> String? {
+        let lines = parts.compactMap { part -> String? in
+            let cut = part.split(separator: "\0", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+            let cleaned = String(String.UnicodeScalarView(cut.unicodeScalars.map {
+                CharacterSet.controlCharacters.contains($0) ? " " : $0
+            }))
+            let trimmed = cleaned.trimmingCharacters(in: .whitespaces)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    /// `headerComment` for a fixed-size byte field (NIfTI `descrip`), decoded as
+    /// UTF-8 with invalid bytes replaced.
+    static func headerComment(_ data: Data, offset: Int, length: Int) -> String? {
+        let start = data.startIndex + offset
+        guard data.count >= offset + length else { return nil }
+        return headerComment([String(decoding: data[start..<start + length], as: UTF8.self)])
+    }
+
     private func parseImage(data: Data, kind: MIQFileKind) throws -> MIQImage {
         switch kind {
         case .nii, .niiGz:
@@ -332,6 +367,8 @@ public struct MIQParser {
             return try parseMif(data)
         case .nrrd:
             return try parseNrrd(data)
+        case .mha:
+            return try parseMetaImage(data)
         }
     }
 }

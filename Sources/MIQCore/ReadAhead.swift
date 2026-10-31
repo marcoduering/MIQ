@@ -26,9 +26,10 @@ enum ReadAhead {
     /// half (measured ~0.5 s faulted), and a local uncompressed parse can't be
     /// cancelled, so the pages the decode needs are read either way.
     ///
-    /// `nil` unless the image's storage *is* `fileData`: a MIF `bit` payload or a
-    /// gzip-encoded NRRD is decoded into a fresh buffer at parse time, so its
-    /// offsets aren't file offsets — and the parse has already read the file.
+    /// `nil` unless the image's storage *is* `fileData`: a MIF `bit` payload, a
+    /// gzip-encoded NRRD or a compressed MetaImage is decoded into a fresh buffer
+    /// at parse time, so its offsets aren't file offsets — and the parse has
+    /// already read the file.
     static func volumeZeroRange(of image: MIQImage, fileData: Data) -> Range<Int>? {
         guard sharesBuffer(image.storage, fileData) else { return nil }
         let header = image.header

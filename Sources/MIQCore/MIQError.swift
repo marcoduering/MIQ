@@ -26,7 +26,7 @@ public enum MIQError: Error, LocalizedError {
         case .decompressionFailed:
             return "Failed to decompress gzipped data."
         case .unsupportedFileFormat:
-            return "Unsupported file format. Expected .nii, .nii.gz, .mgh, .mgz, .mgh.gz, .mif, .mif.gz, or .nrrd."
+            return "Unsupported file format. Expected .nii, .nii.gz, .mgh, .mgz, .mgh.gz, .mif, .mif.gz, .nrrd, or .mha."
         case .unsupportedFeature(let reason):
             return "Unsupported feature: \(reason)."
         case .malformedFile(let reason):

@@ -28,6 +28,20 @@ public struct MIQHeader: Sendable {
     /// is genuinely unknown (no usable sform, qform, MIF layout, or MGH direction cosines).
     /// Consumed by `OrientationResolver` as the single source of truth for display labels and slice planning.
     public let orientationFrame: OrientationFrame?
+    /// NIfTI only: the qform's orientation code when both sform and qform are valid
+    /// and imply different axes, beyond an oblique tie-break (sform drives
+    /// `orientationFrame`). `nil` otherwise.
+    public let conflictingQformOrientation: String?
+    /// Free-text description from the header (NIfTI `descrip`, MIF `comments:`, NRRD
+    /// `content:`, MetaImage `Comment`), already cleaned by `MIQParser.headerComment`;
+    /// lines are separated by "\n". `nil` when the format has none or it is empty.
+    /// Can name a patient (MRtrix copies DICOM patient fields into `comments:`), so
+    /// never log it publicly.
+    public let comment: String?
+    /// How MIQ's x, y, z, t axes map to the file's own axes, for the voxel-index
+    /// readout. Set by MIF and NRRD; `nil` for the formats whose axes are MIQ's
+    /// (NIfTI, MGH, MetaImage).
+    public let fileIndexAxes: FileIndexAxes?
 
     public var width: Int { dimensions[safe: 0] ?? 1 }
     public var height: Int { dimensions[safe: 1] ?? 1 }
@@ -49,7 +63,10 @@ public struct MIQHeader: Sendable {
         srowZ: [Float],
         formatLabel: String? = nil,
         datatypeLabel: String? = nil,
-        orientationFrame: OrientationFrame? = nil
+        orientationFrame: OrientationFrame? = nil,
+        conflictingQformOrientation: String? = nil,
+        comment: String? = nil,
+        fileIndexAxes: FileIndexAxes? = nil
     ) {
         self.littleEndian = littleEndian
         self.dimensions = dimensions
@@ -66,6 +83,45 @@ public struct MIQHeader: Sendable {
         self.formatLabel = formatLabel
         self.datatypeLabel = datatypeLabel
         self.orientationFrame = orientationFrame
+        self.conflictingQformOrientation = conflictingQformOrientation
+        self.comment = comment
+        self.fileIndexAxes = fileIndexAxes
+    }
+
+    /// The voxel at MIQ's (x, y, z, t) as the file indexes it, counted from 0, in
+    /// the file's axis order: one value per file axis for MIF and NRRD (a size-1
+    /// axis included), otherwise three for a 3D image and four for 4D. This is the
+    /// raw array index (nibabel, fsleyes, pynrrd), independent of the view
+    /// orientation; tools that realign on load (mrview for NIfTI/MGH) or fold a list
+    /// axis into the pixel (ITK) can count differently.
+    public func fileVoxelIndex(x: Int, y: Int, z: Int, t: Int) -> [Int] {
+        let cursor = [x, y, z, t]
+        guard let axes = fileIndexAxes else { return Array(cursor.prefix(volumes > 1 ? 4 : 3)) }
+        var index = [Int](repeating: 0, count: axes.rank)
+        // In a 3D file MIQ's t has no file axis to land on.
+        for axis in 0..<4 where axes.fileAxis[axis] < axes.rank {
+            let value = cursor[axis]
+            index[axes.fileAxis[axis]] = axes.reversed[axis] ? (dimensions[axis] - 1 - value) : value
+        }
+        return index
+    }
+}
+
+/// MIQ's x, y, z, t axes in the file's terms. MIF stores its spatial axes in
+/// layout order and MIQ reads reversed ones forwards; NRRD may put its volume axis
+/// first. Both formats address voxels along the file's own axes.
+public struct FileIndexAxes: Sendable, Equatable {
+    /// The file axis each of MIQ's x, y, z, t is (t's is ignored when it is `>= rank`).
+    public let fileAxis: [Int]
+    /// Whether MIQ walks that axis against the file's index direction.
+    public let reversed: [Bool]
+    /// The file's number of axes (3 or 4), size-1 axes included.
+    public let rank: Int
+
+    public init(fileAxis: [Int], reversed: [Bool], rank: Int) {
+        self.fileAxis = fileAxis
+        self.reversed = reversed
+        self.rank = rank
     }
 }
 

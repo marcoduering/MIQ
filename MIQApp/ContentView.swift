@@ -90,15 +90,23 @@ private func metadataLabel(_ field: MetadataField) -> String {
     case .volumes:     return "Volumes"
     case .scaling:     return "Scaling"
     case .value:       return "Voxel value"
+    case .voxelIndex:  return "Voxel index"
+    case .comment:     return "Comment"
     }
 }
 
 private func metadataHelpText(_ field: MetadataField) -> String? {
     switch field {
+    case .orientation:
+        return "Shows which anatomical direction each stored axis points to, e.g. RAS: right, anterior, superior. When a NIfTI file's sform and qform disagree, the qform's code follows, e.g. LAS (qform: RAS). MIQ uses the sform, but apps that read the qform show the image in that other orientation."
     case .scaling:
         return "Shows the intensity scaling from the file header as x slope +/- intercept, or just x slope when the intercept is zero. Hidden when the scaling is identity (x 1 + 0, meaning voxel values are used as stored) or unavailable."
     case .value:
         return "Shows the image intensity at the crosshair voxel, updating live as you move the crosshair. Appears only while interacting (when the crosshair is visible), not on the initial preview."
+    case .voxelIndex:
+        return "Shows the crosshair voxel's index in the file, counted from 0 in the file's axis order. It doesn't change with the view orientation. For 4D files it includes the volume, which the Volumes line counts from 1."
+    case .comment:
+        return "Shows the free-text comment from the file header (not available for FreeSurfer files). Off by default: usually empty or a tool stamp, but it can reveal patient data such as a name or birth date. Shortened to three lines."
     default:
         return nil
     }
@@ -467,6 +475,10 @@ struct ContentView: View {
     private var showMetadataScaling: Bool = MIQConfig.Defaults.showMetadataScaling
     @AppStorage(MIQConfig.Keys.showMetadataValue, store: Self.store)
     private var showMetadataValue: Bool = MIQConfig.Defaults.showMetadataValue
+    @AppStorage(MIQConfig.Keys.showMetadataVoxelIndex, store: Self.store)
+    private var showMetadataVoxelIndex: Bool = MIQConfig.Defaults.showMetadataVoxelIndex
+    @AppStorage(MIQConfig.Keys.showMetadataComment, store: Self.store)
+    private var showMetadataComment: Bool = MIQConfig.Defaults.showMetadataComment
     @AppStorage(MIQConfig.Keys.metadataOrder, store: Self.store)
     private var metadataOrder: StoredMetadataOrder = StoredMetadataOrder.defaultValue
     @AppStorage(MIQConfig.Keys.networkPreviewThresholdMB, store: Self.store)
@@ -498,7 +510,7 @@ struct ContentView: View {
     @State private var showFullDisclaimer = false
     @State private var draggedMetadataField: MetadataField?
     @State private var selectedTab: SettingsTab = .general
-    @State private var didCopyRefreshCommand = false
+    @State private var didCopyCacheCommand = false
     @State private var inputDevice: InputDevice = .mouse
     @State private var sampleMetadata: SampleRenderer.SampleMetadata?
     /// Supplied by `MIQApp`. Sparkle owns the check → download → install →
@@ -701,7 +713,7 @@ struct ContentView: View {
                         Text("Select an image in Finder and press Space.")
                             .padding(.top, 6)
                         HStack(spacing: 5) {
-                            ForEach(["NIfTI", "FreeSurfer MGH", "MRtrix MIF", "NRRD"], id: \.self) { format in
+                            ForEach(["NIfTI", "FreeSurfer MGH", "MRtrix MIF", "NRRD", "MetaImage"], id: \.self) { format in
                                 Text(format)
                                     .font(.callout)
                                     .padding(.horizontal, 7)
@@ -710,7 +722,7 @@ struct ContentView: View {
                             }
                         }
                         .accessibilityElement(children: .combine)
-                        .accessibilityLabel("Supported formats: NIfTI, FreeSurfer MGH, MRtrix MIF, NRRD")
+                        .accessibilityLabel("Supported formats: NIfTI, FreeSurfer MGH, MRtrix MIF, NRRD, MetaImage")
                     }
                 }
                 .padding(.vertical, 10)
@@ -886,7 +898,7 @@ struct ContentView: View {
                     }
                 } label: {
                     RowTitle(title: "Ask before loading network files",
-                             info: "MGH, MIF and NRRD files on network volumes over this size show a Load Preview button instead of loading automatically: loading a large file over a slow share can stall Finder. On a fast network, a higher limit saves the click. NIfTI files are always loaded, because MIQ reads only their first volume.")
+                             info: "MGH, MIF, NRRD and MetaImage files on network volumes over this size show a Load Preview button instead of loading automatically: loading a large file over a slow share can stall Finder. On a fast network, a higher limit saves the click. NIfTI files are always loaded, because MIQ reads only their first volume.")
                 }
             }
         }
@@ -909,7 +921,21 @@ struct ContentView: View {
     private var thumbnailsPane: some View {
         Group {
             Section {
-                Toggle("Show slice thumbnails in Finder", isOn: $showThumbnails)
+                Toggle(isOn: $showThumbnails) {
+                    RowTitle(title: "Show slice thumbnails in Finder",
+                             info: "Finder stores thumbnails in a macOS cache on this Mac, separate from your files. They can remain after a file is moved or deleted, or after thumbnails are turned off, until macOS prunes the cache or you clear it (Clear thumbnail cache, below).")
+                }
+                HStack {
+                    RowTitle(title: "Clear thumbnail cache",
+                             info: "Finder keeps thumbnails in a macOS cache on this Mac. Run this command in Terminal to remove the stored copies, for all apps' thumbnails, not just MIQ's. Finder then redraws them with your current settings, or shows standard icons while thumbnails are off.")
+                    Spacer()
+                    Button {
+                        copyThumbnailCacheCommand()
+                    } label: {
+                        Label(didCopyCacheCommand ? "Copied – Paste in Terminal" : "Copy Terminal Command",
+                              systemImage: didCopyCacheCommand ? "checkmark" : "doc.on.doc")
+                    }
+                }
             } header: {
                 Self.sideColumnAlignmentSpacer
             }
@@ -919,7 +945,8 @@ struct ContentView: View {
                     orientationPicker(selection: $thumbnailImageOrientation)
                     segmentationPicker(selection: $thumbnailSegmentationColoring)
                     PercentileRangeControl(lower: $thumbnailLowerPercentile, upper: $thumbnailUpperPercentile) {
-                        Text("Intensity window")
+                        RowTitle(title: "Intensity window",
+                                 info: "The grey range, as percentiles of the non-zero voxels in the slice the thumbnail shows (default \(Int(MIQConfig.Defaults.thumbnailWindowLowerPercentile))–\(Int(MIQConfig.Defaults.thumbnailWindowUpperPercentile))%).")
                     }
                 } header: {
                     HStack {
@@ -943,22 +970,11 @@ struct ContentView: View {
                         }
                     } label: {
                         RowTitle(title: "Skip large (compressed) files",
-                                 info: "Compressed MGH, MIF and NRRD files over this size keep Finder's standard icon: drawing their thumbnail means decompressing or reading the whole file, which takes seconds per file. Large compressed NIfTI files are not affected, because MIQ reads only their first volume. On network volumes, large uncompressed MGH and MIF files are skipped too.")
+                                 info: "Compressed MGH, MIF, NRRD and MetaImage files over this size keep Finder's standard icon: drawing their thumbnail means decompressing or reading the whole file, which takes seconds per file. Large compressed NIfTI files are not affected, because MIQ reads only their first volume. On network volumes, large uncompressed MGH and MIF files are skipped too.")
                     }
                     Toggle(isOn: $showThumbnailsOnNetworkVolumes) {
                         RowTitle(title: "Include network volumes",
-                                 info: "Off by default: generating thumbnails reads each file over the network, which is slow on remote shares.")
-                    }
-                    HStack {
-                        RowTitle(title: "Refresh existing thumbnails",
-                                 info: "Finder caches thumbnails. New files pick up changes automatically; existing ones refresh when the file changes, or right away with this Terminal command.\n\nIf they still look stale, also run:\nrm -rf \"$(getconf DARWIN_USER_CACHE_DIR)com.apple.iconservices.store\" && killall Dock Finder\n\nTo stop generating thumbnails, disable the extension in System Settings › General › Login Items & Extensions.")
-                        Spacer()
-                        Button {
-                            copyThumbnailRefreshCommand()
-                        } label: {
-                            Label(didCopyRefreshCommand ? "Copied" : "Copy Command",
-                                  systemImage: didCopyRefreshCommand ? "checkmark" : "doc.on.doc")
-                        }
+                                 info: "Off by default: generating thumbnails reads each file over the network, which is slow on remote shares. The thumbnails of remote files are cached on this Mac too.")
                     }
                 }
             } else {
@@ -1126,7 +1142,9 @@ struct ContentView: View {
                 isVisible: { visibilityBinding(for: $0).wrappedValue },
                 isFourD: false,
                 showsValue: false,
-                staticValueText: sampleMetadata.centreValue
+                showsVoxelIndex: false,
+                staticValueText: sampleMetadata.centreValue,
+                staticVoxelIndexText: sampleMetadata.centreIndex
             )
             let labelColumnX = MetadataPanelText.labelColumnOrigin(
                 for: layout.rows.map(\.label),
@@ -1205,18 +1223,19 @@ struct ContentView: View {
         metadataOrder = StoredMetadataOrder(fields)
     }
 
-    /// Terminal command that drops Quick Look's thumbnail cache and restarts the
-    /// agents so already-cached thumbnails regenerate with the current settings.
-    private static let thumbnailRefreshCommand =
+    /// Terminal command that deletes Quick Look's thumbnail disk cache and restarts
+    /// the agents, so Finder drops the copies it holds in memory too. The same
+    /// command is named in the README and docs/privacy.html.
+    private static let thumbnailCacheCommand =
         "qlmanage -r cache && killall com.apple.quicklook.ThumbnailsAgent Finder"
 
-    private func copyThumbnailRefreshCommand() {
+    private func copyThumbnailCacheCommand() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(Self.thumbnailRefreshCommand, forType: .string)
-        didCopyRefreshCommand = true
+        NSPasteboard.general.setString(Self.thumbnailCacheCommand, forType: .string)
+        didCopyCacheCommand = true
         Task {
-            try? await Task.sleep(for: .seconds(2))
-            didCopyRefreshCommand = false
+            try? await Task.sleep(for: .seconds(3))
+            didCopyCacheCommand = false
         }
     }
 
@@ -1230,6 +1249,8 @@ struct ContentView: View {
         case .volumes:     return $showMetadataVolumes
         case .scaling:     return $showMetadataScaling
         case .value:       return $showMetadataValue
+        case .voxelIndex:  return $showMetadataVoxelIndex
+        case .comment:     return $showMetadataComment
         }
     }
 
@@ -1243,6 +1264,8 @@ struct ContentView: View {
         case .volumes:     return MIQConfig.Defaults.showMetadataVolumes
         case .scaling:     return MIQConfig.Defaults.showMetadataScaling
         case .value:       return MIQConfig.Defaults.showMetadataValue
+        case .voxelIndex:  return MIQConfig.Defaults.showMetadataVoxelIndex
+        case .comment:     return MIQConfig.Defaults.showMetadataComment
         }
     }
 
@@ -1266,6 +1289,8 @@ struct ContentView: View {
         showMetadataVolumes     = MIQConfig.Defaults.showMetadataVolumes
         showMetadataScaling     = MIQConfig.Defaults.showMetadataScaling
         showMetadataValue       = MIQConfig.Defaults.showMetadataValue
+        showMetadataVoxelIndex  = MIQConfig.Defaults.showMetadataVoxelIndex
+        showMetadataComment     = MIQConfig.Defaults.showMetadataComment
         metadataOrder           = StoredMetadataOrder.defaultValue
     }
 
@@ -1287,7 +1312,7 @@ struct ContentView: View {
         updateReminderInPreview = MIQConfig.Defaults.updateReminderInPreview
         starBannerDismissed = MIQConfig.Defaults.starBannerDismissed
         // The default is SUEnableAutomaticChecks in Info.plist (on); see
-        // the Sparkle convention in CLAUDE.md for why it ships on.
+        // "Why Sparkle is set up this way" in RELEASING.md for why it ships on.
         updater.automaticallyChecksForUpdates = true
     }
 }

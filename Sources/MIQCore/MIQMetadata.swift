@@ -14,6 +14,13 @@ public enum MetadataField: String, Sendable, CaseIterable {
     /// value updates per cursor move. It therefore never appears in
     /// `asDisplayLines()`; the preview reserves its slot and draws the value.
     case value
+    /// Live index of the crosshair voxel in the file's own axis order, counted from
+    /// 0 (`MIQHeader.fileVoxelIndex`). Injected and drawn by the preview like `.value`.
+    case voxelIndex
+    /// The header's free-text description (`MIQHeader.comment`). Off by default:
+    /// usually empty or a tool stamp, but useful for spotting files that carry
+    /// patient data (MRtrix copies DICOM patient fields into MIF comments).
+    case comment
 }
 
 /// One metadata row. Split, because the preview's two-column panel needs each
@@ -42,6 +49,7 @@ public struct MIQMetadata: Sendable {
     public let sclSlope: Float
     public let sclInter: Float
     public let orientation: String?
+    public let comment: String?
 
     /// Multiplication sign, not the letter x.
     private static let separator = "\u{00D7}"
@@ -59,7 +67,30 @@ public struct MIQMetadata: Sendable {
         volumes = header.volumes
         sclSlope = header.sclSlope
         sclInter = header.sclInter
-        self.orientation = orientation
+        // A NIfTI whose qform disagrees with the sform it is shown by: name the
+        // qform's code too, since qform-preferring tools show it in that orientation.
+        self.orientation = orientation.map { label in
+            header.conflictingQformOrientation.map { "\(label) (qform: \($0))" } ?? label
+        }
+        comment = header.comment.map(Self.displayComment)
+    }
+
+    /// At most this many comment lines are shown, plus a "…" line when cut. The
+    /// preview applies the same limit again to *wrapped* lines, which only it can
+    /// measure (`MetadataPanelText.fitValue`).
+    public static let maxCommentLines = 3
+
+    /// Caps the comment to `maxCommentLines` lines, adding a "…" line after them
+    /// when there are more (on its own line, since an ellipsis at the end of a line
+    /// reads as part of the text). Lines are joined with U+2028 (line separator) so
+    /// the comment stays one paragraph: the panel counts "\n"-separated rows to seat
+    /// its overlays, and a line separator keeps the value column's hanging indent
+    /// on every line.
+    static func displayComment(_ comment: String) -> String {
+        let lines = comment.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        var shown = Array(lines.prefix(maxCommentLines))
+        if lines.count > maxCommentLines { shown.append("\u{2026}") }
+        return shown.joined(separator: "\u{2028}")
     }
 
     public func asDisplayLines() -> [MetadataEntry] {
@@ -74,6 +105,9 @@ public struct MIQMetadata: Sendable {
         entries.append(MetadataEntry(field: .volumes, label: "Volumes", value: "\(volumes)"))
         if let scaling {
             entries.append(MetadataEntry(field: .scaling, label: "Scaling", value: scaling))
+        }
+        if let comment {
+            entries.append(MetadataEntry(field: .comment, label: "Comment", value: comment))
         }
         return entries
     }

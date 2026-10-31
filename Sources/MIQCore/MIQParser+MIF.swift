@@ -24,6 +24,8 @@ extension MIQParser {
         /// The voxel→scanner affine's three rows, when the (optional) `transform:` field
         /// is present and well-formed. `nil` means an identity affine, per the MIF spec.
         let transform: [[Float]]?
+        /// Every `comments:` line, in file order (the key may repeat).
+        let comments: [String]
     }
 
     func parseMif(_ data: Data) throws -> MIQImage {
@@ -127,7 +129,8 @@ extension MIQParser {
             dataOffset: dataOffset,
             scale: scale,
             offset: offset,
-            transform: transform
+            transform: transform,
+            comments: keyValues["comments"] ?? []
         )
     }
 
@@ -185,6 +188,14 @@ extension MIQParser {
             MIFAxisLayout.storageFrame(imageFrame: $0, spatialAxes: spatialAxes, layout: header.layout)
         }
 
+        // MRtrix indexes voxels along the image axes from the reversed axes' far end;
+        // MIQ walks storage rank order forwards (strides above), so map back.
+        let indexAxes = FileIndexAxes(
+            fileAxis: spatialAxes + [3],
+            reversed: (spatialAxes + [3]).map { header.layout[safe: $0]?.reversed ?? false },
+            rank: header.dim.count
+        )
+
         let miqHeader = MIQHeader(
             littleEndian: header.littleEndian,
             dimensions: [dim0, dim1, dim2, volumes],
@@ -199,7 +210,9 @@ extension MIQParser {
             srowY: [],
             srowZ: [],
             datatypeLabel: header.bitPacked ? "bit" : nil,
-            orientationFrame: storageFrame
+            orientationFrame: storageFrame,
+            comment: Self.headerComment(header.comments),
+            fileIndexAxes: indexAxes
         )
 
         return MifImageDescriptor(

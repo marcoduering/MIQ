@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MIQ: Medical Image Quick Look for macOS</title>
-<meta name="description" content="A lightweight macOS Quicklook extension for medical volume images. Press Space in Finder to instantly preview NIfTI, FreeSurfer, MRtrix and NRRD files.">
+<meta name="description" content="A lightweight macOS Quicklook extension for medical volume images. Press Space in Finder to instantly preview NIfTI, FreeSurfer, MRtrix, NRRD and MetaImage files.">
 <meta property="og:title" content="MIQ: Medical Image Quick Look">
 <meta property="og:description" content="Press Space in Finder to instantly preview medical volume images on macOS.">
 <meta property="og:image" content="https://raw.githubusercontent.com/marcoduering/MIQ/main/docs/MIQ_screenshot.webp">
@@ -381,8 +381,16 @@
         <span class="badge">✳️</span>
         <div><div class="name">NRRD</div><div class="ext"><code>.nrrd</code></div></div>
       </div>
+      <div class="fmt">
+        <span class="badge">✳️</span>
+        <div><div class="name">ITK MetaImage</div><div class="ext"><code>.mha</code></div></div>
+      </div>
+      <div class="fmt">
+        <span class="badge">❌</span>
+        <div><div class="name">Split header &amp; data files</div><div class="ext"><code>.nhdr</code> <code>.mhd</code> <code>.hdr</code>/<code>.img</code></div></div>
+      </div>
     </div>
-    <p class="note">MIQ only supports volume files in research formats, DICOM is currently not supported.<br />MIQ relies on the file extension to determine the format, so it’s important that files have the correct extension.</p>
+    <p class="note">MIQ only supports volume files in research formats, DICOM is currently not supported.<br />Formats with separate header and data files (e.g. Analyze, NIfTI-1 pair) can’t be supported: macOS only gives MIQ the previewed file.<br />MIQ relies on the file extension to determine the format, so it’s important that files have the correct extension.</p>
   </div>
 </section>
 

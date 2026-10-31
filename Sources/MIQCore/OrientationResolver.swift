@@ -89,7 +89,7 @@ struct OrientationResolver {
 
     /// 3-letter storage orientation (e.g. "RAS", "LAS"), or nil if undeterminable.
     func storageLabel() -> String? {
-        header.orientationFrame.map { $0.axes.map(\.letter).joined() }
+        header.orientationFrame?.code
     }
 
     func displayOrientation(for plane: SlicePlane) -> SliceOrientationLabels {

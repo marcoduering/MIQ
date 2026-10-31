@@ -8,6 +8,7 @@ public enum MIQFileKind: Sendable, CaseIterable {
     case mif
     case mifGz
     case nrrd
+    case mha
 
     public init?(url: URL) {
         let path = url.path.lowercased()
@@ -22,6 +23,7 @@ public enum MIQFileKind: Sendable, CaseIterable {
         case "mgz": self = .mgz
         case "mif": self = .mif
         case "nrrd": self = .nrrd
+        case "mha": self = .mha
         default: return nil
         }
     }
@@ -29,7 +31,7 @@ public enum MIQFileKind: Sendable, CaseIterable {
     public var isCompressed: Bool {
         switch self {
         case .niiGz, .mgz, .mifGz: return true
-        case .nii, .mgh, .mif, .nrrd: return false
+        case .nii, .mgh, .mif, .nrrd, .mha: return false
         }
     }
 
@@ -40,7 +42,7 @@ public enum MIQFileKind: Sendable, CaseIterable {
     public var supportsBoundedNetworkRead: Bool {
         switch self {
         case .nii, .niiGz: return true
-        case .mgh, .mgz, .mif, .mifGz, .nrrd: return false
+        case .mgh, .mgz, .mif, .mifGz, .nrrd, .mha: return false
         }
     }
 
@@ -49,16 +51,22 @@ public enum MIQFileKind: Sendable, CaseIterable {
     /// icon, so a folder of large 4D `.mif.gz`/`.mgz` would otherwise fully
     /// decompress one file per icon. Declines only when rendering the centre
     /// slice would pull the whole file: a non-boundable kind over `thresholdBytes`
-    /// that is compressed, is a gzip-encoded `.nrrd`, or sits on a network volume.
-    /// Local uncompressed MGH/MIF, and local `.nrrd` the caller has confirmed raw
-    /// (`nrrdHasRawPayload`, from `MIQParser.nrrdHasRawPayload(at:)` — the header,
-    /// not the extension, decides), are memory-mapped, so size costs them nothing.
-    /// An unknown size (`nil`) never declines.
+    /// that is compressed, is a `.nrrd`/`.mha` not confirmed raw, or sits on a
+    /// network volume. Local uncompressed MGH/MIF, and a local `.nrrd`/`.mha` the
+    /// caller has confirmed raw (`hasRawPayload`, from `MIQParser.hasRawPayload(at:kind:)`
+    /// — the header, not the extension, decides), are memory-mapped, so size costs
+    /// them nothing. An unknown size (`nil`) never declines.
     public func declinesThumbnail(fileSizeBytes: Int?, isLocal: Bool, thresholdBytes: Int,
-                                  nrrdHasRawPayload: Bool = false) -> Bool {
+                                  hasRawPayload: Bool = false) -> Bool {
         guard !supportsBoundedNetworkRead,
               let fileSizeBytes, fileSizeBytes > thresholdBytes else { return false }
-        return isCompressed || (self == .nrrd && !nrrdHasRawPayload) || !isLocal
+        return isCompressed || (headerDecidesCompression && !hasRawPayload) || !isLocal
+    }
+
+    /// Whether only the header, not the extension, says if the payload is
+    /// compressed: NRRD's `encoding:`, MetaImage's `CompressedData`.
+    public var headerDecidesCompression: Bool {
+        self == .nrrd || self == .mha
     }
 
     public var displayName: String {
@@ -70,6 +78,7 @@ public enum MIQFileKind: Sendable, CaseIterable {
         case .mif: return "MRtrix MIF"
         case .mifGz: return "Compressed MRtrix MIF"
         case .nrrd: return "NRRD"
+        case .mha: return "MetaImage"
         }
     }
 
@@ -82,6 +91,7 @@ public enum MIQFileKind: Sendable, CaseIterable {
         case .mif: return [".mif"]
         case .mifGz: return [".mif.gz"]
         case .nrrd: return [".nrrd"]
+        case .mha: return [".mha"]
         }
     }
 }

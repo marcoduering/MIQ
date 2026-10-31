@@ -9,6 +9,7 @@ public enum OrientationSource: String, Sendable, Hashable {
     case mifLayout
     case mghDirectionCosines
     case nrrdSpaceDirections
+    case metaImageTransform
 }
 
 /// Authoritative per-storage-axis anatomical mapping for a volume. When non-nil,
@@ -27,6 +28,9 @@ public struct OrientationFrame: Sendable, Hashable {
         self.axes = axes
         self.source = source
     }
+
+    /// Three-letter code, e.g. "RAS".
+    public var code: String { axes.map(\.letter).joined() }
 
     /// Build a frame from three sform-style row vectors (one per world axis: x, y, z).
     /// Each storage axis's anatomical role is determined by the dominant component
@@ -58,6 +62,13 @@ public struct OrientationFrame: Sendable, Hashable {
     /// only invoke this when `qform_code > 0`; passing all-zero `b/c/d` with
     /// `qfac = 0` will fail the distinct-axes check and return nil.
     public static func fromQuaternion(b: Float, c: Float, d: Float, qfac: Float) -> OrientationFrame? {
+        let rows = quaternionRows(b: b, c: c, d: d, qfac: qfac)
+        return from(srowX: rows[0], srowY: rows[1], srowZ: rows[2], source: .qform)
+    }
+
+    /// The qform's rotation matrix (qfac applied) as three sform-style rows, so it
+    /// can be compared column by column with an sform.
+    static func quaternionRows(b: Float, c: Float, d: Float, qfac: Float) -> [[Float]] {
         let aSquared = max(0, 1 - b * b - c * c - d * d)
         let a = aSquared.squareRoot()
         let qfacSign: Float = qfac < 0 ? -1 : 1
@@ -76,12 +87,11 @@ public struct OrientationFrame: Sendable, Hashable {
         let r21 = 2 * (c * d + a * b)
         let r22 = (a * a + d * d - b * b - c * c) * qfacSign
 
-        return from(
-            srowX: [r00, r01, r02],
-            srowY: [r10, r11, r12],
-            srowZ: [r20, r21, r22],
-            source: .qform
-        )
+        return [
+            [r00, r01, r02],
+            [r10, r11, r12],
+            [r20, r21, r22]
+        ]
     }
 
     // MARK: - Helpers (mirror OrientationResolver's logic; kept local so the
