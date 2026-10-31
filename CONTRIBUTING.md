@@ -11,6 +11,8 @@ Thank you for your interest in contributing!
 - `Config/` — build settings shared across configurations and targets (see below)
 - `Tests/MIQCoreTests` — Swift Testing coverage for `MIQCore`
 
+The preview pipeline and the rules that keep it fast are in [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## Building from Source
 
 ### Prerequisites

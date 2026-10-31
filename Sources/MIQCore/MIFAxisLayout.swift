@@ -65,7 +65,7 @@ struct MIFAxisLayout {
     /// is RAS for essentially every MRtrix-written file and the orientation really lives in the
     /// layout. Composing the two is also realignment-invariant: a canonical transform stored
     /// reversed and an LAS transform stored forward both land on LAS, as they must, since both
-    /// put element order on the same R→L run. See the MIF orientation convention in CLAUDE.md.
+    /// put element order on the same R→L run. See the MIF orientation rule in ARCHITECTURE.md.
     ///
     /// `spatialAxes` is the 3 spatial axis indices sorted by abs(layout) — fastest to slowest.
     /// Distinctness is preserved: reversing an axis changes its direction, never its world axis.

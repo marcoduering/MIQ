@@ -36,7 +36,7 @@ enum MIQPreviewCache {
 
     /// Key derivable without parsing. File path + mtime uniquely identifies
     /// the file's contents; any setting that changes pixel output must be
-    /// included here (see CLAUDE.md).
+    /// included here (see ARCHITECTURE.md).
     static func makeKey(
         fileURL: URL,
         maxDimension: Int,
